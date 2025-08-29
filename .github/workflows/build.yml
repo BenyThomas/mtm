@@ -1,0 +1,42 @@
+name: build-and-push
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install & Build
+        run: |
+          npm ci
+          # If you prefer direct domain:
+          # export VITE_API_BASE_URL="https://fineract.kazy.co.tz"
+          # If you use the /api ingress proxy (recommended):
+          export VITE_API_BASE_URL="/api"
+          npm run build
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.GHCR_USERNAME }}
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Build & push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile   # your frontend Dockerfile that copies /dist into nginx
+          push: true
+          tags: ghcr.io/benythomas/mtm:prod
