@@ -1,12 +1,19 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import api from '../api/axios';
-import Card from '../components/Card';
-import Tabs from '../components/Tabs';
-import Skeleton from '../components/Skeleton';
-import Badge from '../components/Badge';
-import Button from '../components/Button';
-import ClientDocumentsTab from "./clients/ClientDocumentsTab";
+import api from '../../api/axios';
+import Card from '../../components/Card';
+import Tabs from '../../components/Tabs';
+import Skeleton from '../../components/Skeleton';
+import Badge from '../../components/Badge';
+import Button from '../../components/Button';
+import ClientDocumentsTab from './ClientDocumentsTab';
+import ClientCharges from './ClientCharges';
+import ClientAddresses from './ClientAddresses';
+
+// NEW
+import ClientIdentifiers from './ClientIdentifiers';
+import ClientTransactions from './ClientTransactions';
+import ClientCollaterals from "./ClientCollaterals";
 
 const statusTone = (s) => {
     const code = s?.code || s?.value || '';
@@ -47,7 +54,6 @@ const ClientProfile = () => {
     }, [id]);
 
     const savings = useMemo(() => {
-        // Fineract returns { loanAccounts:[], savingsAccounts:[], ... }
         return accounts?.savingsAccounts || [];
     }, [accounts]);
 
@@ -98,9 +104,15 @@ const ClientProfile = () => {
                 tabs={[
                     { key: 'overview', label: 'Overview' },
                     { key: 'loans', label: 'Loans' },
-                    { key: 'savings', label: 'Savings' },      // ⬅️ Epic G
+                    { key: 'savings', label: 'Savings' },
                     { key: 'documents', label: 'Documents' },
                     { key: 'timeline', label: 'Timeline' },
+                    { key: 'charges', label: 'Charges' },
+                    { key: 'address', label: 'Address' },
+                    // NEW:
+                    { key: 'identifiers', label: 'Identifiers' },
+                    { key: 'transactions', label: 'Transactions' },
+                    { key: 'collateral', label: 'Collaterals' },
                 ]}
             >
                 {/* Overview */}
@@ -121,11 +133,15 @@ const ClientProfile = () => {
                                     {Array.isArray(client.activationDate) ? client.activationDate.join('-') : (client.activationDate || '-')}
                                 </div>
                             </div>
+                            <div>
+                                <div className="text-gray-500">External ID</div>
+                                <div className="font-medium">{client.externalId || '—'}</div>
+                            </div>
                         </div>
                     </Card>
                 </div>
 
-                {/* Loans (placeholder — you may already have this implemented) */}
+                {/* Loans (placeholder) */}
                 <div data-tab="loans" className="space-y-4">
                     <Card>
                         <div className="text-sm text-gray-600 dark:text-gray-400">
@@ -134,7 +150,7 @@ const ClientProfile = () => {
                     </Card>
                 </div>
 
-                {/* Savings — Epic G */}
+                {/* Savings */}
                 <div data-tab="savings" className="space-y-4">
                     <Card>
                         <div className="flex items-center justify-between mb-3">
@@ -190,10 +206,33 @@ const ClientProfile = () => {
                     <ClientDocumentsTab clientId={id} />
                 </div>
 
-
-                {/* Timeline placeholder */}
+                {/* Timeline */}
                 <div data-tab="timeline" className="space-y-4">
                     <Card>Client timeline and notes appear here.</Card>
+                </div>
+
+                {/* Charges */}
+                <div data-tab="charges" className="space-y-4">
+                    <ClientCharges clientId={id} />
+                </div>
+
+                {/* Address */}
+                <div data-tab="address" className="space-y-4">
+                    <ClientAddresses clientId={id} />
+                </div>
+
+                {/* NEW: Identifiers */}
+                <div data-tab="identifiers" className="space-y-4">
+                    <ClientIdentifiers clientId={id} />
+                </div>
+
+                {/* NEW: Transactions */}
+                <div data-tab="transactions" className="space-y-4">
+                    <ClientTransactions clientId={id} clientExternalId={client.externalId} />
+                </div>
+                {/* Collaterals */}
+                <div data-tab="collateral" className="space-y-4">
+                    <ClientCollaterals clientId={id} />
                 </div>
             </Tabs>
         </div>

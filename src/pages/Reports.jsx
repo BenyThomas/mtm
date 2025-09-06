@@ -23,7 +23,7 @@ const Reports = () => {
                         </div>
                     </div>
                     <div className="mt-4">
-                        <Button onClick={() => navigate('/accounting/run-accruals')}>
+                        <Button onClick={() => navigate('/accounting/accruals')}>
                             Open
                         </Button>
                     </div>

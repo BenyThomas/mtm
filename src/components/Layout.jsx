@@ -1,265 +1,183 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import Breadcrumbs from './Breadcrumbs';
+// src/components/Layout.jsx
+import React, { useState } from 'react';
+import { NavLink, Outlet } from 'react-router-dom';
 
-const navItems = [
-  { to: '/', label: 'Dashboard', icon: '🏠', end: true },
-  { to: '/clients', label: 'Clients', icon: '👤' },
-  { to: '/loans', label: 'Loans', icon: '💳' },
-  { to: '/loan-products', label: 'Loan Products', icon: '🧩' },
-  { to: '/offices', label: 'Offices', icon: '🏢' },
-  { to: '/staff', label: 'Staff', icon: '🧑‍💼' },
-  { to: '/reports', label: 'Reports', icon: '📊' },
-  { to: '/settings', label: 'Settings', icon: '⚙️' },
+/** Reusable button styles via utility classes (Windi/Tailwind) */
+const ButtonLike = ({ children, className = '', ...props }) => (
+    <button
+        className={`p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ring-offset-white dark:ring-offset-gray-900 ${className}`}
+        {...props}
+    >
+      {children}
+    </button>
+);
+
+/** Sidebar link with active styling */
+const SideLink = ({ to, icon, label, onClick }) => (
+    <NavLink
+        to={to}
+        onClick={onClick}
+        className={({ isActive }) =>
+            `flex items-center gap-2 px-3 py-2 rounded-md text-sm
+       focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2
+       ring-offset-white dark:ring-offset-gray-900
+       ${isActive
+                ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-200'
+                : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-200'}`
+        }
+    >
+      <span className="w-5 text-center">{icon}</span>
+      <span className="truncate">{label}</span>
+    </NavLink>
+);
+
+/**
+ * NAV GROUPS
+ * - Added "Organization" group as requested.
+ * - Kept existing Main, Accounting, and Config groups.
+ * - Update paths if your routes differ.
+ */
+const NAV_GROUPS = [
+  {
+    title: 'Main',
+    items: [
+      { to: '/', label: 'Dashboard', icon: '🏠' },
+      { to: '/clients', label: 'Clients', icon: '👥' },
+      { to: '/loans', label: 'Loans', icon: '💳' },
+      { to: '/reports', label: 'Reports', icon: '📊' },
+    ],
+  },
+  {
+    title: 'Teller', // NEW GROUP
+    items: [
+      { to: '/tellers', label: 'Tellers', icon: '🏧' },
+    ],
+  },
+  {
+    title: 'Organization', // ← NEW GROUP
+    items: [
+      { to: '/offices', label: 'Offices', icon: '🏢' },
+      { to: '/staff', label: 'Staff', icon: '🧑‍💼' },
+      { to: '/config/business-dates', label: 'Business Dates', icon: '📅' },
+      { to: '/config/holidays', label: 'Holidays', icon: '🎌' },
+      { to: '/organization/working-days', label: 'Working Days', icon: '📅' },
+      { to: '/collateral-management', label: 'Collateral Catalog', icon: '🧱' }
+
+    ],
+  },
+  {
+    title: 'Products',
+    items: [
+      { to: '/products/charges', label: 'Charges', icon: '💸' }, // NEW
+    ],
+  },
+  {
+    title: 'Accounting',
+    items: [
+      { to: '/accounting/gl-accounts', label: 'GL Accounts', icon: '🧾' },
+      { to: '/accounting/journal-entries', label: 'Journal Entries', icon: '📒' },
+      { to: '/accounting/accounting-rules', label: 'Accounting Rules', icon: '🧩' },
+      { to: '/accounting/closures', label: 'GL Closures', icon: '🔒' },
+      { to: '/accounting/provisioning-criteria', label: 'Provisioning Criteria', icon: '🧮' },
+      { to: '/accounting/financial-activity-mappings', label: 'FA ↔ GL Mapping', icon: '🔗' },
+      { to: '/accounting/accruals', label: 'Run Accruals', icon: '⏱️' },
+      { to: '/accounting/transfers', label: 'Account Transfers', icon: '🔁' }, // NEW
+      { to: '/accounting/standing-instructions', label: 'Standing Instructions', icon: '📜' },
+      { to: '/accounting/standing-instructions-history', label: 'Standing Instr. History', icon: '🕘' },
+      { to: '/delinquency/ranges',  label: 'Delinquency Ranges',  icon: '📊' },
+      { to: '/delinquency/buckets', label: 'Delinquency Buckets', icon: '🧺' },
+    ],
+  },
+  {
+    title: 'Shares',
+    items: [
+      { to: '/shares', label: 'Share Accounts', icon: '📈' }, // NEW
+    ],
+  },
+
+  {
+    title: 'SyS Config',
+    items: [
+      { to: '/config/currencies', label: 'Currencies', icon: '💱' },
+      { to: '/config/codes', label: 'Codes', icon: '🏷️' },
+      { to: '/config/code-values', label: 'Code Values', icon: '🧷' },
+      { to: '/config/datatables', label: 'Data Tables', icon: '📋' },
+      { to: '/config/entity-datatable-checks', label: 'Entity Datatable Checks', icon: '✅' },
+      { to: '/config/external-services', label: 'External Services', icon: '🔌' },
+      { to: '/config/externalevents', label: 'External Events', icon: '📡' },
+      { to: '/config/global-config', label: 'Global Config', icon: '⚙️' },
+      { to: '/config/audits', label: 'Audits', icon: '🔍' },
+      { to: '/config/reports', label: 'Reports', icon: '🧾' },
+      { to: '/config/hooks', label: 'Hooks', icon: '🪝' },
+      { to: '/config/instance-mode', label: 'Instance Mode', icon: '🧭' },
+      { to: '/config/jobs', label: 'Scheduler Jobs', icon: '⏲️' },
+      { to: '/config/report-mailing-jobs', label: 'Report Mailing', icon: '✉️' },
+      { to: '/config/field-config', label: 'Entity Field Config', icon: '🧩' },
+    ],
+  },
 ];
 
-const configGroup = {
-  key: 'config',
-  label: 'Config',
-  icon: '🛠️',
-  children: [
-    { to: '/accounting/journal-entries', label: 'Journals', icon: '📘' },
-    { to: '/accounting/gl-accounts', label: 'GL Accounts', icon: '🧾' },
-    { to: '/accounting/financial-activity-mappings', label: 'FA ↔ GL Mapping', icon: '🔗' },
-    { to: '/accounting/provisioning', label: 'Provisioning', icon: '🧮' },
-    { to: '/accounting/accounting-rules', label: 'Accounting Rules', icon: '📐' },
-    { to: '/config/account-number-formats', label: 'Account # Formats', icon: '🔢' },
-    { to: '/config/business-dates', label: 'Business Dates', icon: '📆' },
-    { to: '/audits', label: 'Audits', icon: '🧾' },
-    { to: '/tools/batch', label: 'Batch API', icon: '📦' },
-    { to: '/config/codes', label: 'Codes', icon: '🏷️' },
-    { to: '/config/external-services', label: 'External Services', icon: '🌐' },
-    { to: '/config/global-config', label: 'Global Config', icon: '🌍' },
-    { to: '/config/datatables', label: 'Data Tables', icon: '🗄️' },
-    { to: '/config/entity-datatable-checks', label: 'Entity Datatable Checks', icon: '✅' },
-    { to: '/config/reports', label: 'Reports (Admin)', icon: '📑' },
-    { to: '/config/external-events', label: 'External Events', icon: '📡' },
-    { to: '/config/hooks', label: 'Hooks', icon: '🪝' },
-    { to: '/config/instance-mode', label: 'Instance Mode', icon: '🧭' },
-    { to: '/config/jobs', label: 'Scheduler Jobs', icon: '⏱️' },
-    { to: '/config/report-mailing-jobs', label: 'Report Mailing Jobs', icon: '📧' },
-    { to: '/config/external-asset-owners', label: 'External Asset Owners', icon: '🏦' },
-    { to: '/config/eao-loan-product-attributes', label: 'EAO Loan Product Attr', icon: '🧩' },
-    { to: '/config/holidays', label: 'Holidays', icon: '🎌' },
-    { to: '/config/currencies', label: 'Currencies', icon: '💱' },
-
-  ],
-};
-
 const Layout = () => {
-  const { pathname } = useLocation();
-
-  // Sidebar open state (mobile)
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
-  const toggleSidebar = useCallback(() => setSidebarOpen((s) => !s), []);
-
-  // Theme
-  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
-  useEffect(() => {
-    const root = document.documentElement;
-    if (theme === 'dark') root.classList.add('dark');
-    else root.classList.remove('dark');
-    localStorage.setItem('theme', theme);
-  }, [theme]);
-
-  // Persisted open/closed groups
-  const [openGroups, setOpenGroups] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('nav_groups_open') || '{}');
-    } catch {
-      return {};
-    }
-  });
-  const setGroupOpen = (key, open) => {
-    setOpenGroups((prev) => {
-      const next = { ...prev, [key]: open };
-      localStorage.setItem('nav_groups_open', JSON.stringify(next));
-      return next;
-    });
-  };
-  const toggleGroup = (key) => setGroupOpen(key, !(openGroups[key]));
-
-  // Auto-open config when on a child route
-  const hasActiveConfigChild = useMemo(
-      () => configGroup.children.some((c) => pathname.startsWith(c.to)),
-      [pathname]
-  );
-  useEffect(() => {
-    if (hasActiveConfigChild) setGroupOpen(configGroup.key, true);
-  }, [hasActiveConfigChild]);
-
-  // Close sidebar on route change (mobile)
-  useEffect(() => {
-    closeSidebar();
-  }, [pathname, closeSidebar]);
-
-  // ESC closes mobile sidebar
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === 'Escape') setSidebarOpen(false);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  const [open, setOpen] = useState(false);
 
   return (
-      <div className="min-h-screen flex bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
-        {/* Skip to content */}
-        <a
-            href="#main-content"
-            className="sr-only focus:not-sr-only focus:fixed focus:z-50 focus:top-2 focus:left-2 focus:px-3 focus:py-2 focus:rounded-md focus:bg-primary-600 focus:text-white"
-        >
-          Skip to content
-        </a>
-
-        {/* Mobile overlay */}
-        <div
-            className={`fixed inset-0 bg-black/40 transition-opacity md:hidden ${sidebarOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-            onClick={closeSidebar}
-            aria-hidden="true"
-        />
-
-        {/* Sidebar */}
-        <aside
-            id="sidebar"
-            className={`fixed z-40 inset-y-0 left-0 w-64 transform md:translate-x-0
-          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-          transition-transform duration-200 ease-out
-          bg-white/90 dark:bg-gray-800/70 backdrop-blur border-r border-gray-200 dark:border-gray-700
-          flex flex-col`}
-            aria-label="Primary"
-        >
-          {/* Brand */}
-          <div className="h-16 shrink-0 flex items-center px-4 border-b border-gray-200 dark:border-gray-700">
-            <div className="text-lg font-bold truncate">Money Trust</div>
+      <div className="min-h-screen bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+        {/* Top bar */}
+        <header className="sticky top-0 z-30 border-b bg-white/80 dark:bg-gray-900/80 backdrop-blur border-gray-200 dark:border-gray-800">
+          <div className="flex items-center justify-between px-4 h-14">
+            <div className="flex items-center gap-2">
+              <ButtonLike
+                  className="md:hidden"
+                  aria-label="Toggle Menu"
+                  onClick={() => setOpen((v) => !v)}
+              >
+                ☰
+              </ButtonLike>
+              <div className="font-semibold truncate">Money Trust Microfinance</div>
+            </div>
+            <div className="flex items-center gap-2">
+              {/* space for theme toggle / tenant switcher / user menu */}
+            </div>
           </div>
+        </header>
 
-          {/* Scrollable nav area (fills remaining height) */}
-          <nav className="flex-1 min-h-0 overflow-y-auto overscroll-contain pr-1 pb-6">
-            <div className="p-3 space-y-1">
-              {/* Top-level items */}
-              {navItems.map((n) => (
-                  <NavLink
-                      key={n.to}
-                      to={n.to}
-                      end={n.end}
-                      className={({ isActive }) =>
-                          `flex items-center gap-3 px-3 py-2 rounded-md transition
-                  focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-600
-                  ${isActive
-                              ? 'bg-primary-600 text-white'
-                              : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100/60 dark:hover:bg-gray-700/60'}`
-                      }
-                  >
-                    <span aria-hidden="true">{n.icon}</span>
-                    <span className="truncate">{n.label}</span>
-                  </NavLink>
+        {/* Content area with sidebar */}
+        <div className="flex">
+          {/* Sidebar */}
+          <aside
+              className={`fixed md:sticky top-14 md:top-14 z-20 w-72 shrink-0
+                      bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800
+                      h-[calc(100vh-3.5rem)]
+                      ${open ? 'block' : 'hidden md:block'}`}
+          >
+            {/* Scrollable nav */}
+            <nav className="h-full overflow-y-auto overscroll-contain px-3 py-3 space-y-6">
+              {NAV_GROUPS.map((group) => (
+                  <div key={group.title}>
+                    <div className="px-3 text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">
+                      {group.title}
+                    </div>
+                    <div className="space-y-1">
+                      {group.items.map((item) => (
+                          <SideLink
+                              key={item.to}
+                              to={item.to}
+                              icon={item.icon}
+                              label={item.label}
+                              onClick={() => setOpen(false)}
+                          />
+                      ))}
+                    </div>
+                  </div>
               ))}
+            </nav>
+          </aside>
 
-              {/* Divider */}
-              <div className="mt-3 mb-1 h-px bg-gray-200 dark:bg-gray-700" />
-
-              {/* Config group — no max-height cap; lets the sidebar scroll naturally */}
-              <button
-                  type="button"
-                  onClick={() => toggleGroup(configGroup.key)}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-md transition
-                text-gray-700 dark:text-gray-200 hover:bg-gray-100/60 dark:hover:bg-gray-700/60`}
-                  aria-expanded={!!openGroups[configGroup.key]}
-                  aria-controls="config-group"
-              >
-              <span className="flex items-center gap-3">
-                <span aria-hidden="true">{configGroup.icon}</span>
-                <span className="font-medium">{configGroup.label}</span>
-              </span>
-                <span className={`transform transition ${openGroups[configGroup.key] ? 'rotate-90' : ''}`}>▸</span>
-              </button>
-
-              <div
-                  id="config-group"
-                  className={`${openGroups[configGroup.key] ? 'block' : 'hidden'}`}
-              >
-                <div className="mt-1 pl-6 space-y-1">
-                  {configGroup.children.map((child) => (
-                      <NavLink
-                          key={child.to}
-                          to={child.to}
-                          className={({ isActive }) =>
-                              `flex items-center gap-3 px-3 py-2 rounded-md transition
-                      focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-600
-                      ${isActive
-                                  ? 'bg-primary-600 text-white'
-                                  : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100/60 dark:hover:bg-gray-700/60'}`
-                          }
-                      >
-                        <span aria-hidden="true">{child.icon}</span>
-                        <span className="truncate">{child.label}</span>
-                      </NavLink>
-                  ))}
-                </div>
-              </div>
+          {/* Main */}
+          <main className="flex-1 min-w-0 md:ml-0">
+            <div className="max-w-7xl mx-auto w-full p-4">
+              <Outlet />
             </div>
-          </nav>
-        </aside>
-
-        {/* Main column */}
-        <div className="flex-1 flex flex-col md:ml-64">
-          {/* Top bar */}
-          <header className="h-16 sticky top-0 z-30 bg-white/80 dark:bg-gray-800/60 backdrop-blur border-b border-gray-200 dark:border-gray-700">
-            <div className="h-full flex items-center justify-between px-3 md:px-6">
-              <div className="flex items-center gap-2">
-                <button
-                    className="md:hidden p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
-                    onClick={toggleSidebar}
-                    aria-label="Toggle Sidebar"
-                    aria-controls="sidebar"
-                    aria-expanded={sidebarOpen}
-                >
-                  ☰
-                </button>
-                <div className="hidden md:flex items-center gap-1">
-                  <NavLink
-                      to="/offices"
-                      className={({ isActive }) =>
-                          `px-3 py-1.5 rounded-md text-sm transition
-                    ${isActive
-                              ? 'bg-primary-600 text-white'
-                              : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'}`
-                      }
-                  >
-                    Offices
-                  </NavLink>
-                  <NavLink
-                      to="/staff"
-                      className={({ isActive }) =>
-                          `px-3 py-1.5 rounded-md text-sm transition
-                    ${isActive
-                              ? 'bg-primary-600 text-white'
-                              : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'}`
-                      }
-                  >
-                    Staff
-                  </NavLink>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                    onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
-                    className="px-3 py-1.5 rounded-md text-sm border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700"
-                    aria-label="Toggle Theme"
-                >
-                  {theme === 'dark' ? '🌙 Dark' : '☀️ Light'}
-                </button>
-              </div>
-            </div>
-          </header>
-
-          {/* Page content */}
-          <main id="main-content" className="p-4 md:p-6 space-y-4">
-            <Breadcrumbs />
-            <Outlet />
           </main>
         </div>
       </div>

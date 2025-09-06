@@ -2,9 +2,9 @@ import React from 'react';
 import { Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
 import Home from './pages/Home';
-import Clients from './pages/Clients';
+import Clients from './pages/clients/Clients';
 import ClientNew from './pages/ClientNew';
-import ClientProfile from './pages/ClientProfile';
+import ClientProfile from './pages/clients/ClientProfile';
 import Loans from './pages/Loans';
 import LoanApply from './pages/LoanApply';
 import LoanDetails from './pages/LoanDetails';
@@ -67,6 +67,26 @@ import {ExternalAssetOwners, LoanProductAttributes} from "./pages/eao";
 import Holidays from "./pages/Holidays";
 import HolidayDetails from "./pages/HolidayDetails";
 import CurrencyConfig from "./pages/CurrencyConfig";
+import OfficeDetails from "./pages/OfficeDetails";
+import ProvisioningCriteria from "./pages/ProvisioningCriteria";
+import ProvisioningCriteriaDetails from "./pages/ProvisioningCriteriaDetails";
+import StaffDetails from "./pages/StaffDetails";
+import Tellers from "./pages/tellers/Tellers";
+import TellerDetails from "./pages/tellers/TellerDetails";
+import WorkingDays from "./pages/WorkingDays";
+import AccountTransfers from "./pages/transfers/AccountTransfers";
+import StandingInstructions from "./pages/transfers/StandingInstructions";
+import StandingInstructionsHistory from "./pages/transfers/StandingInstructionsHistory";
+import ShareAccounts from "./pages/shares/ShareAccounts";
+import ShareAccountDetails from "./pages/shares/ShareAccountDetails";
+import EntityFieldConfig from "./pages/EntityFieldConfig";
+import Charges from "./pages/products/Charges";
+import ClientCreate from "./pages/clients/ClientCreate";
+import ClientEdit from "./pages/clients/ClientEdit";
+import CollateralManagement from "./pages/collateral/CollateralManagement";
+import LoanCollaterals from "./pages/loans/LoanCollaterals";
+import DelinquencyRanges from "./pages/delinquency/DelinquencyRanges";
+import DelinquencyBuckets from "./pages/delinquency/DelinquencyBuckets";
 
 const NotFound = () => (
     <div>
@@ -116,7 +136,7 @@ const App = () => {
 
                             {/* Reports & Accounting */}
                             <Route path="reports" element={<Reports />} />
-                            <Route path="accounting/run-accruals" element={<RunAccruals />} />
+                            <Route path="accounting/accruals" element={<RunAccruals />} />
                             <Route path="accounting/closures" element={<GlClosures />} />
                             <Route path="accounting/closures/:id" element={<GlClosureDetails />} />
                             <Route path="accounting/gl-accounts" element={<GlAccounts />} />
@@ -183,6 +203,40 @@ const App = () => {
                             <Route path="config/holidays" element={<Holidays />} />
                             <Route path="config/holidays/:holidayId" element={<HolidayDetails />} />
                             <Route path="config/currencies" element={<CurrencyConfig />} />
+
+                            <Route path="offices/:officeId" element={<OfficeDetails />} />
+                            <Route path="offices/external/:externalId" element={<OfficeDetails />} />
+
+                            <Route path="accounting/provisioning-criteria" element={<ProvisioningCriteria />} />
+                            <Route path="accounting/provisioning-criteria/:criteriaId" element={<ProvisioningCriteriaDetails />} />
+
+                            <Route path="staff/:staffId" element={<StaffDetails />} />
+
+                            <Route path="tellers" element={<Tellers />} />
+                            <Route path="tellers/:tellerId" element={<TellerDetails />} />
+
+                            <Route path="organization/working-days" element={<WorkingDays />} />
+                            <Route path="accounting/transfers" element={<AccountTransfers />} />
+                            <Route path="accounting/standing-instructions" element={<StandingInstructions />} />
+
+                            <Route path="accounting/standing-instructions-history" element={<StandingInstructionsHistory />} />
+                            <Route path="shares" element={<ShareAccounts />} />
+                            <Route path="shares/:accountId" element={<ShareAccountDetails />} />
+
+                            <Route path="config/field-config" element={<EntityFieldConfig />} />
+                            <Route path="products/charges" element={<Charges />} />
+                            <Route path="/clients/new" element={<ProtectedRoute><ClientCreate /></ProtectedRoute>} />
+                            <Route path="/clients/:id/edit" element={<ProtectedRoute><ClientEdit /></ProtectedRoute>} />
+
+                            <Route path="/collateral-management" element={<ProtectedRoute><CollateralManagement /></ProtectedRoute>} />
+                            <Route path="/loans/:loanId/collaterals" element={<ProtectedRoute><LoanCollaterals /></ProtectedRoute>} />
+
+                            // in your routes file
+                            <Route path="/delinquency/ranges" element={<ProtectedRoute><DelinquencyRanges /></ProtectedRoute>} />
+                            <Route path="/delinquency/buckets" element={<ProtectedRoute><DelinquencyBuckets /></ProtectedRoute>} />
+
+
+
                             {/* Settings */}
                             <Route path="settings" element={<Settings />} />
 

@@ -5,49 +5,78 @@ import Skeleton from '../components/Skeleton';
 import Button from '../components/Button';
 import { useToast } from '../context/ToastContext';
 
-/**
- * GET /currencies typically returns:
- * {
- *   currencyOptions: [{code,name,decimalPlaces,inMultiplesOf,displaySymbol,nameCode,displayLabel}, ...],
- *   selectedCurrencyOptions: [same shape ...]
- * }
- *
- * PUT /currencies expects: { selectedCurrencyOptions: [{...full objects from currencyOptions...}] }
- */
+/** Normalize any option into a currency code string. */
+const toCode = (x) => {
+    if (!x) return null;
+    if (typeof x === 'string') return x.trim();
+    if (typeof x === 'object') {
+        return x.code || x.currencyCode || x.nameCode || x.value || null;
+    }
+    return null;
+};
+
+/** Unique array of truthy strings. */
+const uniq = (arr) => Array.from(new Set((arr || []).filter(Boolean)));
+
 const CurrencyConfig = () => {
     const { addToast } = useToast();
 
     const [loading, setLoading] = useState(true);
-    const [options, setOptions] = useState([]);
-    const [selected, setSelected] = useState(new Set()); // codes
+
+    // The master list of currency codes the tenant can use.
+    const [allOptions, setAllOptions] = useState([]); // array<string code>
+
+    // Selected currency codes.
+    const [selected, setSelected] = useState(new Set()); // Set<string>
+
+    // For dual-list selections
+    const [availableChecked, setAvailableChecked] = useState(new Set());
+    const [selectedChecked, setSelectedChecked] = useState(new Set());
+
+    // Filters
+    const [filterAvail, setFilterAvail] = useState('');
+    const [filterSelected, setFilterSelected] = useState('');
+
     const [saving, setSaving] = useState(false);
 
+    // Load and normalize
     const load = async () => {
         setLoading(true);
         try {
             const r = await api.get('/currencies');
-            const all = r?.data?.currencyOptions || r?.data?.currencies || [];
-            const chosen = r?.data?.selectedCurrencyOptions || r?.data?.selected || [];
-            const normAll = all.map(c => ({
-                code: c.code,
-                name: c.name || c.displayLabel || c.nameCode || c.code,
-                decimalPlaces: c.decimalPlaces ?? 2,
-                inMultiplesOf: c.inMultiplesOf ?? 0,
-                displaySymbol: c.displaySymbol,
-                nameCode: c.nameCode || c.code,
-                displayLabel: c.displayLabel || `${c.code} ${c.name || ''}`.trim(),
-                raw: c,
-            })).filter(x => x.code);
-            const chosenCodes = new Set(
-                (Array.isArray(chosen) ? chosen : []).map(c => c.code).filter(Boolean)
-            );
-            normAll.sort((a,b)=>String(a.code).localeCompare(String(b.code)));
-            setOptions(normAll);
-            setSelected(chosenCodes);
+
+            // Options (could be strings or objects)
+            const rawOptions =
+                r?.data?.currencyOptions ??
+                r?.data?.currenciesOptions ?? // guard alternative
+                r?.data?.currencies ?? // some tenants expose this as all options
+                [];
+            const optionCodes = uniq(rawOptions.map(toCode));
+
+            // Selected (various possible keys)
+            const rawSelected =
+                r?.data?.currencies ?? // as per your current API
+                r?.data?.selected ??
+                r?.data?.selectedCurrencyOptions ??
+                [];
+            const selectedCodes = Array.isArray(rawSelected)
+                ? uniq(rawSelected.map(toCode))
+                : [];
+
+            // Ensure any selected code is present in the options list (defensive)
+            const mergedOptions = uniq([...optionCodes, ...selectedCodes]).sort();
+
+            setAllOptions(mergedOptions);
+            setSelected(new Set(selectedCodes));
+            setAvailableChecked(new Set());
+            setSelectedChecked(new Set());
         } catch (e) {
-            setOptions([]);
+            setAllOptions([]);
             setSelected(new Set());
-            const msg = e?.response?.data?.defaultUserMessage || 'Failed to load currencies';
+            const msg =
+                e?.response?.data?.defaultUserMessage ||
+                e?.message ||
+                'Failed to load currencies';
             addToast(msg, 'error');
         } finally {
             setLoading(false);
@@ -56,40 +85,83 @@ const CurrencyConfig = () => {
 
     useEffect(() => { load(); }, []);
 
-    const toggle = (code) => {
-        setSelected(prev => {
-            const next = new Set(Array.from(prev));
+    // Derived lists
+    const available = useMemo(() => {
+        const setSel = selected;
+        const list = allOptions.filter((c) => !setSel.has(c));
+        const t = filterAvail.trim().toLowerCase();
+        return t ? list.filter((c) => c.toLowerCase().includes(t)) : list;
+    }, [allOptions, selected, filterAvail]);
+
+    const selectedList = useMemo(() => {
+        const list = Array.from(selected).sort();
+        const t = filterSelected.trim().toLowerCase();
+        return t ? list.filter((c) => c.toLowerCase().includes(t)) : list;
+    }, [selected, filterSelected]);
+
+    // Toggle checks
+    const toggleAvailCheck = (code) => {
+        setAvailableChecked((prev) => {
+            const next = new Set(prev);
+            if (next.has(code)) next.delete(code);
+            else next.add(code);
+            return next;
+        });
+    };
+    const toggleSelectedCheck = (code) => {
+        setSelectedChecked((prev) => {
+            const next = new Set(prev);
             if (next.has(code)) next.delete(code);
             else next.add(code);
             return next;
         });
     };
 
-    const selectedObjects = useMemo(() => {
-        const byCode = new Map(options.map(o => [o.code, o]));
-        return Array.from(selected).map(code => {
-            const o = byCode.get(code);
-            // Payload needs full objects, preserve server-provided fields when possible
-            return {
-                code: o.code,
-                name: o.name,
-                decimalPlaces: o.decimalPlaces,
-                inMultiplesOf: o.inMultiplesOf,
-                displaySymbol: o.displaySymbol,
-                nameCode: o.nameCode,
-                displayLabel: o.displayLabel,
-            };
+    // Move actions
+    const addChecked = () => {
+        if (!availableChecked.size) return;
+        setSelected((prev) => {
+            const next = new Set(prev);
+            availableChecked.forEach((c) => next.add(c));
+            return next;
         });
-    }, [options, selected]);
+        setAvailableChecked(new Set());
+    };
 
+    const removeChecked = () => {
+        if (!selectedChecked.size) return;
+        setSelected((prev) => {
+            const next = new Set(prev);
+            selectedChecked.forEach((c) => next.delete(c));
+            return next;
+        });
+        setSelectedChecked(new Set());
+    };
+
+    const selectAllVisibleAvail = () => {
+        setAvailableChecked(new Set(available));
+    };
+    const clearAvailSelection = () => setAvailableChecked(new Set());
+
+    const selectAllVisibleSelected = () => {
+        setSelectedChecked(new Set(selectedList));
+    };
+    const clearSelectedSelection = () => setSelectedChecked(new Set());
+
+    // Save
     const save = async () => {
         setSaving(true);
         try {
-            await api.put('/currencies', { selectedCurrencyOptions: selectedObjects });
+            const payload = { currencies: Array.from(selected).sort() };
+            await api.put('/currencies', payload);
             addToast('Currency configuration saved', 'success');
             await load();
         } catch (e) {
-            const msg = e?.response?.data?.errors?.[0]?.defaultUserMessage || e?.response?.data?.defaultUserMessage || 'Save failed';
+            const msg =
+                e?.response?.data?.errors?.[0]?.defaultUserMessage ||
+                e?.response?.data?.defaultUserMessage ||
+                e?.message ||
+                'Save failed';
             addToast(msg, 'error');
         } finally {
             setSaving(false);
@@ -111,36 +183,88 @@ const CurrencyConfig = () => {
 
             <Card>
                 {loading ? (
-                    <Skeleton height="12rem" />
-                ) : !options.length ? (
-                    <div className="text-sm text-gray-600 dark:text-gray-400">No currencies available.</div>
+                    <Skeleton height="16rem" />
                 ) : (
-                    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-[28rem] overflow-auto pr-1">
-                        {options.map(opt => (
-                            <label
-                                key={opt.code}
-                                className={`inline-flex items-center justify-between gap-3 text-sm px-3 py-2 rounded-md border ${
-                                    selected.has(opt.code)
-                                        ? 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800'
-                                        : 'bg-gray-50 border-gray-200 dark:bg-gray-800 dark:border-gray-700'
-                                }`}
-                            >
-                                <div className="flex items-center gap-3">
+                    <div className="grid lg:grid-cols-2 gap-6">
+                        {/* Available */}
+                        <div className="min-w-0">
+                            <div className="flex items-center justify-between gap-3 mb-2">
+                                <div className="font-semibold">Available ({available.length})</div>
+                                <div className="flex items-center gap-2">
                                     <input
-                                        type="checkbox"
-                                        checked={selected.has(opt.code)}
-                                        onChange={() => toggle(opt.code)}
+                                        value={filterAvail}
+                                        onChange={(e) => setFilterAvail(e.target.value)}
+                                        placeholder="Filter…"
+                                        className="border rounded-md p-2 text-sm w-40 dark:bg-gray-700 dark:border-gray-600"
                                     />
-                                    <div>
-                                        <div className="font-mono font-semibold">{opt.code}</div>
-                                        <div className="text-[11px] text-gray-500">
-                                            {opt.name} • dp:{opt.decimalPlaces} • mult:{opt.inMultiplesOf}
-                                        </div>
-                                    </div>
+                                    <Button variant="secondary" onClick={selectAllVisibleAvail}>Select Visible</Button>
+                                    <Button variant="secondary" onClick={clearAvailSelection}>Clear</Button>
                                 </div>
-                                <div className="text-xs">{opt.displaySymbol || ''}</div>
-                            </label>
-                        ))}
+                            </div>
+                            <div className="border rounded-md max-h-[22rem] overflow-auto dark:border-gray-700">
+                                {!available.length ? (
+                                    <div className="p-3 text-sm text-gray-600 dark:text-gray-400">No available currencies.</div>
+                                ) : (
+                                    <ul className="divide-y dark:divide-gray-700">
+                                        {available.map((code) => (
+                                            <li key={code} className="flex items-center justify-between px-3 py-2">
+                                                <label className="flex items-center gap-3">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={availableChecked.has(code)}
+                                                        onChange={() => toggleAvailCheck(code)}
+                                                    />
+                                                    <span className="font-mono">{code}</span>
+                                                </label>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                            </div>
+                            <div className="mt-3">
+                                <Button onClick={addChecked} disabled={!availableChecked.size}>Add →</Button>
+                            </div>
+                        </div>
+
+                        {/* Selected */}
+                        <div className="min-w-0">
+                            <div className="flex items-center justify-between gap-3 mb-2">
+                                <div className="font-semibold">Selected ({selectedList.length})</div>
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        value={filterSelected}
+                                        onChange={(e) => setFilterSelected(e.target.value)}
+                                        placeholder="Filter…"
+                                        className="border rounded-md p-2 text-sm w-40 dark:bg-gray-700 dark:border-gray-600"
+                                    />
+                                    <Button variant="secondary" onClick={selectAllVisibleSelected}>Select Visible</Button>
+                                    <Button variant="secondary" onClick={clearSelectedSelection}>Clear</Button>
+                                </div>
+                            </div>
+                            <div className="border rounded-md max-h-[22rem] overflow-auto dark:border-gray-700">
+                                {!selectedList.length ? (
+                                    <div className="p-3 text-sm text-gray-600 dark:text-gray-400">No selected currencies.</div>
+                                ) : (
+                                    <ul className="divide-y dark:divide-gray-700">
+                                        {selectedList.map((code) => (
+                                            <li key={code} className="flex items-center justify-between px-3 py-2">
+                                                <label className="flex items-center gap-3">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedChecked.has(code)}
+                                                        onChange={() => toggleSelectedCheck(code)}
+                                                    />
+                                                    <span className="font-mono">{code}</span>
+                                                </label>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                            </div>
+                            <div className="mt-3">
+                                <Button variant="danger" onClick={removeChecked} disabled={!selectedChecked.size}>← Remove</Button>
+                            </div>
+                        </div>
                     </div>
                 )}
             </Card>
