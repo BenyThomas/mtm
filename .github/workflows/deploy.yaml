@@ -2,39 +2,56 @@ name: Build & Deploy MTM
 on:
   push:
     branches: [ "main" ]
+
 permissions:
   contents: read
-  packages: write
+  packages: write  # required for GHCR push
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Login GHCR
+      - name: Login to GHCR (uses GITHUB_TOKEN)
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ secrets.GHCR_USERNAME }}
-          password: ${{ secrets.GHCR_TOKEN }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags (lowercased owner)
+        id: img
+        run: |
+          OWNER_LC="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          echo "owner_lc=$OWNER_LC" >> $GITHUB_OUTPUT
+          echo "image=ghcr.io/${OWNER_LC}/mtm:${GITHUB_SHA}" >> $GITHUB_OUTPUT
+          echo "image_latest=ghcr.io/${OWNER_LC}/mtm:main" >> $GITHUB_OUTPUT
+
+      - name: Set API base (fallback to Fineract prod URL)
+        run: |
+          API="${{ vars.VITE_API_BASE }}"
+          if [ -z "$API" ]; then API="https://fineract.kazy.co.tz/fineract-provider"; fi
+          echo "API_BASE=$API" >> $GITHUB_ENV
 
       - name: Build & Push image
         uses: docker/build-push-action@v6
         with:
           context: .
           build-args: |
-            VITE_API_BASE=${{ secrets.VITE_API_BASE || 'https://fineract.kazy.co.tz/fineract-provider' }}
+            VITE_API_BASE=${{ env.API_BASE }}
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/mtm:main
-            ghcr.io/${{ github.repository_owner }}/mtm:${{ github.sha }}
+            ${{ steps.img.outputs.image }}
+            ${{ steps.img.outputs.image_latest }}
 
-      - name: Rollout on cluster
+      - name: Roll out to MicroK8s
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           script: |
-            kubectl -n kazy-prod set image deploy/mtm-web web=ghcr.io/${{ github.repository_owner }}/mtm:${{ github.sha }}
-            kubectl -n kazy-prod rollout status deploy/mtm-web --timeout=5m
+            sudo microk8s kubectl -n kazy-prod set image deploy/mtm-web web=${{ steps.img.outputs.image }}
+            sudo microk8s kubectl -n kazy-prod rollout status deploy/mtm-web --timeout=5m
