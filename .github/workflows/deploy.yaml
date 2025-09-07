@@ -5,11 +5,13 @@ on:
 
 permissions:
   contents: read
-  packages: write  # required for GHCR push
+  packages: write
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    # If you stored secrets under an Environment (e.g., "prod"), uncomment:
+    # environment: prod
 
     steps:
       - uses: actions/checkout@v4
@@ -46,12 +48,19 @@ jobs:
             ${{ steps.img.outputs.image }}
             ${{ steps.img.outputs.image_latest }}
 
+      # Optional preflight to fail early if a secret is missing
+      - name: Preflight secrets check
+        run: |
+          [ -n "${{ secrets.SSH_HOST }}" ] || (echo "SSH_HOST missing" && exit 1)
+          [ -n "${{ secrets.SSH_USER }}" ] || (echo "SSH_USER missing" && exit 1)
+          [ -n "${{ secrets.SSH_KEY }}"  ] || (echo "SSH_KEY missing"  && exit 1)
+
       - name: Roll out to MicroK8s
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.SSH_HOST }}
+          host:     ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
+          key:      ${{ secrets.SSH_KEY }}
           script: |
             sudo microk8s kubectl -n kazy-prod set image deploy/mtm-web web=${{ steps.img.outputs.image }}
             sudo microk8s kubectl -n kazy-prod rollout status deploy/mtm-web --timeout=5m
