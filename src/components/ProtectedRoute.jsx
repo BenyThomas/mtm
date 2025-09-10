@@ -1,23 +1,25 @@
 import React from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import Skeleton from './Skeleton';
 
-/**
- * A route wrapper that blocks access to its children when the user is not
- * authenticated.  Unauthenticated visitors are redirected to the login
- * screen.  Components nested under ProtectedRoute must be descendants of
- * AuthProvider.
- *
- * Usage:
- * <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
- *   <Route index element={<Home />} />
- * </Route>
- */
 const ProtectedRoute = ({ children }) => {
-    const { isAuthenticated } = useAuth();
-    if (!isAuthenticated) {
-        return <Navigate to="/login" replace />;
+    const { isAuthenticated, checking } = useAuth();
+    const location = useLocation();
+
+    if (checking) {
+        return (
+            <div className="p-6">
+                <Skeleton height="2rem" />
+                <Skeleton height="12rem" className="mt-4" />
+            </div>
+        );
     }
+
+    if (!isAuthenticated) {
+        return <Navigate to="/login" state={{ from: location }} replace />;
+    }
+
     return children;
 };
 

@@ -1,111 +1,137 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import api from '../api/axios';
+import { useToast } from './ToastContext';
 
 /**
- * Authentication context for the Money Trust Microfinance portal.
- *
- * This provider stores whether the user is authenticated, manages dev basic
- * authentication credentials and exposes helper methods to log in, log out
- * and switch tenants.  Credentials are persisted in localStorage when
- * "remember me" is checked, otherwise they are kept in sessionStorage.
- * The tenant identifier is stored in localStorage under `fineract_tenant`
- * so that the Axios interceptor can always add the correct header.
+ * AuthContext using Fineract /authentication endpoint.
+ * Stores base64 auth key returned by the server and uses it for subsequent requests.
  */
+
 const AuthContext = createContext(undefined);
+
+const clearCreds = () => {
+    localStorage.removeItem('fineract_auth_key');
+    localStorage.removeItem('fineract_username');
+    sessionStorage.removeItem('fineract_auth_key');
+    sessionStorage.removeItem('fineract_username');
+};
+
+const hasAuth = () =>
+    !!(localStorage.getItem('fineract_auth_key') || sessionStorage.getItem('fineract_auth_key'));
 
 export const AuthProvider = ({ children }) => {
     const navigate = useNavigate();
-    // Determine whether credentials exist at load time.  Either localStorage
-    // or sessionStorage can hold the dev username/password.
-    const [isAuthenticated, setIsAuthenticated] = useState(() => {
-        const username =
-            localStorage.getItem('fineract_username') ||
-            sessionStorage.getItem('fineract_username');
-        const password =
-            localStorage.getItem('fineract_password') ||
-            sessionStorage.getItem('fineract_password');
-        return Boolean(username && password);
-    });
-    // Current tenant is stored in localStorage to persist across reloads.  Fall back
-    // to the build‑time environment variable if nothing is stored.
-    const [tenant, setTenant] = useState(() => {
-        return (
-            localStorage.getItem('fineract_tenant') ||
-            import.meta.env.VITE_TENANT ||
-            'default'
-        );
-    });
+    const { addToast } = useToast();
 
-    /**
-     * Sign in the user with the provided credentials.  When `remember` is true
-     * credentials are stored in localStorage; otherwise they are stored in
-     * sessionStorage for the duration of the tab.  After updating storage the
-     * auth state is toggled and the caller is responsible for redirecting.
-     *
-     * @param {string} username
-     * @param {string} password
-     * @param {boolean} remember
-     */
-    const login = useCallback((username, password, remember) => {
-        if (remember) {
-            localStorage.setItem('fineract_username', username);
-            localStorage.setItem('fineract_password', password);
-        } else {
-            sessionStorage.setItem('fineract_username', username);
-            sessionStorage.setItem('fineract_password', password);
-        }
-        setIsAuthenticated(true);
-    }, []);
-
-    /**
-     * Clear credentials from both localStorage and sessionStorage and reset
-     * the auth state.  Redirects to /login after completion.
-     */
-    const logout = useCallback(() => {
-        localStorage.removeItem('fineract_username');
-        localStorage.removeItem('fineract_password');
-        sessionStorage.removeItem('fineract_username');
-        sessionStorage.removeItem('fineract_password');
-        setIsAuthenticated(false);
-        navigate('/login', { replace: true });
-    }, [navigate]);
-
-    /**
-     * Change the current tenant.  The tenant identifier is persisted in
-     * localStorage so that the Axios interceptor picks it up on subsequent
-     * requests.  Components listening to this context can re-render when the
-     * tenant changes.
-     *
-     * @param {string} newTenant
-     */
-    const switchTenant = useCallback((newTenant) => {
-        setTenant(newTenant);
-        localStorage.setItem('fineract_tenant', newTenant);
-    }, []);
-
-    return (
-        <AuthContext.Provider
-            value={{
-                isAuthenticated,
-                login,
-                logout,
-                tenant,
-                switchTenant,
-            }}
-        >
-            {children}
-        </AuthContext.Provider>
+    const [isAuthenticated, setIsAuthenticated] = useState(hasAuth());
+    const [checking, setChecking] = useState(false);
+    const [tenant, setTenant] = useState(
+        localStorage.getItem('fineract_tenant') || import.meta.env.VITE_TENANT || 'default'
     );
+    const [user, setUser] = useState(() => {
+        try { return JSON.parse(localStorage.getItem('fineract_user') || '{}'); } catch { return {}; }
+    });
+
+    // When axios emits 401, force logout
+    useEffect(() => {
+        const h = () => {
+            clearCreds();
+            setIsAuthenticated(false);
+            setUser({});
+            addToast('Session expired. Please sign in again.', 'warning');
+            navigate('/login', { replace: true });
+        };
+        window.addEventListener('auth:unauthorized', h);
+        return () => window.removeEventListener('auth:unauthorized', h);
+    }, [navigate, addToast]);
+
+    const switchTenant = useCallback((newTenant) => {
+        const t = (newTenant || '').trim() || 'default';
+        setTenant(t);
+        localStorage.setItem('fineract_tenant', t);
+    }, []);
+
+    /**
+     * Login via Fineract /authentication
+     * Stores auth key (base64 user:pass). No password is stored in plain text.
+     */
+    const login = useCallback(async (username, password, remember, tenantInput) => {
+        setChecking(true);
+        setIsAuthenticated(false);
+        setUser({});
+        clearCreds();
+
+        const t = (tenantInput || tenant || 'default').trim();
+        localStorage.setItem('fineract_tenant', t);
+        setTenant(t);
+
+        try {
+            // Use a direct axios call that still carries tenant header (set by interceptor)
+            const res = await api.post('/authentication?returnClientList=false', {
+                username: username.trim(),
+                password,
+            });
+
+            if (!res?.data?.authenticated || !res?.data?.base64EncodedAuthenticationKey) {
+                throw new Error('Authentication failed');
+            }
+
+            const authKey = res.data.base64EncodedAuthenticationKey; // base64(username:password)
+            const targetStore = remember ? localStorage : sessionStorage;
+            targetStore.setItem('fineract_auth_key', authKey);
+            targetStore.setItem('fineract_username', username.trim());
+
+            // Save some display info (office, roles, etc.) in localStorage for header badge
+            localStorage.setItem('fineract_user', JSON.stringify({
+                username: res.data.username,
+                officeName: res.data.officeName,
+                staffDisplayName: res.data.staffDisplayName,
+                roles: res.data.roles || [],
+                permissions: res.data.permissions || '',
+            }));
+            setUser({
+                username: res.data.username,
+                officeName: res.data.officeName,
+                staffDisplayName: res.data.staffDisplayName,
+                roles: res.data.roles || [],
+                permissions: res.data.permissions || '',
+            });
+
+            setIsAuthenticated(true);
+            addToast('Welcome back', 'success');
+            navigate('/', { replace: true });
+        } catch (e) {
+            clearCreds();
+            const msg =
+                e?.response?.data?.errors?.[0]?.defaultUserMessage ||
+                e?.response?.data?.defaultUserMessage ||
+                e?.message ||
+                'Invalid username or password';
+            throw new Error(msg);
+        } finally {
+            setChecking(false);
+        }
+    }, [tenant, navigate, addToast]);
+
+    const logout = useCallback(() => {
+        clearCreds();
+        setIsAuthenticated(false);
+        setUser({});
+        addToast('Signed out', 'success');
+        navigate('/login', { replace: true });
+    }, [navigate, addToast]);
+
+    const value = useMemo(() => ({
+        isAuthenticated, checking, tenant, user,
+        switchTenant, login, logout,
+    }), [isAuthenticated, checking, tenant, user, switchTenant, login, logout]);
+
+    return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
-/**
- * Hook for consuming the authentication context.
- * Throws an error if used outside of a provider.
- */
 export const useAuth = () => {
     const ctx = useContext(AuthContext);
-    if (!ctx) {
-        throw new Error('useAuth must be used within an AuthProvider');
-    }
+    if (!ctx) throw new Error('useAuth must be used within an AuthProvider');
     return ctx;
 };

@@ -1,38 +1,56 @@
 import axios from 'axios';
 
 /**
- * Axios instance configured for the Fineract API.
- * Base URL comes from .env -> VITE_API_URL, then we append /api/v1.
- * All requests automatically send Fineract-Platform-TenantId and (dev) Basic Auth.
+ * Shared Axios instance for Fineract.
+ * - Base URL from .env (VITE_API_URL) → .../api/v1, fallback to Vite proxy /api/api/v1
+ * - Always injects Fineract-Platform-TenantId
+ * - Uses Basic Authorization from stored Fineract auth key
+ * - Emits "auth:unauthorized" on HTTP 401
  */
-const base = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
-const api = axios.create({
-  baseURL: `${base}/api/v1`,
-});
+const baseURL = import.meta.env.VITE_API_URL
+    ? `${import.meta.env.VITE_API_URL}/api/v1`
+    : '/api/api/v1';
 
-// Inject tenant and Basic Auth before each request
+const api = axios.create({ baseURL });
+
+function read(key) {
+    // Prefer localStorage, then sessionStorage
+    const ls = localStorage.getItem(key);
+    if (ls != null) return ls;
+    return sessionStorage.getItem(key);
+}
+
 api.interceptors.request.use((config) => {
-  const tenant =
-      localStorage.getItem('fineract_tenant') ||
-      import.meta.env.VITE_TENANT ||
-      'default';
+    const tenant =
+        localStorage.getItem('fineract_tenant') ||
+        import.meta.env.VITE_TENANT ||
+        'default';
 
-  config.headers = config.headers ?? {};
-  config.headers['Fineract-Platform-TenantId'] = tenant;
+    const authKey =
+        read('fineract_auth_key') ||
+        null;
 
-  const username =
-      localStorage.getItem('fineract_username') ||
-      sessionStorage.getItem('fineract_username');
-  const password =
-      localStorage.getItem('fineract_password') ||
-      sessionStorage.getItem('fineract_password');
+    config.headers = config.headers ?? {};
+    config.headers['Fineract-Platform-TenantId'] = tenant;
 
-  if (username && password) {
-    const token = btoa(`${username}:${password}`);
-    config.headers['Authorization'] = `Basic ${token}`;
-  }
+    if (authKey) {
+        // Server returns base64(username:password)
+        config.headers['Authorization'] = `Basic ${authKey}`;
+    } else {
+        delete config.headers?.Authorization;
+    }
 
-  return config;
+    return config;
 });
+
+api.interceptors.response.use(
+    (resp) => resp,
+    (error) => {
+        if (error?.response?.status === 401) {
+            window.dispatchEvent(new CustomEvent('auth:unauthorized'));
+        }
+        return Promise.reject(error);
+    }
+);
 
 export default api;

@@ -1,96 +1,112 @@
 import React, { useState } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import Card from '../components/Card';
 import Button from '../components/Button';
-import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 
-/**
- * Dev login: no API call here.
- * We just persist creds (respecting "Remember me"), set auth = true,
- * show a toast, and redirect to '/'.
- */
 const Login = () => {
-    const { isAuthenticated, login } = useAuth();
+    const { login } = useAuth();
     const { addToast } = useToast();
-    const navigate = useNavigate();
 
-    const [username, setUsername] = useState('');
+    const [username, setUsername] = useState(localStorage.getItem('last_login_user') || '');
     const [password, setPassword] = useState('');
-    const [remember, setRemember] = useState(false);
-    const [showPassword, setShowPassword] = useState(false);
+    const [tenant, setTenant] = useState(localStorage.getItem('fineract_tenant') || import.meta.env.VITE_TENANT || 'default');
+    const [remember, setRemember] = useState(true);
+    const [showPw, setShowPw] = useState(false);
     const [submitting, setSubmitting] = useState(false);
+    const [error, setError] = useState('');
 
-    if (isAuthenticated) {
-        return <Navigate to="/" replace />;
-    }
-
-    const handleSubmit = async (e) => {
+    const onSubmit = async (e) => {
         e.preventDefault();
+        setError('');
         setSubmitting(true);
         try {
-            // No network request — we trust dev creds locally.
-            login(username, password, remember);
-            addToast('Welcome back', 'success');
-            navigate('/', { replace: true });
+            await login(username, password, remember, tenant);
+            localStorage.setItem('last_login_user', username.trim());
+        } catch (err) {
+            const msg = err?.message || 'Login failed';
+            setError(msg);
+            addToast(msg, 'error');
         } finally {
             setSubmitting(false);
         }
     };
 
     return (
-        <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900 p-4">
-            <Card>
-                <h2 className="text-xl font-bold mb-4">Sign In</h2>
-                <form onSubmit={handleSubmit} className="space-y-4 w-80">
+        <div className="min-h-screen flex items-center justify-center p-4">
+            <Card className="w-full max-w-md">
+                <div className="mb-6 text-center">
+                    <div className="text-2xl font-bold">Money Trust Microfinance</div>
+                    <div className="text-sm text-gray-500 mt-1">Sign in to continue</div>
+                </div>
+
+                <form onSubmit={onSubmit} className="space-y-4">
                     <div>
                         <label className="block text-sm font-medium">Username</label>
                         <input
-                            type="text"
+                            autoFocus
                             value={username}
                             onChange={(e) => setUsername(e.target.value)}
+                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                            placeholder="e.g. mifos"
                             required
-                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-primary"
                         />
                     </div>
 
                     <div>
                         <label className="block text-sm font-medium">Password</label>
-                        <div className="relative">
+                        <div className="mt-1 flex">
                             <input
-                                type={showPassword ? 'text' : 'password'}
+                                type={showPw ? 'text' : 'password'}
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
+                                className="flex-1 border rounded-l-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                                placeholder="••••••••"
                                 required
-                                className="mt-1 w-full border rounded-md p-2 pr-10 dark:bg-gray-700 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-primary"
                             />
                             <button
                                 type="button"
-                                onClick={() => setShowPassword((s) => !s)}
-                                className="absolute inset-y-0 right-0 px-3 flex items-center text-sm text-gray-500 dark:text-gray-400 focus:outline-none"
+                                onClick={() => setShowPw((s) => !s)}
+                                className="px-3 border rounded-r-md text-sm dark:bg-gray-700 dark:border-gray-600"
+                                aria-label={showPw ? 'Hide password' : 'Show password'}
                             >
-                                {showPassword ? 'Hide' : 'Show'}
+                                {showPw ? 'Hide' : 'Show'}
                             </button>
                         </div>
                     </div>
 
-                    <div className="flex items-center">
+                    <div>
+                        <label className="block text-sm font-medium">Tenant</label>
                         <input
-                            id="remember"
-                            type="checkbox"
-                            checked={remember}
-                            onChange={(e) => setRemember(e.target.checked)}
-                            className="h-4 w-4 text-primary focus:ring-primary border-gray-300 rounded"
+                            value={tenant}
+                            onChange={(e) => setTenant(e.target.value)}
+                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                            placeholder="default"
+                            required
                         />
-                        <label htmlFor="remember" className="ml-2 block text-sm">
+                        <p className="mt-1 text-xs text-gray-500">Sent as <code>Fineract-Platform-TenantId</code> header.</p>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                        <label className="inline-flex items-center gap-2 text-sm">
+                            <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
                             Remember me
                         </label>
+                        <div className="text-xs text-gray-500">
+                            Auth via <strong>/authentication</strong>
+                        </div>
                     </div>
+
+                    {error ? <p className="text-sm text-red-600">{error}</p> : null}
 
                     <Button type="submit" className="w-full" disabled={submitting}>
                         {submitting ? 'Signing in…' : 'Sign In'}
                     </Button>
                 </form>
+
+                <div className="mt-6 text-xs text-gray-500 text-center">
+                    Backend: <code>{import.meta.env.VITE_API_URL || '(proxy /api)'}</code>
+                </div>
             </Card>
         </div>
     );

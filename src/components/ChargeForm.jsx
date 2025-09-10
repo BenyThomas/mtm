@@ -61,6 +61,16 @@ const ChargeForm = ({ initial, onSubmit, submitting }) => {
     );
 
     const [errors, setErrors] = useState({});
+    const parseOptionsWithValue = (arr) => {
+        if (!Array.isArray(arr)) return [];
+
+        return arr.map((o) => ({
+            id: o?.id ?? o?.code ?? o?.value ?? '',
+            code: o?.code ?? '',
+            name: o?.value ?? o?.label ?? o?.text ?? String(o?.id ?? ''),
+        })).filter((x) => x.id || x.code);
+    };
+
 
     const norm = (arr, idKey = 'id', nameKey = 'name') => {
         if (!Array.isArray(arr)) return [];
@@ -97,11 +107,11 @@ const ChargeForm = ({ initial, onSubmit, submitting }) => {
                         id: c.code,
                         name: `${c.code}${c.name ? ` — ${c.name}` : ''}`,
                     })));
-                    setAppliesToOptions(norm(appliesTo));
-                    setTimeTypeOptions(norm(timeTypes));
-                    setCalcTypeOptions(norm(calcTypes));
-                    setPaymentModeOptions(norm(paymentModes));
-                    setTaxGroupOptions(norm(taxes));
+                    setAppliesToOptions(parseOptionsWithValue(appliesTo));
+                    setTimeTypeOptions(parseOptionsWithValue(timeTypes));
+                    setCalcTypeOptions(parseOptionsWithValue(calcTypes));
+                    setPaymentModeOptions(parseOptionsWithValue(paymentModes));
+                    setTaxGroupOptions(parseOptionsWithValue(taxes));
                 }
             } catch (_e) {
                 if (!cancelled) {
