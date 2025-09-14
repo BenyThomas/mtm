@@ -168,10 +168,7 @@ const Loans = () => {
             <div className="flex items-center justify-between">
                 <h1 className="text-2xl font-bold">Loans</h1>
                 <div className="space-x-2">
-                    <Button variant="secondary" onClick={() => navigate('/loan-products')}>
-                        Loan Products
-                    </Button>
-                    <Button onClick={() => navigate('/loans/apply')}>
+                    <Button variant="secondary" onClick={() => navigate('/loans/apply')}>
                         Apply for Loan
                     </Button>
                 </div>

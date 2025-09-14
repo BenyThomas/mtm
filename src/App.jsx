@@ -87,6 +87,12 @@ import CollateralManagement from "./pages/collateral/CollateralManagement";
 import LoanCollaterals from "./pages/loans/LoanCollaterals";
 import DelinquencyRanges from "./pages/delinquency/DelinquencyRanges";
 import DelinquencyBuckets from "./pages/delinquency/DelinquencyBuckets";
+import TaxGroupList from "./pages/taxes/TaxGroupList";
+import TaxGroupCreate from "./pages/taxes/TaxGroupCreate";
+import TaxGroupEdit from "./pages/taxes/TaxGroupEdit";
+import TaxComponentList from "./pages/taxes/TaxComponentList";
+import TaxComponentCreate from "./pages/taxes/TaxComponentCreate";
+import TaxComponentEdit from "./pages/taxes/TaxComponentEdit";
 
 const NotFound = () => (
     <div>
@@ -234,6 +240,14 @@ const App = () => {
                             // in your routes file
                             <Route path="/delinquency/ranges" element={<ProtectedRoute><DelinquencyRanges /></ProtectedRoute>} />
                             <Route path="/delinquency/buckets" element={<ProtectedRoute><DelinquencyBuckets /></ProtectedRoute>} />
+
+                            <Route path="/accounting/tax-groups" element={<TaxGroupList />} />
+                            <Route path="/accounting/tax-groups/new" element={<TaxGroupCreate />} />
+                            <Route path="/accounting/tax-groups/:id/edit" element={<TaxGroupEdit />} />
+
+                            <Route path="/accounting/tax-components" element={<TaxComponentList />} />
+                            <Route path="/accounting/tax-components/new" element={<TaxComponentCreate />} />
+                            <Route path="/accounting/tax-components/:id/edit" element={<TaxComponentEdit />} />
 
 
 

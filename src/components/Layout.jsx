@@ -69,6 +69,7 @@ const NAV_GROUPS = [
     title: 'Products',
     items: [
       { to: '/products/charges', label: 'Charges', icon: '💸' }, // NEW
+      { to: '/loan-products', label: 'Products', icon: '🔖' }, // NEW
     ],
   },
   {
@@ -86,6 +87,7 @@ const NAV_GROUPS = [
       { to: '/accounting/standing-instructions-history', label: 'Standing Instr. History', icon: '🕘' },
       { to: '/delinquency/ranges',  label: 'Delinquency Ranges',  icon: '📊' },
       { to: '/delinquency/buckets', label: 'Delinquency Buckets', icon: '🧺' },
+      { to: '/accounting/tax-groups', label: 'Tax Groups', icon: '🧾' },
     ],
   },
   {

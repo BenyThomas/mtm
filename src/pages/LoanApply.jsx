@@ -8,7 +8,25 @@ import useDebouncedValue from '../hooks/useDebouncedValue';
 import { useToast } from '../context/ToastContext';
 import { useNavigate } from 'react-router-dom';
 
-const dateISO = () => new Date().toISOString().slice(0, 10);
+const DATE_FORMAT = 'dd MMMM yyyy';
+const LOCALE = 'en_GB';
+
+// dd MMMM yyyy (e.g., 11 September 2025)
+const fmtDdMMMMYyyy = (d) => {
+    const dt = typeof d === 'string' ? new Date(d) : d;
+    const day = String(dt.getDate()).padStart(2, '0');
+    const month = dt.toLocaleString('en-GB', { month: 'long' });
+    const year = dt.getFullYear();
+    return `${day} ${month} ${year}`;
+};
+// yyyy-MM-dd
+const fmtISO = (d) => {
+    const dt = typeof d === 'string' ? new Date(d) : d;
+    return dt.toISOString().slice(0, 10);
+};
+
+const todayLong = () => fmtDdMMMMYyyy(new Date());
+const todayISO = () => fmtISO(new Date());
 
 const LoanApply = () => {
     const { addToast } = useToast();
@@ -22,10 +40,15 @@ const LoanApply = () => {
     const [clientId, setClientId] = useState('');
     const [productId, setProductId] = useState('');
     const [principal, setPrincipal] = useState('');
-    const [rate, setRate] = useState(''); // optional override
+    const [rate, setRate] = useState('');
     const [numRepayments, setNumRepayments] = useState(12);
     const [repaymentEvery, setRepaymentEvery] = useState(1);
-    const [repaymentFrequencyType, setRepaymentFrequencyType] = useState('2'); // 2=Months, 1=Weeks (Fineract enum)
+    const [repaymentFrequencyType, setRepaymentFrequencyType] = useState('2'); // 1=Weeks, 2=Months
+
+    // NEW: mandatory fields explicitly in state
+    const [loanType, setLoanType] = useState('individual');
+    const [submittedOnDate, setSubmittedOnDate] = useState(todayLong());
+    const [transactionProcessingStrategyCode, setTransactionProcessingStrategyCode] = useState('mifos-standard-strategy');
 
     // calculated schedule
     const [calcLoading, setCalcLoading] = useState(false);
@@ -63,6 +86,47 @@ const LoanApply = () => {
         [products, productId]
     );
 
+    // Auto-fill from selected product (also TPS code)
+    useEffect(() => {
+        if (!selectedProduct) return;
+
+        const pDef =
+            selectedProduct?.principal?.default ??
+            selectedProduct?.principal ??
+            selectedProduct?.principalAmount ??
+            '';
+
+        const rDef =
+            selectedProduct?.interestRatePerPeriod ??
+            selectedProduct?.interestRate ??
+            '';
+
+        const nDef =
+            selectedProduct?.numberOfRepayments?.default ??
+            selectedProduct?.numberOfRepayments ??
+            12;
+
+        const everyDef = selectedProduct?.repaymentEvery ?? 1;
+        const freqDef =
+            selectedProduct?.repaymentFrequencyType?.id ??
+            selectedProduct?.repaymentFrequencyType ??
+            2;
+
+        // Transaction processing strategy code
+        const tps =
+            selectedProduct?.transactionProcessingStrategyCode ||
+            selectedProduct?.transactionProcessingStrategy?.code ||
+            'mifos-standard-strategy';
+
+        // only override empty principal/rate; always align term/frequency to product
+        setPrincipal((prev) => (prev === '' ? String(pDef) : prev));
+        setRate((prev) => (prev === '' ? (rDef !== '' ? String(rDef) : prev) : prev));
+        setNumRepayments(String(nDef));
+        setRepaymentEvery(String(everyDef));
+        setRepaymentFrequencyType(String(freqDef));
+        setTransactionProcessingStrategyCode(tps);
+    }, [selectedProduct]);
+
     const validForCalc = useMemo(() => {
         return clientId && productId && Number(principal) > 0 && Number(numRepayments) > 0 && Number(repaymentEvery) > 0;
     }, [clientId, productId, principal, numRepayments, repaymentEvery]);
@@ -72,7 +136,9 @@ const LoanApply = () => {
         500
     );
 
-    // calculate schedule when inputs change
+    const idOr = (x, fallback) => (x?.id ?? x ?? fallback);
+
+    // calculate schedule
     useEffect(() => {
         const doCalc = async () => {
             if (!validForCalc) {
@@ -83,31 +149,31 @@ const LoanApply = () => {
             setCalcLoading(true);
             setCalcError('');
             try {
-                // Build payload according to Fineract schema (minimal for calculation)
+                const p = selectedProduct || {};
                 const payload = {
                     clientId: Number(debounced.clientId),
                     productId: Number(debounced.productId),
                     principal: Number(debounced.principal),
                     numberOfRepayments: Number(debounced.numRepayments),
                     repaymentEvery: Number(debounced.repaymentEvery),
-                    repaymentFrequencyType: Number(debounced.repaymentFrequencyType), // 2=Months
+                    repaymentFrequencyType: Number(debounced.repaymentFrequencyType),
                     loanTermFrequency: Number(debounced.numRepayments) * Number(debounced.repaymentEvery),
                     loanTermFrequencyType: Number(debounced.repaymentFrequencyType),
-                    expectedDisbursementDate: dateISO(),
-                    repaymentsStartingFromDate: dateISO(),
+                    expectedDisbursementDate: todayLong(),
+                    repaymentsStartingFromDate: todayLong(),
                     interestRatePerPeriod: debounced.rate
                         ? Number(debounced.rate)
-                        : selectedProduct?.interestRatePerPeriod ?? selectedProduct?.interestRate ?? 0,
-                    interestRateFrequencyType: selectedProduct?.interestRateFrequencyType?.id || 2, // Months default
-                    amortizationType: selectedProduct?.amortizationType?.id || 1, // Equal principal or annuity depends, fallback 1
-                    interestType: selectedProduct?.interestType?.id || 0, // default
-                    interestCalculationPeriodType: selectedProduct?.interestCalculationPeriodType?.id || 1,
-                    inArrearsTolerance: selectedProduct?.inArrearsTolerance || 0,
-                    graceOnPrincipalPayment: selectedProduct?.graceOnPrincipalPayment || 0,
-                    graceOnInterestPayment: 0,
-                    graceOnInterestCharged: 0,
-                    locale: 'en',
-                    dateFormat: 'yyyy-MM-dd',
+                        : (p.interestRatePerPeriod ?? p.interestRate ?? 0),
+                    interestRateFrequencyType: idOr(p.interestRateFrequencyType, 2),
+                    amortizationType: idOr(p.amortizationType, 1),
+                    interestType: idOr(p.interestType, 0),
+                    interestCalculationPeriodType: idOr(p.interestCalculationPeriodType, 1),
+                    inArrearsTolerance: p.inArrearsTolerance ?? 0,
+                    graceOnPrincipalPayment: p.graceOnPrincipalPayment ?? 0,
+                    graceOnInterestPayment: p.graceOnInterestPayment ?? 0,
+                    graceOnInterestCharged: p.graceOnInterestCharged ?? 0,
+                    locale: LOCALE,
+                    dateFormat: DATE_FORMAT,
                 };
 
                 const res = await api.post('/loans?command=calculateLoanSchedule', payload);
@@ -130,35 +196,119 @@ const LoanApply = () => {
 
     const canCreate = validForCalc && !calcLoading && schedule;
 
+    // map product charges -> { chargeId, amount }
+    const mapCharges = (p) => {
+        if (!Array.isArray(p?.charges)) return [];
+        return p.charges
+            .map((c) => ({
+                chargeId: Number(c.id ?? c.chargeId),
+                amount: Number(c.amount ?? c.amountOrPercentage ?? 0),
+            }))
+            .filter((x) => x.chargeId);
+    };
+
+    // Build EXACT key set required (with mandatory fields guaranteed)
+    const buildCreatePayload = () => {
+        const p = selectedProduct || {};
+
+        // Use the stateful TPS code so it's never blank
+        const tpsCode = transactionProcessingStrategyCode || 'mifos-standard-strategy';
+        const isAdvancedAlloc = tpsCode === 'advanced-payment-allocation-strategy';
+
+        // capitalizedIncomeType -> must be an object
+        const capType = p.capitalizedIncomeType;
+        const capitalizedIncomeType =
+            capType && typeof capType === 'object'
+                ? capType
+                : { code: 'FEE', id: 'FEE', value: 'Fee' };
+
+        return {
+            amortizationType: Number(idOr(p.amortizationType, 1)),
+
+            buyDownFeeCalculationType: p.buyDownFeeCalculationType || 'FLAT',
+            buyDownFeeIncomeType: p.buyDownFeeIncomeType || 'FEE',
+            buyDownFeeStrategy: p.buyDownFeeStrategy || 'EQUAL_AMORTIZATION',
+
+            capitalizedIncomeCalculationType: p.capitalizedIncomeCalculationType || 'FLAT',
+            capitalizedIncomeStrategy: p.capitalizedIncomeStrategy || 'EQUAL_AMORTIZATION',
+            capitalizedIncomeType,
+
+            charges: mapCharges(p),
+
+            clientId: Number(clientId),
+            datatables: 'List of PostLoansDataTable',
+
+            dateFormat: DATE_FORMAT,
+            daysInYearCustomStrategy: p.daysInYearCustomStrategy || 'FULL_LEAP_YEAR',
+            daysInYearType: Number(idOr(p.daysInYearType, 360)),
+
+            disbursedAmountPercentageForDownPayment:
+                p.disbursedAmountPercentageForDownPayment ?? 0,
+
+            disbursementData: [
+                {
+                    expectedDisbursementDate: todayLong(), // matches dateFormat
+                    principal: Number(principal),
+                },
+            ],
+
+            enableAutoRepaymentForDownPayment: Boolean(p.enableAutoRepaymentForDownPayment),
+            enableBuyDownFee: Boolean(p.enableBuyDownFee),
+            enableDownPayment: Boolean(p.enableDownPayment),
+            enableIncomeCapitalization: Boolean(p.enableIncomeCapitalization),
+            enableInstallmentLevelDelinquency: Boolean(p.enableInstallmentLevelDelinquency),
+
+            expectedDisbursementDate: todayLong(),
+
+            externalId: '786444UUUYYH7',
+            fixedEmiAmount: 10,
+
+            ...(isAdvancedAlloc
+                ? {
+                    fixedLength: Number(p.fixedLength ?? 1),
+                    fixedPrincipalPercentagePerInstallment: Number(
+                        p.fixedPrincipalPercentagePerInstallment ?? 5.5
+                    ),
+                }
+                : {}),
+
+            graceOnArrearsAgeing: p.graceOnArrearsAgeing ?? 0,
+            graceOnInterestCharged: p.graceOnInterestCharged ?? 0,
+            graceOnInterestPayment: p.graceOnInterestPayment ?? 0,
+            graceOnPrincipalPayment: p.graceOnPrincipalPayment ?? 0,
+
+            interestCalculationPeriodType: Number(idOr(p.interestCalculationPeriodType, 1)),
+            interestRateFrequencyType: Number(idOr(p.interestRateFrequencyType, 2)),
+            interestRatePerPeriod: rate ? Number(rate) : Number(p.interestRatePerPeriod ?? p.interestRate ?? 0),
+            interestRecognitionOnDisbursementDate: Boolean(p.interestRecognitionOnDisbursementDate),
+            interestType: Number(idOr(p.interestType, 0)),
+
+            loanScheduleProcessingType: p.loanScheduleProcessingType || 'HORIZONTAL',
+
+            loanTermFrequency: Number(numRepayments) * Number(repaymentEvery),
+            loanTermFrequencyType: Number(repaymentFrequencyType),
+
+            // ====== MANDATORY FIELDS (explicit) ======
+            loanType,                              // <- never blank (state defaults to "individual")
+            locale: LOCALE,
+            numberOfRepayments: Number(numRepayments),
+            principal: Number(principal),
+            productId: Number(productId),
+            repaymentEvery: Number(repaymentEvery),
+            repaymentFrequencyType: Number(repaymentFrequencyType),
+            repaymentsStartingFromDate: todayISO(), // your example uses ISO for this field
+            submittedOnDate,                        // <- never blank (state defaults to todayLong())
+            transactionProcessingStrategyCode: tpsCode, // <- never blank (state from product or default)
+            // =========================================
+
+            maxOutstandingLoanBalance: p.maxOutstandingLoanBalance ?? 0,
+        };
+    };
+
     const createApplication = async () => {
         if (!canCreate) return;
         try {
-            const payload = {
-                clientId: Number(clientId),
-                productId: Number(productId),
-                principal: Number(principal),
-                numberOfRepayments: Number(numRepayments),
-                repaymentEvery: Number(repaymentEvery),
-                repaymentFrequencyType: Number(repaymentFrequencyType),
-                loanTermFrequency: Number(numRepayments) * Number(repaymentEvery),
-                loanTermFrequencyType: Number(repaymentFrequencyType),
-                expectedDisbursementDate: dateISO(),
-                repaymentsStartingFromDate: dateISO(),
-                interestRatePerPeriod: rate
-                    ? Number(rate)
-                    : selectedProduct?.interestRatePerPeriod ?? selectedProduct?.interestRate ?? 0,
-                interestRateFrequencyType: selectedProduct?.interestRateFrequencyType?.id || 2,
-                amortizationType: selectedProduct?.amortizationType?.id || 1,
-                interestType: selectedProduct?.interestType?.id || 0,
-                interestCalculationPeriodType: selectedProduct?.interestCalculationPeriodType?.id || 1,
-                inArrearsTolerance: selectedProduct?.inArrearsTolerance || 0,
-                graceOnPrincipalPayment: selectedProduct?.graceOnPrincipalPayment || 0,
-                graceOnInterestPayment: 0,
-                graceOnInterestCharged: 0,
-                locale: 'en',
-                dateFormat: 'yyyy-MM-dd',
-                // optional: submittedOnDate
-            };
+            const payload = buildCreatePayload();
             const res = await api.post('/loans', payload);
             const newId = res.data?.loanId || res.data?.resourceId || res.data?.id;
             addToast('Loan application created', 'success');
@@ -172,9 +322,32 @@ const LoanApply = () => {
         }
     };
 
+    // Optional: download Excel template (as per your curl)
+    const downloadExcelTemplate = async () => {
+        try {
+            const res = await api.get('/loans/downloadtemplate', {
+                params: { officeId: 1, staffId: 1, dateFormat: 'mm-dd-yyyy' },
+                responseType: 'blob',
+            });
+            const url = window.URL.createObjectURL(new Blob([res.data]));
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'loan-template.xls';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
+        } catch {
+            addToast('Failed to download template', 'error');
+        }
+    };
+
     return (
         <div className="space-y-6">
-            <h1 className="text-2xl font-bold">Loan Application (Simulation)</h1>
+            <div className="flex items-center justify-between">
+                <h1 className="text-2xl font-bold">Loan Application (Simulation)</h1>
+                <Button onClick={downloadExcelTemplate}>Download Excel Template</Button>
+            </div>
 
             {loading ? (
                 <Card><Skeleton height="10rem" /></Card>
@@ -266,6 +439,42 @@ const LoanApply = () => {
                                 </select>
                             </div>
                         </div>
+
+                        {/* --- NEW: Mandatory Fields Section (always shown) --- */}
+                        <div>
+                            <label className="block text-sm font-medium">Loan Type *</label>
+                            <select
+                                value={loanType}
+                                onChange={(e) => setLoanType(e.target.value)}
+                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                            >
+                                <option value="individual">individual</option>
+                                <option value="group">group</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium">Submitted On Date *</label>
+                            <input
+                                value={submittedOnDate}
+                                onChange={(e) => setSubmittedOnDate(e.target.value)}
+                                placeholder={DATE_FORMAT}
+                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                            />
+                            <p className="text-xs text-gray-500 mt-1">Format: {DATE_FORMAT}</p>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium">Transaction Processing Strategy *</label>
+                            <input
+                                value={transactionProcessingStrategyCode}
+                                onChange={(e) => setTransactionProcessingStrategyCode(e.target.value)}
+                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                                placeholder="mifos-standard-strategy"
+                            />
+                            <p className="text-xs text-gray-500 mt-1">Auto-filled from product; override if needed.</p>
+                        </div>
+                        {/* ---------------------------------------------------- */}
                     </div>
 
                     {/* Results */}
