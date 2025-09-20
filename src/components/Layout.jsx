@@ -135,7 +135,7 @@ const Layout = () => {
               >
                 ☰
               </ButtonLike>
-              <div className="font-semibold truncate">Money Trust Microfinance</div>
+              <div className="font-semibold truncate">K</div>
             </div>
             <div className="flex items-center gap-2">
               {/* space for theme toggle / tenant switcher / user menu */}

@@ -18,7 +18,7 @@ const Header = ({ onToggleSidebar }) => {
                 >
                     ☰
                 </button>
-                <span className="font-semibold">Money Trust Microfinance</span>
+                <span className="font-semibold">M</span>
             </div>
 
             <div className="flex items-center gap-3">

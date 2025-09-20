@@ -14,6 +14,7 @@ import ClientAddresses from './ClientAddresses';
 import ClientIdentifiers from './ClientIdentifiers';
 import ClientTransactions from './ClientTransactions';
 import ClientCollaterals from "./ClientCollaterals";
+import LoanTab from "./LoanTab";
 
 const statusTone = (s) => {
     const code = s?.code || s?.value || '';
@@ -140,12 +141,14 @@ const ClientProfile = () => {
                         </div>
                     </Card>
                 </div>
+                {/*389*/}
+                {/*667*/}
 
                 {/* Loans (placeholder) */}
                 <div data-tab="loans" className="space-y-4">
                     <Card>
                         <div className="text-sm text-gray-600 dark:text-gray-400">
-                            Loan accounts appear here (use your existing Loans tab implementation).
+                            <LoanTab clientId={id} />
                         </div>
                     </Card>
                 </div>

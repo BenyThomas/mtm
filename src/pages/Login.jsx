@@ -36,7 +36,7 @@ const Login = () => {
         <div className="min-h-screen flex items-center justify-center p-4">
             <Card className="w-full max-w-md">
                 <div className="mb-6 text-center">
-                    <div className="text-2xl font-bold">Money Trust Microfinance</div>
+                    <div className="text-2xl font-bold">KAZY</div>
                     <div className="text-sm text-gray-500 mt-1">Sign in to continue</div>
                 </div>
 

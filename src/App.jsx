@@ -142,6 +142,7 @@ const App = () => {
 
                             {/* Reports & Accounting */}
                             <Route path="reports" element={<Reports />} />
+                            <Route path="/reports/:name" element={<ReportDetails />} />
                             <Route path="accounting/accruals" element={<RunAccruals />} />
                             <Route path="accounting/closures" element={<GlClosures />} />
                             <Route path="accounting/closures/:id" element={<GlClosureDetails />} />
