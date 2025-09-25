@@ -94,7 +94,7 @@ import TaxComponentList from "./pages/taxes/TaxComponentList";
 import TaxComponentCreate from "./pages/taxes/TaxComponentCreate";
 import TaxComponentEdit from "./pages/taxes/TaxComponentEdit";
 import Funds from "./pages/funds/Funds";
-import Users from "./pages/users/users";
+import Users from "./pages/users/Users";
 import Roles from "./pages/admin/Roles";
 import Permissions from "./pages/admin/Permissions";
 import CollectionSheet from "./pages/funds/CollectionSheet";
