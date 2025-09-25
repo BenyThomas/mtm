@@ -1,37 +1,41 @@
-# Build
+# ---------- Build stage ----------
 FROM node:20-alpine AS build
 WORKDIR /app
+
+# Native deps for node modules that compile binaries
+RUN apk add --no-cache python3 make g++ git
+
+# Install deps first for better caching
 COPY package*.json ./
-RUN npm ci
-# Point your app to the public Fineract URL to avoid CORS
-ARG VITE_API_BASE=https://fineract.kazy.co.tz/fineract-provider
-ENV VITE_API_BASE=$VITE_API_BASE
+RUN npm ci || npm install
+
+# --- Vite envs (match your .env naming!) ---
+# These ENV vars are read by Vite at build time as import.meta.env.VITE_*
+ARG VITE_API_URL=https://fineract.kazy.co.tz/fineract-provider
+ARG VITE_TENANT=default
+ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_TENANT=$VITE_TENANT
+
+# Increase memory for large builds (optional)
+ENV NODE_OPTIONS="--max_old_space_size=1536"
+
+# Copy source (includes .env so defaults also exist)
 COPY . .
+
+# Debug in CI logs
+RUN echo ">>> VITE_API_URL=${VITE_API_URL}" && echo ">>> VITE_TENANT=${VITE_TENANT}"
+
+# Build
 RUN npm run build
 
-# Serve
+# ---------- Runtime stage ----------
 FROM nginx:1.27-alpine
+# Replace default site
+RUN rm -f /etc/nginx/conf.d/default.conf || true
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Static SPA
 COPY --from=build /app/dist /usr/share/nginx/html
-# history fallback + basic security headers
-RUN <<'NGINXCONF' cat >/etc/nginx/conf.d/default.conf
-server {
-  listen 80 default_server;
-  server_name _;
-  root /usr/share/nginx/html;
-  index index.html;
 
-  location / {
-    try_files $uri $uri/ /index.html;
-  }
-
-  # Optional: If you prefer /api proxy instead of VITE_API_BASE,
-  # uncomment the below and point client to /api
-  # location /api/ {
-  #   proxy_pass http://fineract-server.kazy-prod.svc.cluster.local:8080/fineract-provider/;
-  #   proxy_set_header Host $host;
-  #   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-  #   proxy_http_version 1.1;
-  #   proxy_set_header Connection "";
-  # }
-}
-NGINXCONF
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
