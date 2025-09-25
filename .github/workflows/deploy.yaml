@@ -7,53 +7,52 @@ permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: mtm-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    # If you stored secrets under an Environment (e.g., "prod"), uncomment:
-    # environment: prod
+    env:
+      VITE_API_URL: /api
+      VITE_TENANT: default
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Login to GHCR (uses GITHUB_TOKEN)
+      - name: Login to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Compute image tags (lowercased owner)
+      - name: Compute image tags
         id: img
         run: |
           OWNER_LC="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
-          echo "owner_lc=$OWNER_LC" >> $GITHUB_OUTPUT
           echo "image=ghcr.io/${OWNER_LC}/mtm:${GITHUB_SHA}" >> $GITHUB_OUTPUT
           echo "image_latest=ghcr.io/${OWNER_LC}/mtm:main" >> $GITHUB_OUTPUT
-
-      - name: Set API base (fallback to Fineract prod URL)
-        run: |
-          API="${{ vars.VITE_API_BASE }}"
-          if [ -z "$API" ]; then API="https://fineract.kazy.co.tz/fineract-provider"; fi
-          echo "API_BASE=$API" >> $GITHUB_ENV
 
       - name: Build & Push image
         uses: docker/build-push-action@v6
         with:
           context: .
           build-args: |
-            VITE_API_BASE=${{ env.API_BASE }}
+            VITE_API_URL=${{ env.VITE_API_URL }}
+            VITE_TENANT=${{ env.VITE_TENANT }}
           push: true
           tags: |
             ${{ steps.img.outputs.image }}
             ${{ steps.img.outputs.image_latest }}
 
-      # Optional preflight to fail early if a secret is missing
-      - name: Preflight secrets check
+      # Optional: debug SSH before rollout
+      - name: Debug SSH (temporary)
         run: |
-          [ -n "${{ secrets.SSH_HOST }}" ] || (echo "SSH_HOST missing" && exit 1)
-          [ -n "${{ secrets.SSH_USER }}" ] || (echo "SSH_USER missing" && exit 1)
-          [ -n "${{ secrets.SSH_KEY }}"  ] || (echo "SSH_KEY missing"  && exit 1)
+          echo "${{ secrets.SSH_KEY }}" > id_ci
+          chmod 600 id_ci
+          ssh -o StrictHostKeyChecking=no -i id_ci ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "whoami && hostname"
 
       - name: Roll out to MicroK8s
         uses: appleboy/ssh-action@v1.2.0
@@ -62,5 +61,5 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key:      ${{ secrets.SSH_KEY }}
           script: |
-            sudo microk8s kubectl -n kazy-prod set image deploy/mtm-web web=${{ steps.img.outputs.image }}
-            sudo microk8s kubectl -n kazy-prod rollout status deploy/mtm-web --timeout=5m
+            sudo /snap/bin/microk8s.kubectl -n kazy-prod set image deploy/mtm-web web=${{ steps.img.outputs.image }}
+            sudo /snap/bin/microk8s.kubectl -n kazy-prod rollout status deploy/mtm-web --timeout=5m
