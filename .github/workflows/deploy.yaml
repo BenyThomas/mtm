@@ -15,7 +15,7 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     env:
-      VITE_API_URL: /api
+      VITE_API_URL: https://fineract.kazy.co.tz/fineract-provider
       VITE_TENANT: default
 
     steps:
