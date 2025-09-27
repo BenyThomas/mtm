@@ -6,7 +6,7 @@ metadata:
   annotations:
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
     nginx.ingress.kubernetes.io/use-regex: "true"
-    nginx.ingress.kubernetes.io/rewrite-target: /fineract-provider/$2
+    nginx.ingress.kubernetes.io/rewrite-target: /fineract-provider/api/$2
 spec:
   ingressClassName: public
   tls:
@@ -24,7 +24,7 @@ spec:
                 port:
                   number: 80
           - path: /api(/|$)(.*)
-            pathType: ImplementationSpecific   # regex path -> use ImplementationSpecific
+            pathType: ImplementationSpecific
             backend:
               service:
                 name: fineract-server
