@@ -14,6 +14,8 @@ import ClientAddresses from './ClientAddresses';
 import ClientIdentifiers from './ClientIdentifiers';
 import ClientTransactions from './ClientTransactions';
 import ClientCollaterals from "./ClientCollaterals";
+import LoanTab from "./LoanTab";
+import ClientFamilyMembersTab from "../ClientFamilyMembersTab";
 
 const statusTone = (s) => {
     const code = s?.code || s?.value || '';
@@ -109,6 +111,7 @@ const ClientProfile = () => {
                     { key: 'timeline', label: 'Timeline' },
                     { key: 'charges', label: 'Charges' },
                     { key: 'address', label: 'Address' },
+                    { key: 'family', label: 'Family' },
                     // NEW:
                     { key: 'identifiers', label: 'Identifiers' },
                     { key: 'transactions', label: 'Transactions' },
@@ -140,12 +143,14 @@ const ClientProfile = () => {
                         </div>
                     </Card>
                 </div>
+                {/*389*/}
+                {/*667*/}
 
                 {/* Loans (placeholder) */}
                 <div data-tab="loans" className="space-y-4">
                     <Card>
                         <div className="text-sm text-gray-600 dark:text-gray-400">
-                            Loan accounts appear here (use your existing Loans tab implementation).
+                            <LoanTab clientId={id} />
                         </div>
                     </Card>
                 </div>
@@ -224,6 +229,9 @@ const ClientProfile = () => {
                 {/* NEW: Identifiers */}
                 <div data-tab="identifiers" className="space-y-4">
                     <ClientIdentifiers clientId={id} />
+                </div>
+                <div data-tab="family" className="space-y-4">
+                    <ClientFamilyMembersTab clientId={id} />
                 </div>
 
                 {/* NEW: Transactions */}

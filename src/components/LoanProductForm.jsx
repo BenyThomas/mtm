@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Card from './Card';
 import Button from './Button';
 import Skeleton from './Skeleton';
@@ -42,7 +42,29 @@ const FALLBACK_TEMPLATE = {
         { id: 3, value: 'Accrual (Periodic)' },
     ],
     transactionProcessingStrategyOptions: [
-        { id: 1, code: 'mifos-standard-strategy', name: 'Mifos Standard' },
+        { code: 'mifos-standard-strategy', name: 'Mifos Standard' },
+    ],
+
+    // Extras for features
+    loanScheduleTypeOptions: [
+        { id: 1, code: 'CUMULATIVE', value: 'Cumulative' },
+        { id: 2, code: 'PROGRESSIVE', value: 'Progressive' },
+    ],
+    loanScheduleProcessingTypeOptions: [
+        { id: 1, code: 'HORIZONTAL', value: 'Horizontal' },
+        { id: 2, code: 'VERTICAL', value: 'Vertical' },
+    ],
+    capitalizedIncomeCalculationTypeOptions: [{ id: 'FLAT', code: 'flat', value: 'Flat' }],
+    capitalizedIncomeStrategyOptions: [{ id: 'EQUAL_AMORTIZATION', code: 'equal', value: 'Equal amortization' }],
+    capitalizedIncomeTypeOptions: [
+        { id: 'FEE', value: 'Fee' },
+        { id: 'INTEREST', value: 'Interest' },
+    ],
+    buyDownFeeCalculationTypeOptions: [{ id: 'FLAT', value: 'Flat' }],
+    buyDownFeeStrategyOptions: [{ id: 'EQUAL_AMORTIZATION', value: 'Equal amortization' }],
+    buyDownFeeIncomeTypeOptions: [
+        { id: 'FEE', value: 'Fee' },
+        { id: 'INTEREST', value: 'Interest' },
     ],
     chargeOptions: [],
     accountingMappingOptions: {
@@ -51,15 +73,49 @@ const FALLBACK_TEMPLATE = {
         expenseAccountOptions: [],
         liabilityAccountOptions: [],
     },
+
+    // Recalculation option sets
+    interestRecalculationCompoundingTypeOptions: [
+        { id: 0, value: 'None' },
+        { id: 1, value: 'Interest' },
+        { id: 2, value: 'Fee' },
+        { id: 3, value: 'Fee and Interest' },
+    ],
+    interestRecalculationFrequencyTypeOptions: [
+        { id: 1, value: 'Same as repayment period' },
+        { id: 2, value: 'Daily' },
+        { id: 3, value: 'Weekly' },
+        { id: 4, value: 'Monthly' },
+    ],
+    rescheduleStrategyTypeOptions: [
+        { id: 1, value: 'Reschedule next repayments' },
+        { id: 2, value: 'Reduce number of installments' },
+        { id: 3, value: 'Reduce EMI amount' },
+        { id: 4, value: 'Adjust last, unpaid period' },
+    ],
+    preClosureInterestCalculationStrategyOptions: [
+        { id: 1, value: 'Till Pre-Close Date' },
+        { id: 2, value: 'Till Rest Frequency Date' },
+    ],
 };
 
 const numberOrUndefined = (v) =>
     v === '' || v === null || v === undefined ? undefined : Number(v);
 
+const SectionTitle = ({ icon, children, hint }) => (
+    <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+            <span className="text-lg">{icon}</span>
+            <div className="font-semibold">{children}</div>
+        </div>
+        {hint ? <span className="text-xs text-gray-500">{hint}</span> : null}
+    </div>
+);
+
 /**
  * Props:
  * - initial: existing product object (for edit)
- * - onSubmit: async (payload) => void  // parent calls POST/PUT
+ * - onSubmit: async (payload) => void
  * - submitting: boolean
  */
 const LoanProductForm = ({ initial, onSubmit, submitting }) => {
@@ -83,7 +139,7 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
         rateDefault: '',
         rateMax: '',
 
-        interestRateFrequencyType: 2, // Months default (safe fallback)
+        interestRateFrequencyType: 2, // Months default
 
         numRepaymentsMin: '',
         numRepaymentsDefault: '',
@@ -96,17 +152,21 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
         interestType: 0,
         interestCalculationPeriodType: 1,
 
-        daysInMonthType: 30, // common default
+        daysInMonthType: 30,
         daysInYearType: 365,
 
-        // ----- Strategy / Charges / Accounting -----
+        // Strategy / Charges / Accounting
         transactionProcessingStrategyId: '',
+
+        // Advanced allocation (only for advanced strategy)
+        fixedLength: '',
+        fixedPrincipalPercentagePerInstallment: '',
+
         chargeIds: [],
 
         accountingRule: 1, // 1=None, 2=Cash, 3=Accrual Periodic
 
         // GL mappings (required if accountingRule !== 1)
-        // Cash requires these
         fundSourceAccountId: '',
         loanPortfolioAccountId: '',
         interestOnLoanAccountId: '',
@@ -115,10 +175,47 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
         writeOffAccountId: '',
         overpaymentLiabilityAccountId: '',
 
-        // Accrual Periodic requires the above plus receivables
+        // Accrual Periodic
         receivableInterestAccountId: '',
         receivableFeeAccountId: '',
         receivablePenaltyAccountId: '',
+
+        // Feature toggles & dependent fields
+        // Down payment
+        enableDownPayment: false,
+        disbursedAmountPercentageForDownPayment: '',
+        enableAutoRepaymentForDownPayment: false,
+
+        // Capitalized income
+        enableIncomeCapitalization: false,
+        capitalizedIncomeCalculationType: 'FLAT',
+        capitalizedIncomeStrategy: 'EQUAL_AMORTIZATION',
+        capitalizedIncomeType: 'FEE',
+        incomeFromCapitalizationAccountId: '',
+
+        // Buy-down fee
+        enableBuyDownFee: false,
+        buyDownFeeCalculationType: 'FLAT',
+        buyDownFeeStrategy: 'EQUAL_AMORTIZATION',
+        buyDownFeeIncomeType: 'FEE',
+        incomeFromBuyDownAccountId: '',
+
+        // Loan schedule
+        loanScheduleType: 'CUMULATIVE',
+        loanScheduleProcessingType: 'HORIZONTAL',
+
+        // Interest Recalculation
+        isInterestRecalculationEnabled: false,
+        interestRecalculationCompoundingMethod: 0,       // enum id
+        rescheduleStrategyMethod: 1,                     // enum id
+        preClosureInterestCalculationStrategy: 1,        // enum id
+        recalculationCompoundingFrequencyType: 1,        // enum id
+        recalculationCompoundingFrequencyInterval: 1,    // number
+        recalculationRestFrequencyType: 1,               // enum id
+        recalculationRestFrequencyInterval: 1,           // number
+        disallowInterestCalculationOnPastDue: false,
+        allowCompoundingOnEod: false,
+        isCompoundingToBePostedAsTransaction: false,
     });
 
     const [errors, setErrors] = useState({});
@@ -132,62 +229,60 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                 const res = await api.get('/loanproducts/template');
                 if (!cancelled && res?.data) {
                     setTpl({
-                        currencyOptions:
-                            res.data.currencyOptions || FALLBACK_TEMPLATE.currencyOptions,
-                        amortizationTypeOptions:
-                            res.data.amortizationTypeOptions ||
-                            FALLBACK_TEMPLATE.amortizationTypeOptions,
-                        interestTypeOptions:
-                            res.data.interestTypeOptions || FALLBACK_TEMPLATE.interestTypeOptions,
-                        interestCalculationPeriodTypeOptions:
-                            res.data.interestCalculationPeriodTypeOptions ||
-                            FALLBACK_TEMPLATE.interestCalculationPeriodTypeOptions,
-                        repaymentFrequencyTypeOptions:
-                            res.data.repaymentFrequencyTypeOptions ||
-                            FALLBACK_TEMPLATE.repaymentFrequencyTypeOptions,
-                        interestRateFrequencyTypeOptions:
-                            res.data.interestRateFrequencyTypeOptions ||
-                            FALLBACK_TEMPLATE.interestRateFrequencyTypeOptions,
-                        daysInMonthTypeOptions:
-                            res.data.daysInMonthTypeOptions ||
-                            FALLBACK_TEMPLATE.daysInMonthTypeOptions,
-                        daysInYearTypeOptions:
-                            res.data.daysInYearTypeOptions ||
-                            FALLBACK_TEMPLATE.daysInYearTypeOptions,
-                        accountingRuleOptions:
-                            res.data.accountingRuleOptions ||
-                            FALLBACK_TEMPLATE.accountingRuleOptions,
-                        transactionProcessingStrategyOptions:
-                            res.data.transactionProcessingStrategyOptions ||
-                            FALLBACK_TEMPLATE.transactionProcessingStrategyOptions,
+                        currencyOptions: res.data.currencyOptions || FALLBACK_TEMPLATE.currencyOptions,
+                        amortizationTypeOptions: res.data.amortizationTypeOptions || FALLBACK_TEMPLATE.amortizationTypeOptions,
+                        interestTypeOptions: res.data.interestTypeOptions || FALLBACK_TEMPLATE.interestTypeOptions,
+                        interestCalculationPeriodTypeOptions: res.data.interestCalculationPeriodTypeOptions || FALLBACK_TEMPLATE.interestCalculationPeriodTypeOptions,
+                        repaymentFrequencyTypeOptions: res.data.repaymentFrequencyTypeOptions || FALLBACK_TEMPLATE.repaymentFrequencyTypeOptions,
+                        interestRateFrequencyTypeOptions: res.data.interestRateFrequencyTypeOptions || FALLBACK_TEMPLATE.interestRateFrequencyTypeOptions,
+                        daysInMonthTypeOptions: res.data.daysInMonthTypeOptions || FALLBACK_TEMPLATE.daysInMonthTypeOptions,
+                        daysInYearTypeOptions: res.data.daysInYearTypeOptions || FALLBACK_TEMPLATE.daysInYearTypeOptions,
+                        accountingRuleOptions: res.data.accountingRuleOptions || FALLBACK_TEMPLATE.accountingRuleOptions,
+                        transactionProcessingStrategyOptions: res.data.transactionProcessingStrategyOptions || FALLBACK_TEMPLATE.transactionProcessingStrategyOptions,
                         chargeOptions: res.data.chargeOptions || [],
-                        accountingMappingOptions:
-                            res.data.accountingMappingOptions ||
-                            FALLBACK_TEMPLATE.accountingMappingOptions,
+                        accountingMappingOptions: res.data.accountingMappingOptions || FALLBACK_TEMPLATE.accountingMappingOptions,
+
+                        // New option sets
+                        loanScheduleTypeOptions: res.data.loanScheduleTypeOptions || FALLBACK_TEMPLATE.loanScheduleTypeOptions,
+                        loanScheduleProcessingTypeOptions: res.data.loanScheduleProcessingTypeOptions || FALLBACK_TEMPLATE.loanScheduleProcessingTypeOptions,
+                        capitalizedIncomeCalculationTypeOptions: res.data.capitalizedIncomeCalculationTypeOptions || FALLBACK_TEMPLATE.capitalizedIncomeCalculationTypeOptions,
+                        capitalizedIncomeStrategyOptions: res.data.capitalizedIncomeStrategyOptions || FALLBACK_TEMPLATE.capitalizedIncomeStrategyOptions,
+                        capitalizedIncomeTypeOptions: res.data.capitalizedIncomeTypeOptions || FALLBACK_TEMPLATE.capitalizedIncomeTypeOptions,
+                        buyDownFeeCalculationTypeOptions: res.data.buyDownFeeCalculationTypeOptions || FALLBACK_TEMPLATE.buyDownFeeCalculationTypeOptions,
+                        buyDownFeeStrategyOptions: res.data.buyDownFeeStrategyOptions || FALLBACK_TEMPLATE.buyDownFeeStrategyOptions,
+                        buyDownFeeIncomeTypeOptions: res.data.buyDownFeeIncomeTypeOptions || FALLBACK_TEMPLATE.buyDownFeeIncomeTypeOptions,
+
+                        // Recalc sets
+                        interestRecalculationCompoundingTypeOptions:
+                            res.data.interestRecalculationCompoundingTypeOptions ||
+                            FALLBACK_TEMPLATE.interestRecalculationCompoundingTypeOptions,
+                        interestRecalculationFrequencyTypeOptions:
+                            res.data.interestRecalculationFrequencyTypeOptions ||
+                            FALLBACK_TEMPLATE.interestRecalculationFrequencyTypeOptions,
+                        rescheduleStrategyTypeOptions:
+                            res.data.rescheduleStrategyTypeOptions ||
+                            FALLBACK_TEMPLATE.rescheduleStrategyTypeOptions,
+                        preClosureInterestCalculationStrategyOptions:
+                            res.data.preClosureInterestCalculationStrategyOptions ||
+                            FALLBACK_TEMPLATE.preClosureInterestCalculationStrategyOptions,
                     });
 
                     // Default strategy if available and not in edit mode
                     if (!initial) {
-                        const firstStrat =
-                            (res.data.transactionProcessingStrategyOptions || [])[0];
-                        if (firstStrat?.id) {
+                        const firstStrat = res.data.transactionProcessingStrategyOptions?.[0];
+                        if (firstStrat?.code) {
                             setForm((f) => ({
                                 ...f,
-                                transactionProcessingStrategyId: firstStrat.id,
+                                transactionProcessingStrategyId: firstStrat.code,
                             }));
                         }
                     }
                 }
             } catch {
-                // keep fallbacks
                 if (!initial) {
-                    const firstStrat =
-                        FALLBACK_TEMPLATE.transactionProcessingStrategyOptions[0];
-                    if (firstStrat?.id) {
-                        setForm((f) => ({
-                            ...f,
-                            transactionProcessingStrategyId: firstStrat.id,
-                        }));
+                    const firstStrat = FALLBACK_TEMPLATE.transactionProcessingStrategyOptions[0];
+                    if (firstStrat?.code) {
+                        setForm((f) => ({ ...f, transactionProcessingStrategyId: firstStrat.code }));
                     }
                 }
             } finally {
@@ -201,96 +296,129 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
     useEffect(() => {
         if (!initial) return;
 
-        // charges might come as array of { id, name }
-        const initialChargeIds =
-            Array.isArray(initial.charges) && initial.charges.length
-                ? initial.charges.map((c) => String(c.id ?? c.chargeId ?? c))
-                : [];
+        const arrToIds = (arr) =>
+            Array.isArray(arr) ? arr.map((c) => String(c.id ?? c.chargeId ?? c)) : [];
 
-        // accounting mappings: try to read ids from typical keys
         const toId = (x) => (x && (x.id || x.accountId)) || '';
 
         setForm((f) => ({
             ...f,
             name: initial.name || '',
-            shortName:
-                initial.shortName || (initial.shortName === 0 ? '0' : initial.shortName) || '',
+            shortName: initial.shortName || '',
             currencyCode: initial.currency?.code || initial.currencyCode || f.currencyCode,
             digitsAfterDecimal:
-                initial.currency?.decimalPlaces ??
-                initial.digitsAfterDecimal ??
-                f.digitsAfterDecimal,
+                initial.currency?.decimalPlaces ?? initial.digitsAfterDecimal ?? f.digitsAfterDecimal,
 
-            principalMin:
-                initial.principal?.minimum ?? initial.minPrincipal ?? '',
+            principalMin: initial.principal?.minimum ?? initial.minPrincipal ?? '',
             principalDefault:
                 initial.principal?.default ?? initial.principal ?? initial.principalAmount ?? '',
-            principalMax:
-                initial.principal?.maximum ?? initial.maxPrincipal ?? '',
+            principalMax: initial.principal?.maximum ?? initial.maxPrincipal ?? '',
 
-            rateMin:
-                initial.interestRatePerPeriod?.minimum ?? initial.minInterestRatePerPeriod ?? '',
+            rateMin: initial.interestRatePerPeriod?.minimum ?? initial.minInterestRatePerPeriod ?? '',
             rateDefault:
                 initial.interestRatePerPeriod?.default ??
                 initial.interestRatePerPeriod ??
                 initial.interestRate ??
                 '',
-            rateMax:
-                initial.interestRatePerPeriod?.maximum ?? initial.maxInterestRatePerPeriod ?? '',
+            rateMax: initial.interestRatePerPeriod?.maximum ?? initial.maxInterestRatePerPeriod ?? '',
 
             interestRateFrequencyType:
                 initial.interestRateFrequencyType?.id ??
                 initial.interestRateFrequencyType ??
                 f.interestRateFrequencyType,
 
-            numRepaymentsMin:
-                initial.numberOfRepayments?.minimum ?? initial.minNumberOfRepayments ?? '',
-            numRepaymentsDefault:
-                initial.numberOfRepayments?.default ?? initial.numberOfRepayments ?? '',
-            numRepaymentsMax:
-                initial.numberOfRepayments?.maximum ?? initial.maxNumberOfRepayments ?? '',
+            numRepaymentsMin: initial.numberOfRepayments?.minimum ?? initial.minNumberOfRepayments ?? '',
+            numRepaymentsDefault: initial.numberOfRepayments?.default ?? initial.numberOfRepayments ?? '',
+            numRepaymentsMax: initial.numberOfRepayments?.maximum ?? initial.maxNumberOfRepayments ?? '',
 
             repaymentEvery: initial.repaymentEvery ?? 1,
             repaymentFrequencyType:
-                initial.repaymentFrequencyType?.id ??
-                initial.repaymentFrequencyType ??
-                2,
+                initial.repaymentFrequencyType?.id ?? initial.repaymentFrequencyType ?? 2,
 
-            amortizationType:
-                initial.amortizationType?.id ?? initial.amortizationType ?? 1,
-            interestType:
-                initial.interestType?.id ?? initial.interestType ?? 0,
+            amortizationType: initial.amortizationType?.id ?? initial.amortizationType ?? 1,
+            interestType: initial.interestType?.id ?? initial.interestType ?? 0,
             interestCalculationPeriodType:
                 initial.interestCalculationPeriodType?.id ??
                 initial.interestCalculationPeriodType ??
                 1,
 
-            daysInMonthType:
-                initial.daysInMonthType?.id ?? initial.daysInMonthType ?? 30,
-            daysInYearType:
-                initial.daysInYearType?.id ?? initial.daysInYearType ?? 365,
+            daysInMonthType: initial.daysInMonthType?.id ?? initial.daysInMonthType ?? 30,
+            daysInYearType: initial.daysInYearType?.id ?? initial.daysInYearType ?? 365,
 
+            // strategies
             transactionProcessingStrategyId:
-                initial.transactionProcessingStrategy?.id ??
-                initial.transactionProcessingStrategyId ??
+                initial.transactionProcessingStrategyCode ||
+                initial.transactionProcessingStrategy?.code ||
+                initial.transactionProcessingStrategyId ||
                 f.transactionProcessingStrategyId,
 
-            chargeIds: initialChargeIds,
+            // advanced allocation (if present)
+            fixedLength: initial.fixedLength ?? '',
+            fixedPrincipalPercentagePerInstallment:
+                initial.fixedPrincipalPercentagePerInstallment ?? '',
 
-            accountingRule:
-                initial.accountingRule?.id ?? initial.accountingRule ?? 1,
+            chargeIds: arrToIds(initial.charges),
 
-            fundSourceAccountId: toId(initial.fundSourceAccount),
-            loanPortfolioAccountId: toId(initial.loanPortfolioAccount),
-            interestOnLoanAccountId: toId(initial.interestOnLoanAccount),
-            incomeFromFeeAccountId: toId(initial.incomeFromFeeAccount),
-            incomeFromPenaltyAccountId: toId(initial.incomeFromPenaltyAccount),
-            writeOffAccountId: toId(initial.writeOffAccount),
-            overpaymentLiabilityAccountId: toId(initial.overpaymentLiabilityAccount),
+            // accounting
+            accountingRule: initial.accountingRule?.id ?? initial.accountingRule ?? 1,
 
-            receivableInterestAccountId: toId(initial.receivableInterestAccount),
-            receivableFeeAccountId: toId(initial.receivableFeeAccount),
-            receivablePenaltyAccountId: toId(initial.receivablePenaltyAccount),
+            fundSourceAccountId: toId(initial.fundSourceAccount) || initial.fundSourceAccountId || '',
+            loanPortfolioAccountId:
+                toId(initial.loanPortfolioAccount) || initial.loanPortfolioAccountId || '',
+            interestOnLoanAccountId:
+                toId(initial.interestOnLoanAccount) || initial.interestOnLoanAccountId || '',
+            incomeFromFeeAccountId:
+                toId(initial.incomeFromFeeAccount) || initial.incomeFromFeeAccountId || '',
+            incomeFromPenaltyAccountId:
+                toId(initial.incomeFromPenaltyAccount) || initial.incomeFromPenaltyAccountId || '',
+            writeOffAccountId: toId(initial.writeOffAccount) || initial.writeOffAccountId || '',
+            overpaymentLiabilityAccountId:
+                toId(initial.overpaymentLiabilityAccount) || initial.overpaymentLiabilityAccountId || '',
+
+            receivableInterestAccountId:
+                toId(initial.receivableInterestAccount) || initial.receivableInterestAccountId || '',
+            receivableFeeAccountId:
+                toId(initial.receivableFeeAccount) || initial.receivableFeeAccountId || '',
+            receivablePenaltyAccountId:
+                toId(initial.receivablePenaltyAccount) || initial.receivablePenaltyAccountId || '',
+
+            // toggles + dependent fields
+            enableDownPayment: Boolean(initial.enableDownPayment),
+            disbursedAmountPercentageForDownPayment:
+                initial.disbursedAmountPercentageForDownPayment ?? '',
+            enableAutoRepaymentForDownPayment: Boolean(initial.enableAutoRepaymentForDownPayment),
+
+            enableIncomeCapitalization: Boolean(initial.enableIncomeCapitalization),
+            capitalizedIncomeCalculationType:
+                initial.capitalizedIncomeCalculationType || f.capitalizedIncomeCalculationType,
+            capitalizedIncomeStrategy:
+                initial.capitalizedIncomeStrategy || f.capitalizedIncomeStrategy,
+            capitalizedIncomeType: initial.capitalizedIncomeType || f.capitalizedIncomeType,
+            incomeFromCapitalizationAccountId:
+                initial.incomeFromCapitalizationAccountId || '',
+
+            enableBuyDownFee: Boolean(initial.enableBuyDownFee),
+            buyDownFeeCalculationType: initial.buyDownFeeCalculationType || f.buyDownFeeCalculationType,
+            buyDownFeeStrategy: initial.buyDownFeeStrategy || f.buyDownFeeStrategy,
+            buyDownFeeIncomeType: initial.buyDownFeeIncomeType || f.buyDownFeeIncomeType,
+            incomeFromBuyDownAccountId: initial.incomeFromBuyDownAccountId || '',
+
+            loanScheduleType: initial.loanScheduleType || f.loanScheduleType,
+            loanScheduleProcessingType:
+                initial.loanScheduleProcessingType || f.loanScheduleProcessingType,
+
+            // Interest Recalculation
+            isInterestRecalculationEnabled: Boolean(initial.isInterestRecalculationEnabled),
+            interestRecalculationCompoundingMethod: initial.interestRecalculationCompoundingMethod ?? 0,
+            rescheduleStrategyMethod: initial.rescheduleStrategyMethod ?? 1,
+            preClosureInterestCalculationStrategy: initial.preClosureInterestCalculationStrategy ?? 1,
+            recalculationCompoundingFrequencyType: initial.recalculationCompoundingFrequencyType ?? 1,
+            recalculationCompoundingFrequencyInterval: initial.recalculationCompoundingFrequencyInterval ?? 1,
+            recalculationRestFrequencyType: initial.recalculationRestFrequencyType ?? 1,
+            recalculationRestFrequencyInterval: initial.recalculationRestFrequencyInterval ?? 1,
+            disallowInterestCalculationOnPastDue: Boolean(initial.disallowInterestCalculationOnPastDue),
+            allowCompoundingOnEod: Boolean(initial.allowCompoundingOnEod),
+            isCompoundingToBePostedAsTransaction: Boolean(initial.isCompoundingToBePostedAsTransaction),
         }));
     }, [initial]);
 
@@ -301,6 +429,7 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
 
     const isAccountingEnabled = Number(form.accountingRule) !== 1;
     const isAccrual = Number(form.accountingRule) === 3;
+    const isAdvancedAlloc = form.transactionProcessingStrategyId === 'advanced-payment-allocation-strategy';
 
     // ---------- Validation ----------
     const validate = () => {
@@ -322,8 +451,34 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
             e.transactionProcessingStrategyId = 'Processing strategy is required';
         }
 
+        if (isAdvancedAlloc) {
+            if (form.fixedLength === '') e.fixedLength = 'Required';
+            if (form.fixedPrincipalPercentagePerInstallment === '')
+                e.fixedPrincipalPercentagePerInstallment = 'Required';
+        }
+
+        if (form.enableDownPayment) {
+            if (
+                form.disbursedAmountPercentageForDownPayment === '' ||
+                Number(form.disbursedAmountPercentageForDownPayment) < 0
+            ) {
+                e.disbursedAmountPercentageForDownPayment = 'Percent is required';
+            }
+        }
+
+        if (form.enableIncomeCapitalization && isAccountingEnabled) {
+            if (!form.incomeFromCapitalizationAccountId) {
+                e.incomeFromCapitalizationAccountId = 'Required (Accounting enabled)';
+            }
+        }
+
+        if (form.enableBuyDownFee && isAccountingEnabled) {
+            if (!form.incomeFromBuyDownAccountId) {
+                e.incomeFromBuyDownAccountId = 'Required (Accounting enabled)';
+            }
+        }
+
         if (isAccountingEnabled) {
-            // Cash & Accrual both require these:
             [
                 'fundSourceAccountId',
                 'loanPortfolioAccountId',
@@ -378,7 +533,12 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
             daysInMonthType: Number(form.daysInMonthType),
             daysInYearType: Number(form.daysInYearType),
 
-            transactionProcessingStrategyId: Number(form.transactionProcessingStrategyId),
+            // strategy by code
+            transactionProcessingStrategyCode: form.transactionProcessingStrategyId || undefined,
+
+            // loan schedule
+            loanScheduleType: form.loanScheduleType,
+            loanScheduleProcessingType: form.loanScheduleProcessingType,
 
             charges: (form.chargeIds || []).map((id) => ({ id: Number(id) })),
 
@@ -387,6 +547,74 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
             locale: 'en',
         };
 
+        // --- ALWAYS include this flag (fix) ---
+        payload.isInterestRecalculationEnabled = Boolean(form.isInterestRecalculationEnabled);
+
+        // Include recalculation details only when enabled (independent of accounting)
+        if (form.isInterestRecalculationEnabled) {
+            payload.interestRecalculationCompoundingMethod = Number(form.interestRecalculationCompoundingMethod);
+            payload.rescheduleStrategyMethod = Number(form.rescheduleStrategyMethod);
+            payload.preClosureInterestCalculationStrategy = Number(form.preClosureInterestCalculationStrategy);
+
+            payload.recalculationCompoundingFrequencyType = Number(form.recalculationCompoundingFrequencyType);
+            payload.recalculationCompoundingFrequencyInterval = numberOrUndefined(form.recalculationCompoundingFrequencyInterval);
+
+            payload.recalculationRestFrequencyType = Number(form.recalculationRestFrequencyType);
+            payload.recalculationRestFrequencyInterval = numberOrUndefined(form.recalculationRestFrequencyInterval);
+
+            payload.disallowInterestCalculationOnPastDue = Boolean(form.disallowInterestCalculationOnPastDue);
+            payload.allowCompoundingOnEod = Boolean(form.allowCompoundingOnEod);
+            payload.isCompoundingToBePostedAsTransaction = Boolean(form.isCompoundingToBePostedAsTransaction);
+        }
+
+        // Advanced Payment Allocation exclusive fields
+        if (isAdvancedAlloc) {
+            payload.fixedLength = numberOrUndefined(form.fixedLength);
+            payload.fixedPrincipalPercentagePerInstallment =
+                numberOrUndefined(form.fixedPrincipalPercentagePerInstallment);
+        }
+
+        // Down payment
+        if (form.enableDownPayment) {
+            payload.enableDownPayment = true;
+            payload.disbursedAmountPercentageForDownPayment =
+                numberOrUndefined(form.disbursedAmountPercentageForDownPayment);
+            payload.enableAutoRepaymentForDownPayment = Boolean(
+                form.enableAutoRepaymentForDownPayment
+            );
+        } else {
+            payload.enableDownPayment = false;
+        }
+
+        // Capitalized income
+        if (form.enableIncomeCapitalization) {
+            payload.enableIncomeCapitalization = true;
+            payload.capitalizedIncomeCalculationType = form.capitalizedIncomeCalculationType;
+            payload.capitalizedIncomeStrategy = form.capitalizedIncomeStrategy;
+            payload.capitalizedIncomeType = form.capitalizedIncomeType;
+            if (isAccountingEnabled && form.incomeFromCapitalizationAccountId) {
+                payload.incomeFromCapitalizationAccountId = Number(
+                    form.incomeFromCapitalizationAccountId
+                );
+            }
+        } else {
+            payload.enableIncomeCapitalization = false;
+        }
+
+        // Buy-down fee
+        if (form.enableBuyDownFee) {
+            payload.enableBuyDownFee = true;
+            payload.buyDownFeeCalculationType = form.buyDownFeeCalculationType;
+            payload.buyDownFeeStrategy = form.buyDownFeeStrategy;
+            payload.buyDownFeeIncomeType = form.buyDownFeeIncomeType;
+            if (isAccountingEnabled && form.incomeFromBuyDownAccountId) {
+                payload.incomeFromBuyDownAccountId = Number(form.incomeFromBuyDownAccountId);
+            }
+        } else {
+            payload.enableBuyDownFee = false;
+        }
+
+        // Accounting mappings (only when accounting enabled)
         if (isAccountingEnabled) {
             payload.fundSourceAccountId = Number(form.fundSourceAccountId);
             payload.loanPortfolioAccountId = Number(form.loanPortfolioAccountId);
@@ -430,6 +658,16 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
         transactionProcessingStrategyOptions,
         chargeOptions,
         accountingMappingOptions,
+
+        // new sets
+        loanScheduleTypeOptions,
+        loanScheduleProcessingTypeOptions,
+        capitalizedIncomeCalculationTypeOptions,
+        capitalizedIncomeStrategyOptions,
+        capitalizedIncomeTypeOptions,
+        buyDownFeeCalculationTypeOptions,
+        buyDownFeeStrategyOptions,
+        buyDownFeeIncomeTypeOptions,
     } = tpl;
 
     const assets = accountingMappingOptions?.assetAccountOptions || [];
@@ -437,7 +675,8 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
     const expenses = accountingMappingOptions?.expenseAccountOptions || [];
     const liability = accountingMappingOptions?.liabilityAccountOptions || [];
 
-    const acctOptionLabel = (a) => `${a.glCode || a.code || ''} ${a.name ? `— ${a.name}` : ''}`.trim();
+    const acctOptionLabel = (a) =>
+        `${a.glCode || a.code || ''} ${a.name ? `— ${a.name}` : ''}`.trim();
 
     if (loading) {
         return (
@@ -451,6 +690,9 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
         <form onSubmit={handleSubmit} className="space-y-6">
             {/* Basics */}
             <Card>
+                <SectionTitle icon="📄" hint="Core details">
+                    Basics
+                </SectionTitle>
                 <div className="grid md:grid-cols-2 gap-4">
                     <div>
                         <label className="block text-sm font-medium">Name *</label>
@@ -502,7 +744,7 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
 
             {/* Principal */}
             <Card>
-                <div className="font-semibold mb-2">Principal</div>
+                <SectionTitle icon="💰">Principal</SectionTitle>
                 <div className="grid md:grid-cols-3 gap-4">
                     <div>
                         <label className="block text-sm font-medium">Min</label>
@@ -540,7 +782,7 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
 
             {/* Interest */}
             <Card>
-                <div className="font-semibold mb-2">Interest Rate</div>
+                <SectionTitle icon="📈">Interest Rate</SectionTitle>
                 <div className="grid md:grid-cols-4 gap-4">
                     <div>
                         <label className="block text-sm font-medium">Min (%)</label>
@@ -594,7 +836,7 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
 
             {/* Repayments */}
             <Card>
-                <div className="font-semibold mb-2">Repayments</div>
+                <SectionTitle icon="🗓️">Repayments</SectionTitle>
                 <div className="grid md:grid-cols-3 gap-4">
                     <div>
                         <label className="block text-sm font-medium">Min # of Repayments</label>
@@ -615,7 +857,9 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                             onChange={(e) => setField('numRepaymentsDefault', e.target.value)}
                             className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                         />
-                        {errors.numRepaymentsDefault && <p className="text-xs text-red-500 mt-1">{errors.numRepaymentsDefault}</p>}
+                        {errors.numRepaymentsDefault && (
+                            <p className="text-xs text-red-500 mt-1">{errors.numRepaymentsDefault}</p>
+                        )}
                     </div>
                     <div>
                         <label className="block text-sm font-medium">Max # of Repayments</label>
@@ -639,7 +883,9 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                             onChange={(e) => setField('repaymentEvery', e.target.value)}
                             className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                         />
-                        {errors.repaymentEvery && <p className="text-xs text-red-500 mt-1">{errors.repaymentEvery}</p>}
+                        {errors.repaymentEvery && (
+                            <p className="text-xs text-red-500 mt-1">{errors.repaymentEvery}</p>
+                        )}
                     </div>
                     <div>
                         <label className="block text-sm font-medium">Frequency *</label>
@@ -702,31 +948,32 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                     </div>
                 </div>
 
+                {/* Loan Schedule */}
                 <div className="grid md:grid-cols-2 gap-4 mt-4">
                     <div>
-                        <label className="block text-sm font-medium">Days in Month</label>
+                        <label className="block text-sm font-medium">Loan Schedule Type</label>
                         <select
-                            value={form.daysInMonthType}
-                            onChange={(e) => setField('daysInMonthType', e.target.value)}
+                            value={form.loanScheduleType}
+                            onChange={(e) => setField('loanScheduleType', e.target.value)}
                             className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                         >
-                            {daysInMonthTypeOptions.map((o) => (
-                                <option key={o.id || o.value} value={o.id || o.value}>
-                                    {o.value || o.name}
+                            {(loanScheduleTypeOptions || []).map((o) => (
+                                <option key={o.code || o.value} value={o.code || o.value}>
+                                    {o.value || o.code}
                                 </option>
                             ))}
                         </select>
                     </div>
                     <div>
-                        <label className="block text-sm font-medium">Days in Year</label>
+                        <label className="block text-sm font-medium">Schedule Processing</label>
                         <select
-                            value={form.daysInYearType}
-                            onChange={(e) => setField('daysInYearType', e.target.value)}
+                            value={form.loanScheduleProcessingType}
+                            onChange={(e) => setField('loanScheduleProcessingType', e.target.value)}
                             className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                         >
-                            {daysInYearTypeOptions.map((o) => (
-                                <option key={o.id || o.value} value={o.id || o.value}>
-                                    {o.value || o.name}
+                            {(loanScheduleProcessingTypeOptions || []).map((o) => (
+                                <option key={o.code || o.value} value={o.code || o.value}>
+                                    {o.value || o.code}
                                 </option>
                             ))}
                         </select>
@@ -734,8 +981,146 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                 </div>
             </Card>
 
+            {/* Interest Recalculation */}
+            <Card>
+                <div className="flex items-center justify-between mb-3">
+                    <div className="font-semibold">Interest Recalculation</div>
+                    <label className="inline-flex items-center gap-2 text-sm">
+                        <input
+                            type="checkbox"
+                            checked={form.isInterestRecalculationEnabled}
+                            onChange={(e) => setField('isInterestRecalculationEnabled', e.target.checked)}
+                        />
+                        <span>Enable</span>
+                    </label>
+                </div>
+
+                {form.isInterestRecalculationEnabled && (
+                    <div className="grid md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium">Compounding Method</label>
+                            <select
+                                value={form.interestRecalculationCompoundingMethod}
+                                onChange={(e) => setField('interestRecalculationCompoundingMethod', e.target.value)}
+                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                            >
+                                {(tpl.interestRecalculationCompoundingTypeOptions || []).map((o) => (
+                                    <option key={o.id} value={o.id}>{o.value}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium">Reschedule Strategy</label>
+                            <select
+                                value={form.rescheduleStrategyMethod}
+                                onChange={(e) => setField('rescheduleStrategyMethod', e.target.value)}
+                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                            >
+                                {(tpl.rescheduleStrategyTypeOptions || []).map((o) => (
+                                    <option key={o.id} value={o.id}>{o.value}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium">Pre-Closure Interest Strategy</label>
+                            <select
+                                value={form.preClosureInterestCalculationStrategy}
+                                onChange={(e) => setField('preClosureInterestCalculationStrategy', e.target.value)}
+                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                            >
+                                {(tpl.preClosureInterestCalculationStrategyOptions || []).map((o) => (
+                                    <option key={o.id} value={o.id}>{o.value}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium">Compounding Freq. Type</label>
+                                <select
+                                    value={form.recalculationCompoundingFrequencyType}
+                                    onChange={(e) => setField('recalculationCompoundingFrequencyType', e.target.value)}
+                                    className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                                >
+                                    {(tpl.interestRecalculationFrequencyTypeOptions || []).map((o) => (
+                                        <option key={o.id} value={o.id}>{o.value}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium">Compounding Interval</label>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    value={form.recalculationCompoundingFrequencyInterval}
+                                    onChange={(e) => setField('recalculationCompoundingFrequencyInterval', e.target.value)}
+                                    className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium">Rest Freq. Type</label>
+                                <select
+                                    value={form.recalculationRestFrequencyType}
+                                    onChange={(e) => setField('recalculationRestFrequencyType', e.target.value)}
+                                    className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                                >
+                                    {(tpl.interestRecalculationFrequencyTypeOptions || []).map((o) => (
+                                        <option key={o.id} value={o.id}>{o.value}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium">Rest Interval</label>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    value={form.recalculationRestFrequencyInterval}
+                                    onChange={(e) => setField('recalculationRestFrequencyInterval', e.target.value)}
+                                    className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="grid md:grid-cols-3 gap-4 pt-2">
+                            <label className="inline-flex items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    checked={form.disallowInterestCalculationOnPastDue}
+                                    onChange={(e) => setField('disallowInterestCalculationOnPastDue', e.target.checked)}
+                                />
+                                <span className="text-sm">Disallow interest on past due</span>
+                            </label>
+                            <label className="inline-flex items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    checked={form.allowCompoundingOnEod}
+                                    onChange={(e) => setField('allowCompoundingOnEod', e.target.checked)}
+                                />
+                                <span className="text-sm">Allow compounding on EOD</span>
+                            </label>
+                            <label className="inline-flex items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    checked={form.isCompoundingToBePostedAsTransaction}
+                                    onChange={(e) => setField('isCompoundingToBePostedAsTransaction', e.target.checked)}
+                                />
+                                <span className="text-sm">Post compounding as transaction</span>
+                            </label>
+                        </div>
+                    </div>
+                )}
+            </Card>
+
             {/* Processing Strategy & Charges */}
             <Card>
+                <SectionTitle icon="⚙️" hint="Affects allocation & special fields">
+                    Processing Strategy & Charges
+                </SectionTitle>
                 <div className="grid md:grid-cols-2 gap-4">
                     <div>
                         <label className="block text-sm font-medium">Transaction Processing Strategy *</label>
@@ -746,8 +1131,8 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                         >
                             <option value="">Select strategy</option>
                             {transactionProcessingStrategyOptions.map((s) => (
-                                <option key={s.id} value={s.id}>
-                                    {s.name || s.code || `Strategy ${s.id}`}
+                                <option key={s.code} value={s.code}>
+                                    {s.name || s.code}
                                 </option>
                             ))}
                         </select>
@@ -789,11 +1174,254 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                         </div>
                     </div>
                 </div>
+
+                {/* Advanced allocation panel (conditional) */}
+                {isAdvancedAlloc && (
+                    <div className="mt-4 rounded-md border p-4 bg-gray-50 dark:bg-gray-800 dark:border-gray-700">
+                        <div className="text-sm font-medium mb-2">Advanced Payment Allocation</div>
+                        <div className="grid md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium">Fixed Length *</label>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    value={form.fixedLength}
+                                    onChange={(e) => setField('fixedLength', e.target.value)}
+                                    className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                                />
+                                {errors.fixedLength && <p className="text-xs text-red-500 mt-1">{errors.fixedLength}</p>}
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium">Fixed Principal % / Installment *</label>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value={form.fixedPrincipalPercentagePerInstallment}
+                                    onChange={(e) => setField('fixedPrincipalPercentagePerInstallment', e.target.value)}
+                                    className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                                />
+                                {errors.fixedPrincipalPercentagePerInstallment && (
+                                    <p className="text-xs text-red-500 mt-1">
+                                        {errors.fixedPrincipalPercentagePerInstallment}
+                                    </p>
+                                )}
+                            </div>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-2">
+                            These fields are only valid with the <code>advanced-payment-allocation-strategy</code>.
+                        </p>
+                    </div>
+                )}
+            </Card>
+
+            {/* Feature Toggles */}
+            <Card>
+                <SectionTitle icon="🧩">Optional Features</SectionTitle>
+
+                {/* Down Payment */}
+                <div className="rounded-md border p-4 mb-4 dark:border-gray-700">
+                    <label className="inline-flex items-center gap-2">
+                        <input
+                            type="checkbox"
+                            checked={form.enableDownPayment}
+                            onChange={(e) => setField('enableDownPayment', e.target.checked)}
+                        />
+                        <span className="text-sm font-medium">Enable Down Payment</span>
+                    </label>
+
+                    {form.enableDownPayment && (
+                        <div className="grid md:grid-cols-2 gap-4 mt-3">
+                            <div>
+                                <label className="block text-sm font-medium">% of Disbursed Amount *</label>
+                                <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={form.disbursedAmountPercentageForDownPayment}
+                                    onChange={(e) => setField('disbursedAmountPercentageForDownPayment', e.target.value)}
+                                    className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                                />
+                                {errors.disbursedAmountPercentageForDownPayment && (
+                                    <p className="text-xs text-red-500 mt-1">
+                                        {errors.disbursedAmountPercentageForDownPayment}
+                                    </p>
+                                )}
+                            </div>
+                            <div className="flex items-end">
+                                <label className="inline-flex items-center gap-2">
+                                    <input
+                                        type="checkbox"
+                                        checked={form.enableAutoRepaymentForDownPayment}
+                                        onChange={(e) => setField('enableAutoRepaymentForDownPayment', e.target.checked)}
+                                    />
+                                    <span className="text-sm">Auto-repay Down Payment</span>
+                                </label>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Income Capitalization */}
+                <div className="rounded-md border p-4 mb-4 dark:border-gray-700">
+                    <label className="inline-flex items-center gap-2">
+                        <input
+                            type="checkbox"
+                            checked={form.enableIncomeCapitalization}
+                            onChange={(e) => setField('enableIncomeCapitalization', e.target.checked)}
+                        />
+                        <span className="text-sm font-medium">Enable Income Capitalization</span>
+                    </label>
+
+                    {form.enableIncomeCapitalization && (
+                        <div className="grid md:grid-cols-2 gap-4 mt-3">
+                            <div>
+                                <label className="block text-sm font-medium">Calculation</label>
+                                <select
+                                    value={form.capitalizedIncomeCalculationType}
+                                    onChange={(e) => setField('capitalizedIncomeCalculationType', e.target.value)}
+                                    className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                                >
+                                    {(capitalizedIncomeCalculationTypeOptions || []).map((o) => (
+                                        <option key={o.id || o.value} value={o.id || o.value}>
+                                            {o.value || o.id}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium">Strategy</label>
+                                <select
+                                    value={form.capitalizedIncomeStrategy}
+                                    onChange={(e) => setField('capitalizedIncomeStrategy', e.target.value)}
+                                    className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                                >
+                                    {(capitalizedIncomeStrategyOptions || []).map((o) => (
+                                        <option key={o.id || o.value} value={o.id || o.value}>
+                                            {o.value || o.id}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium">Type</label>
+                                <select
+                                    value={form.capitalizedIncomeType}
+                                    onChange={(e) => setField('capitalizedIncomeType', e.target.value)}
+                                    className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                                >
+                                    {(capitalizedIncomeTypeOptions || []).map((o) => (
+                                        <option key={o.id || o.value} value={o.id || o.value}>
+                                            {o.value || o.id}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {isAccountingEnabled && (
+                                <div>
+                                    <label className="block text-sm font-medium">Income from Capitalization (Income) *</label>
+                                    <select
+                                        value={form.incomeFromCapitalizationAccountId}
+                                        onChange={(e) => setField('incomeFromCapitalizationAccountId', e.target.value)}
+                                        className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                                    >
+                                        <option value="">Select</option>
+                                        {income.map((a) => (
+                                            <option key={a.id} value={a.id}>{acctOptionLabel(a)}</option>
+                                        ))}
+                                    </select>
+                                    {errors.incomeFromCapitalizationAccountId && (
+                                        <p className="text-xs text-red-500 mt-1">{errors.incomeFromCapitalizationAccountId}</p>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+
+                {/* Buy-Down Fee */}
+                <div className="rounded-md border p-4 dark:border-gray-700">
+                    <label className="inline-flex items-center gap-2">
+                        <input
+                            type="checkbox"
+                            checked={form.enableBuyDownFee}
+                            onChange={(e) => setField('enableBuyDownFee', e.target.checked)}
+                        />
+                        <span className="text-sm font-medium">Enable Buy-Down Fee</span>
+                    </label>
+
+                    {form.enableBuyDownFee && (
+                        <div className="grid md:grid-cols-2 gap-4 mt-3">
+                            <div>
+                                <label className="block text-sm font-medium">Calculation</label>
+                                <select
+                                    value={form.buyDownFeeCalculationType}
+                                    onChange={(e) => setField('buyDownFeeCalculationType', e.target.value)}
+                                    className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                                >
+                                    {(buyDownFeeCalculationTypeOptions || []).map((o) => (
+                                        <option key={o.id || o.value} value={o.id || o.value}>
+                                            {o.value || o.id}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium">Strategy</label>
+                                <select
+                                    value={form.buyDownFeeStrategy}
+                                    onChange={(e) => setField('buyDownFeeStrategy', e.target.value)}
+                                    className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                                >
+                                    {(buyDownFeeStrategyOptions || []).map((o) => (
+                                        <option key={o.id || o.value} value={o.id || o.value}>
+                                            {o.value || o.id}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium">Income Type</label>
+                                <select
+                                    value={form.buyDownFeeIncomeType}
+                                    onChange={(e) => setField('buyDownFeeIncomeType', e.target.value)}
+                                    className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                                >
+                                    {(buyDownFeeIncomeTypeOptions || []).map((o) => (
+                                        <option key={o.id || o.value} value={o.id || o.value}>
+                                            {o.value || o.id}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {isAccountingEnabled && (
+                                <div>
+                                    <label className="block text-sm font-medium">Income from Buy-Down (Income) *</label>
+                                    <select
+                                        value={form.incomeFromBuyDownAccountId}
+                                        onChange={(e) => setField('incomeFromBuyDownAccountId', e.target.value)}
+                                        className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                                    >
+                                        <option value="">Select</option>
+                                        {income.map((a) => (
+                                            <option key={a.id} value={a.id}>{acctOptionLabel(a)}</option>
+                                        ))}
+                                    </select>
+                                    {errors.incomeFromBuyDownAccountId && (
+                                        <p className="text-xs text-red-500 mt-1">{errors.incomeFromBuyDownAccountId}</p>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
             </Card>
 
             {/* Accounting */}
             <Card>
-                <div className="font-semibold mb-2">Accounting</div>
+                <SectionTitle icon="📚" hint="Shown only when accounting ≠ None">Accounting</SectionTitle>
                 <div className="grid md:grid-cols-3 gap-4">
                     <div>
                         <label className="block text-sm font-medium">Accounting Rule</label>
@@ -918,7 +1546,9 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                                             <option key={a.id} value={a.id}>{acctOptionLabel(a)}</option>
                                         ))}
                                     </select>
-                                    {errors.overpaymentLiabilityAccountId && <p className="text-xs text-red-500 mt-1">{errors.overpaymentLiabilityAccountId}</p>}
+                                    {errors.overpaymentLiabilityAccountId && (
+                                        <p className="text-xs text-red-500 mt-1">{errors.overpaymentLiabilityAccountId}</p>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -939,7 +1569,9 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                                                 <option key={a.id} value={a.id}>{acctOptionLabel(a)}</option>
                                             ))}
                                         </select>
-                                        {errors.receivableInterestAccountId && <p className="text-xs text-red-500 mt-1">{errors.receivableInterestAccountId}</p>}
+                                        {errors.receivableInterestAccountId && (
+                                            <p className="text-xs text-red-500 mt-1">{errors.receivableInterestAccountId}</p>
+                                        )}
                                     </div>
 
                                     <div>
@@ -954,7 +1586,9 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                                                 <option key={a.id} value={a.id}>{acctOptionLabel(a)}</option>
                                             ))}
                                         </select>
-                                        {errors.receivableFeeAccountId && <p className="text-xs text-red-500 mt-1">{errors.receivableFeeAccountId}</p>}
+                                        {errors.receivableFeeAccountId && (
+                                            <p className="text-xs text-red-500 mt-1">{errors.receivableFeeAccountId}</p>
+                                        )}
                                     </div>
 
                                     <div>
@@ -969,7 +1603,9 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                                                 <option key={a.id} value={a.id}>{acctOptionLabel(a)}</option>
                                             ))}
                                         </select>
-                                        {errors.receivablePenaltyAccountId && <p className="text-xs text-red-500 mt-1">{errors.receivablePenaltyAccountId}</p>}
+                                        {errors.receivablePenaltyAccountId && (
+                                            <p className="text-xs text-red-500 mt-1">{errors.receivablePenaltyAccountId}</p>
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -980,7 +1616,7 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
 
             <div className="flex items-center justify-end gap-2">
                 <Button type="submit" disabled={submitting}>
-                    {submitting ? 'Saving…' : (initial ? 'Save Changes' : 'Create Product')}
+                    {submitting ? 'Saving…' : initial ? 'Save Changes' : 'Create Product'}
                 </Button>
             </div>
         </form>

@@ -87,6 +87,18 @@ import CollateralManagement from "./pages/collateral/CollateralManagement";
 import LoanCollaterals from "./pages/loans/LoanCollaterals";
 import DelinquencyRanges from "./pages/delinquency/DelinquencyRanges";
 import DelinquencyBuckets from "./pages/delinquency/DelinquencyBuckets";
+import TaxGroupList from "./pages/taxes/TaxGroupList";
+import TaxGroupCreate from "./pages/taxes/TaxGroupCreate";
+import TaxGroupEdit from "./pages/taxes/TaxGroupEdit";
+import TaxComponentList from "./pages/taxes/TaxComponentList";
+import TaxComponentCreate from "./pages/taxes/TaxComponentCreate";
+import TaxComponentEdit from "./pages/taxes/TaxComponentEdit";
+import Funds from "./pages/funds/Funds";
+import Users from "./pages/users/Users";
+import Roles from "./pages/admin/Roles";
+import Permissions from "./pages/admin/Permissions";
+import CollectionSheet from "./pages/funds/CollectionSheet";
+import Search from "./pages/search/Search";
 
 const NotFound = () => (
     <div>
@@ -123,7 +135,7 @@ const App = () => {
                             <Route path="loans/:id" element={<LoanDetails />} />
 
                             {/* Loan Products */}
-                            <Route path="loan-products" element={<LoanProducts />} />
+                            <Route path="/loan-products" element={<LoanProducts />} />
                             <Route path="loan-products/new" element={<LoanProductNew />} />
                             <Route path="loan-products/:id/edit" element={<LoanProductEdit />} />
 
@@ -136,6 +148,7 @@ const App = () => {
 
                             {/* Reports & Accounting */}
                             <Route path="reports" element={<Reports />} />
+                            <Route path="/reports/:name" element={<ReportDetails />} />
                             <Route path="accounting/accruals" element={<RunAccruals />} />
                             <Route path="accounting/closures" element={<GlClosures />} />
                             <Route path="accounting/closures/:id" element={<GlClosureDetails />} />
@@ -224,16 +237,33 @@ const App = () => {
                             <Route path="shares/:accountId" element={<ShareAccountDetails />} />
 
                             <Route path="config/field-config" element={<EntityFieldConfig />} />
+                            <Route path="/users" element={<Users/>}/>
                             <Route path="products/charges" element={<Charges />} />
                             <Route path="/clients/new" element={<ProtectedRoute><ClientCreate /></ProtectedRoute>} />
                             <Route path="/clients/:id/edit" element={<ProtectedRoute><ClientEdit /></ProtectedRoute>} />
 
                             <Route path="/collateral-management" element={<ProtectedRoute><CollateralManagement /></ProtectedRoute>} />
                             <Route path="/loans/:loanId/collaterals" element={<ProtectedRoute><LoanCollaterals /></ProtectedRoute>} />
+                            <Route path="/collection-sheet" element={<CollectionSheet />} />
 
                             // in your routes file
                             <Route path="/delinquency/ranges" element={<ProtectedRoute><DelinquencyRanges /></ProtectedRoute>} />
                             <Route path="/delinquency/buckets" element={<ProtectedRoute><DelinquencyBuckets /></ProtectedRoute>} />
+
+                            <Route path="/accounting/tax-groups" element={<TaxGroupList />} />
+                            <Route path="/accounting/tax-groups/new" element={<TaxGroupCreate />} />
+                            <Route path="/accounting/tax-groups/:id/edit" element={<TaxGroupEdit />} />
+
+                            <Route path="/accounting/tax-components" element={<TaxComponentList />} />
+                            <Route path="/accounting/tax-components/new" element={<TaxComponentCreate />} />
+                            <Route path="/accounting/tax-components/:id/edit" element={<TaxComponentEdit />} />
+
+                            <Route path="/accounting/funds" element={<Funds />} />
+
+                            <Route path="/admin/permissions" element={<Permissions />} />
+                            <Route path="/admin/roles" element={<Roles />} />
+                            <Route path="/search" element={<Search />} />
+
 
 
 

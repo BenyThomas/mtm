@@ -107,7 +107,7 @@ const CodeValueDetails = () => {
                         {(code?.name || code?.codeName || `Code #${codeId}`)} • Value #{value.id}
                     </h1>
                     <div className="mt-1 text-sm text-gray-600 dark:text-gray-300">
-                        {value.name} {value.isActive ? '• Active' : '• Inactive'}
+                        {value.name} {value.active ? '• Active' : '• Inactive'}
                     </div>
                 </div>
                 <div className="space-x-2">
@@ -131,7 +131,7 @@ const CodeValueDetails = () => {
                     </div>
                     <div>
                         <div className="text-gray-500">Active</div>
-                        <div className="font-medium">{value.isActive ? 'Yes' : 'No'}</div>
+                        <div className="font-medium">{value.active ? 'Yes' : 'No'}</div>
                     </div>
                     <div className="md:col-span-2">
                         <div className="text-gray-500">Description</div>

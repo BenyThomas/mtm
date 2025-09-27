@@ -2,26 +2,23 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: mtm-ing
-  namespace: fineract-prod
+  namespace: kazy-prod
   annotations:
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
-    nginx.ingress.kubernetes.io/proxy-body-size: "20m"
 spec:
   ingressClassName: public
   tls:
-    - hosts: [ "mtm.kazy.co.tz" ]
+    - hosts:
+        - mtm.kazy.co.tz
       secretName: mtm-kazy-tls
   rules:
     - host: mtm.kazy.co.tz
       http:
         paths:
-          # Serve the SPA
           - path: /
             pathType: Prefix
             backend:
-              service: { name: mtm-web-svc, port: { number: 80 } }
-          # Proxy API under same origin to avoid CORS
-          - path: /api
-            pathType: Prefix
-            backend:
-              service: { name: fineract-svc, port: { number: 8080 } }
+              service:
+                name: mtm-web
+                port:
+                  number: 80

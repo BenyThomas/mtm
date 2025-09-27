@@ -25,6 +25,39 @@ const Staff = () => {
     const [uploadBusy, setUploadBusy] = useState(false);
     const [uploadFile, setUploadFile] = useState(null);
 
+    // Normalize any incoming date to "YYYY-MM-DD"
+    const normalizeToDateInput = (v) => {
+        if (!v) return '';
+        if (Array.isArray(v) && v.length >= 3) {
+            const [y, m, d] = v;
+            return `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        }
+        if (typeof v === 'string') {
+            if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+            const dt = new Date(v);
+            if (!Number.isNaN(dt.getTime())) {
+                const y = dt.getFullYear();
+                const m = String(dt.getMonth() + 1).padStart(2, '0');
+                const d = String(dt.getDate()).padStart(2, '0');
+                return `${y}-${m}-${d}`;
+            }
+            return '';
+        }
+        if (v instanceof Date && !Number.isNaN(v.getTime())) {
+            const y = v.getFullYear();
+            const m = String(v.getMonth() + 1).padStart(2, '0');
+            const d = String(v.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        }
+        return '';
+    };
+
+    const formatDateForCell = (yyyyMMdd) => {
+        if (!yyyyMMdd) return '—';
+        // Keep it simple and consistent; you can localize if needed
+        return yyyyMMdd;
+    };
+
     const load = async () => {
         setLoading(true);
         try {
@@ -40,7 +73,9 @@ const Staff = () => {
                 isLoanOfficer: Boolean(s.isLoanOfficer),
                 mobileNo: s.mobileNo || '',
                 externalId: s.externalId || '',
-                emailAddress: s.emailAddress || s.email || '',
+                joiningDate: normalizeToDateInput(
+                    s.joiningDate ?? s.joinedDate ?? s.dateOfJoining ?? s.joiningdate
+                ),
                 isActive: s.isActive ?? true,
             }));
             setItems(norm);
@@ -61,7 +96,7 @@ const Staff = () => {
         const t = q.trim().toLowerCase();
         if (!t) return list;
         return list.filter((s) =>
-            [s.id, s.firstname, s.lastname, s.displayName, s.officeName, s.mobileNo, s.externalId, s.emailAddress]
+            [s.id, s.firstname, s.lastname, s.displayName, s.officeName, s.mobileNo, s.externalId, s.joiningDate]
                 .map((v) => String(v ?? '').toLowerCase())
                 .some((h) => h.includes(t))
         );
@@ -134,7 +169,7 @@ const Staff = () => {
                         <input
                             value={q}
                             onChange={(e) => setQ(e.target.value)}
-                            placeholder="Name, office, mobile, external id, email…"
+                            placeholder="Name, office, mobile, Emp. ID, joining date…"
                             className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                         />
                     </div>
@@ -167,8 +202,8 @@ const Staff = () => {
                                 <th className="py-2 pr-4">Office</th>
                                 <th className="py-2 pr-4">Role</th>
                                 <th className="py-2 pr-4">Mobile</th>
-                                <th className="py-2 pr-4">Email</th>
-                                <th className="py-2 pr-4">External ID</th>
+                                <th className="py-2 pr-4">Joining Date</th>
+                                <th className="py-2 pr-4">Emp. ID</th>
                                 <th className="py-2 pr-4"></th>
                             </tr>
                             </thead>
@@ -190,7 +225,7 @@ const Staff = () => {
                                         )}
                                     </td>
                                     <td className="py-2 pr-4">{s.mobileNo || '—'}</td>
-                                    <td className="py-2 pr-4">{s.emailAddress || '—'}</td>
+                                    <td className="py-2 pr-4">{formatDateForCell(s.joiningDate)}</td>
                                     <td className="py-2 pr-4">{s.externalId || '—'}</td>
                                     <td className="py-2 pr-4 whitespace-nowrap">
                                         <Button variant="secondary" onClick={() => navigate(`/config/staff/${s.id}`)}>
@@ -205,21 +240,32 @@ const Staff = () => {
                 )}
             </Card>
 
-            {/* Create Modal */}
+            {/* Create Modal — wider & prettier */}
             <Modal
                 open={createOpen}
-                title="New Staff"
                 onClose={() => setCreateOpen(false)}
+                title="New Staff"
+                size="5xl"
+                panelClassName="shadow-2xl"
+                bodyClassName="pt-4 pb-1"
                 footer={null}
             >
-                <StaffForm onSubmit={create} submitting={createBusy} />
+                <div className="space-y-4">
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                        Fill in the staff details below. Fields marked with * are required.
+                    </p>
+                    <div className="rounded-xl border border-gray-100 dark:border-gray-800 p-4">
+                        <StaffForm onSubmit={create} submitting={createBusy} />
+                    </div>
+                </div>
             </Modal>
 
-            {/* Upload template modal */}
+            {/* Upload Template modal */}
             <Modal
                 open={uploadOpen}
-                title="Upload Staff Template"
                 onClose={() => setUploadOpen(false)}
+                title="Upload Staff Template"
+                size="lg"
                 footer={
                     <>
                         <Button variant="secondary" onClick={() => setUploadOpen(false)}>Cancel</Button>
@@ -229,15 +275,15 @@ const Staff = () => {
                     </>
                 }
             >
-                <div className="space-y-3">
+                <div className="space-y-4">
                     <p className="text-sm text-gray-600 dark:text-gray-400">
-                        Upload a CSV/Excel file using the downloaded template format.
+                        Upload a CSV/Excel file generated from the downloaded template format.
                     </p>
                     <input
                         type="file"
                         accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel"
                         onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
-                        className="w-full"
+                        className="w-full file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-gray-100 dark:file:bg-gray-800 file:text-sm hover:file:bg-gray-200 dark:hover:file:bg-gray-700"
                     />
                 </div>
             </Modal>

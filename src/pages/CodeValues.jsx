@@ -168,7 +168,7 @@ const CodeValues = () => {
                                     <td className="py-2 pr-4">{v.id}</td>
                                     <td className="py-2 pr-4">{v.name}</td>
                                     <td className="py-2 pr-4">{v.position ?? '-'}</td>
-                                    <td className="py-2 pr-4">{v.isActive ? 'Yes' : 'No'}</td>
+                                    <td className="py-2 pr-4">{v.active ? 'Yes' : 'No'}</td>
                                     <td className="py-2 pr-4">{v.description || '-'}</td>
                                     <td className="py-2 pr-4 space-x-2">
                                         <Button
