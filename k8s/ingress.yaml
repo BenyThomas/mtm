@@ -5,30 +5,28 @@ metadata:
   namespace: kazy-prod
   annotations:
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
-    nginx.ingress.kubernetes.io/proxy-body-size: "20m"
-    # Rewrite /api/<anything> -> /fineract-provider/<same-anything>
+    nginx.ingress.kubernetes.io/use-regex: "true"
     nginx.ingress.kubernetes.io/rewrite-target: /fineract-provider/$2
 spec:
   ingressClassName: public
   tls:
-    - hosts: [ "mtm.kazy.co.tz" ]
-      secretName: kazy-co-tz-tls
+    - hosts: ["mtm.kazy.co.tz"]
+      secretName: mtm-kazy-tls
   rules:
     - host: mtm.kazy.co.tz
       http:
         paths:
-          # Front-end SPA
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: mtm-web-svc
-                port: { number: 80 }
-
-          # API proxy to Fineract
+                name: mtm-web
+                port:
+                  number: 80
           - path: /api(/|$)(.*)
-            pathType: Prefix
+            pathType: ImplementationSpecific   # regex path -> use ImplementationSpecific
             backend:
               service:
                 name: fineract-server
-                port: { number: 8080 }
+                port:
+                  number: 8080
