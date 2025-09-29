@@ -1,103 +1,310 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import React, { useState } from "react";
+import { z } from "zod";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "react-hook-form";
+import { Button } from "@/components/ui/button";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent } from "@/components/ui/card";
+import { useAuth } from "@/contexts/AuthContext";
+import {
+  UserStar,
+  BadgeDollarSign,
+  BarChart3,
+  Clock,
+  TrendingUp,
+  Eye,
+  EyeOff,
+  ShieldCheck,
+} from "lucide-react";
+import { ToastAlert } from "@/components/shared/toast";
+
+const formSchema = z.object({
+  username: z
+    .string()
+    .min(1, {
+      message: "Username is required.",
+    })
+    .min(3, {
+      message: "Username must be at least 3 characters.",
+    }),
+  password: z
+    .string()
+    .min(1, {
+      message: "Password is required.",
+    })
+    .min(6, {
+      message: "Password must be at least 6 characters.",
+    }),
+  tenant: z.string().min(1, {
+    message: "Tenant is required.",
+  }),
+  remember: z.boolean(),
+});
+
+type FormData = z.infer<typeof formSchema>;
+
+// Feature boxes data
+const features = [
+  {
+    icon: UserStar,
+    title: "Client Management",
+    description: "Streamline client onboarding and management processes",
+    color: "bg-blue-800",
+  },
+  {
+    icon: BadgeDollarSign,
+    title: "Loan Processing",
+    description: "Automate loan applications and approval workflows",
+    color: "bg-green-800",
+  },
+  {
+    icon: BarChart3,
+    title: "Analytics & Reports",
+    description: "Comprehensive insights into your microfinance operations",
+    color: "bg-purple-800",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Secure & Compliant",
+    description: "Bank-grade security with regulatory compliance",
+    color: "bg-orange-800",
+  },
+  {
+    icon: Clock,
+    title: "Real-time Updates",
+    description: "Live data synchronization across all operations",
+    color: "bg-indigo-800",
+  },
+  {
+    icon: TrendingUp,
+    title: "Growth Tracking",
+    description: "Monitor portfolio performance and growth metrics",
+    color: "bg-green-800",
+  },
+];
+
+export default function LoginPage() {
+  const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const { login } = useAuth();
+
+  const form = useForm<FormData>({
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      username: "",
+      password: "",
+      tenant: "default",
+      remember: false,
+    },
+  });
+
+  async function onSubmit(values: FormData) {
+    setLoading(true);
+    try {
+      await login(
+        values.username,
+        values.password,
+        values.remember,
+        values.tenant
+      );
+    } catch (error) {
+      ToastAlert.error((error as Error).message || "Login failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+    <div className="h-screen flex">
+      {/* Left Panel - Feature Highlights */}
+      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 relative overflow-hidden">
+        {/* Background Pattern */}
+        <div className="absolute inset-0 opacity-10">
+          <div
+            className="absolute inset-0"
+            style={{
+              backgroundImage: `radial-gradient(circle at 25px 25px, #6366f1 2px, transparent 0)`,
+              backgroundSize: "50px 50px",
+            }}
+          />
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+
+        {/* Floating Feature Boxes */}
+        <div className="relative z-10 p-12 flex flex-col justify-center">
+          <div className="mb-8">
+            <h1 className="text-4xl font-bold text-gray-900 mb-4">
+              Money Trust Microfinance
+            </h1>
+            <p className="text-lg text-gray-600">
+              Empower your microfinance operations with our comprehensive
+              platform
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4 max-w-2xl">
+            {features.map((feature, index) => (
+              <Card
+                key={index}
+                className="p-4 hover:shadow-sm transition-all duration-300 hover:translate-x-1 bg-white/80 backdrop-blur-sm border-0 shadow-xs"
+                style={{
+                  animationDelay: `${index * 0.1}s`,
+                }}
+              >
+                <CardContent className="p-0 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div
+                      className={`p-1.5 rounded-full ${feature.color} text-white`}
+                    >
+                      <feature.icon className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-gray-900 text-sm">
+                        {feature.title}
+                      </h3>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-gray-600 leading-relaxed">
+                    {feature.description}
+                  </p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Right Panel - Login Form */}
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-white">
+        <div className="w-full lg:w-1/2">
+          {/* Logo */}
+          <div className="flex justify-center mb-8">
+            <div className="w-12 h-12 bg-black rounded-full shadow-lg flex items-center justify-center">
+              <span className="text-white font-bold text-xl">K</span>
+            </div>
+          </div>
+
+          {/* Welcome Message */}
+          <div className="text-center mb-5">
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">
+              Welcome back!
+            </h2>
+            <p className="text-gray-600 text-sm">
+              Enter your credentials to access your account
+            </p>
+          </div>
+
+          {/* Login Form */}
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-2">
+              <FormField
+                control={form.control}
+                name="username"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-gray-900">Username</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="Enter your username"
+                        disabled={loading}
+                        {...field}
+                        className="pr-10 placeholder:text-gray-600 text-gray-800"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="password"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-gray-900">Password</FormLabel>
+                    <FormControl>
+                      <div className="relative">
+                        <Input
+                          type={showPassword ? "text" : "password"}
+                          placeholder="Enter your password"
+                          disabled={loading}
+                          {...field}
+                          className="pr-10 placeholder:text-gray-600 text-gray-800"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                        >
+                          {showPassword ? (
+                            <EyeOff className="h-4 w-4" />
+                          ) : (
+                            <Eye className="h-4 w-4" />
+                          )}
+                        </button>
+                      </div>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* <FormField
+                control={form.control}
+                name="tenant"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-gray-900">Tenant</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="default"
+                        disabled={loading}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              /> */}
+
+              <div className="flex items-center justify-end">
+                <Button
+                  variant="ghost"
+                  disabled={loading}
+                  className="text-sm self-end text-indigo-800 hover:text-indigo-bg-indigo-600 font-medium p-0"
+                >
+                  Forgot Password?
+                </Button>
+              </div>
+
+              <Button
+                type="submit"
+                className="w-full bg-indigo-800 hover:bg-indigo-600 text-white mt-4"
+                disabled={loading}
+              >
+                {loading ? (
+                  <div className="flex items-center">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Signing in...
+                  </div>
+                ) : (
+                  "Sign In"
+                )}
+              </Button>
+            </form>
+          </Form>
+        </div>
+      </div>
     </div>
   );
 }
