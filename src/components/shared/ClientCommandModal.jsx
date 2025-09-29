@@ -2,13 +2,11 @@ import React, { useEffect, useState } from "react";
 import Modal from "./Modal";
 import Button from "./Button";
 import api from "../../api/axios";
-import { useToast } from "../../context/ToastContext";
+import { ToastAlert } from "./toast";
 
 const toISO = (d) => (d ? String(d).slice(0, 10) : "");
 
 const ClientCommandModal = ({ open, client, onClose, onDone }) => {
-  const { addToast } = useToast();
-
   const [command, setCommand] = useState("activate");
   const [date, setDate] = useState(toISO(new Date().toISOString()));
   const [note, setNote] = useState("");
@@ -84,12 +82,12 @@ const ClientCommandModal = ({ open, client, onClose, onDone }) => {
         `/clients/${client.id}?command=${encodeURIComponent(command)}`,
         payload
       );
-      addToast(`Command '${command}' executed`, "success");
+      ToastAlert.success(`Command '${command}' executed`);
       onDone && onDone();
     } catch (e) {
       const msg =
         e?.response?.data?.defaultUserMessage || `Command '${command}' failed`;
-      addToast(msg, "error");
+      ToastAlert.error(msg);
     } finally {
       setBusy(false);
     }

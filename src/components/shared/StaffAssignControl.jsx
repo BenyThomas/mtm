@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import StaffSelect from "./StaffSelect";
 import Button from "./Button";
-import { useToast } from "../../context/ToastContext";
+import { ToastAlert } from "./toast";
 import api from "../../api/axios";
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -12,14 +12,13 @@ const StaffAssignControl = ({
   onAssign, // optional callback(staffId, date) after success (or when loanId not provided)
   className = "",
 }) => {
-  const { addToast } = useToast();
   const [staffId, setStaffId] = useState("");
   const [date, setDate] = useState(defaultDate);
   const [busy, setBusy] = useState(false);
 
   const doAssign = async () => {
     if (!staffId) {
-      addToast("Select a staff member", "error");
+      ToastAlert.error("Select a staff member");
       return;
     }
     if (loanId) {
@@ -31,14 +30,14 @@ const StaffAssignControl = ({
           dateFormat: "yyyy-MM-dd",
           locale: "en",
         });
-        addToast("Loan officer assigned", "success");
+        ToastAlert.success("Loan officer assigned");
         onAssign?.(Number(staffId), date);
       } catch (err) {
         const msg =
           err?.response?.data?.errors?.[0]?.defaultUserMessage ||
           err?.response?.data?.defaultUserMessage ||
           "Assignment failed";
-        addToast(msg, "error");
+        ToastAlert.error(msg);
       } finally {
         setBusy(false);
       }

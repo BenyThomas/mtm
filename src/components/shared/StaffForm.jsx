@@ -3,7 +3,7 @@ import useOffices from "../../hooks/useOffices";
 import Card from "./Card";
 import Button from "./Button";
 import Skeleton from "./Skeleton";
-import { useToast } from "../../context/ToastContext";
+import { ToastAlert } from "./toast";
 
 /**
  * Props:
@@ -12,7 +12,6 @@ import { useToast } from "../../context/ToastContext";
  *  - submitting: boolean
  */
 const StaffForm = ({ initial, onSubmit, submitting }) => {
-  const { addToast } = useToast();
   const {
     offices,
     loading: officesLoading,
@@ -68,7 +67,7 @@ const StaffForm = ({ initial, onSubmit, submitting }) => {
   const submit = async (ev) => {
     ev.preventDefault();
     if (!validate()) {
-      addToast("Please fix validation errors", "error");
+      ToastAlert.error("Please fix validation errors");
       return;
     }
     // Keep payload strict to avoid "unsupported parameter" errors

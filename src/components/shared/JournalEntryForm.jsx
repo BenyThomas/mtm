@@ -4,7 +4,7 @@ import Button from "./Button";
 import Card from "./Card";
 import Skeleton from "./Skeleton";
 import OfficeSelect from "./OfficeSelect";
-import { useToast } from "../../context/ToastContext";
+import { ToastAlert } from "./toast";
 
 const todayISO = () => {
   const d = new Date();
@@ -82,7 +82,6 @@ const LineRow = ({ line, onChange, onRemove, glOptions }) => {
  *  - defaultOfficeId?: number|string
  */
 const JournalEntryForm = ({ onSubmit, submitting, defaultOfficeId }) => {
-  const { addToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [glOptions, setGlOptions] = useState([]);
 
@@ -177,7 +176,7 @@ const JournalEntryForm = ({ onSubmit, submitting, defaultOfficeId }) => {
   const submit = async (ev) => {
     ev.preventDefault();
     if (!validate()) {
-      addToast("Please fix validation errors", "error");
+      ToastAlert.error("Please fix validation errors");
       return;
     }
     const payload = {

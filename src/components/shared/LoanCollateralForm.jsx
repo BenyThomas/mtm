@@ -3,7 +3,7 @@ import Card from "./Card";
 import Button from "./Button";
 import Skeleton from "./Skeleton";
 import api from "../../api/axios";
-import { useToast } from "../../context/ToastContext";
+import { ToastAlert } from "./toast";
 
 /**
  * Props:
@@ -20,8 +20,6 @@ const LoanCollateralForm = ({
   onSubmit,
   submitting,
 }) => {
-  const { addToast } = useToast();
-
   const [tplLoading, setTplLoading] = useState(!template);
   const [typeOptions, setTypeOptions] = useState([]);
 
@@ -81,7 +79,7 @@ const LoanCollateralForm = ({
       } catch (e) {
         if (!cancelled) {
           setTypeOptions([]);
-          addToast("Failed to load collateral template", "error");
+          ToastAlert.error("Failed to load collateral template");
         }
       } finally {
         if (!cancelled) setTplLoading(false);
@@ -90,7 +88,7 @@ const LoanCollateralForm = ({
     return () => {
       cancelled = true;
     };
-  }, [loanId, template, addToast]);
+  }, [loanId, template]);
 
   // React to new initial
   useEffect(() => {
@@ -120,7 +118,7 @@ const LoanCollateralForm = ({
   const submit = async (e) => {
     e.preventDefault();
     if (Object.keys(errors).length) {
-      addToast("Please fix validation errors", "error");
+      ToastAlert.error("Please fix validation errors");
       return;
     }
     const payload = {

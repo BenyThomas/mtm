@@ -3,7 +3,7 @@ import api from "../../api/axios";
 import Modal from "./Modal";
 import Button from "./Button";
 import Skeleton from "./Skeleton";
-import { useToast } from "../../context/ToastContext";
+import { ToastAlert } from "./toast";
 
 /**
  * Props:
@@ -23,7 +23,6 @@ const CashMovementModal = ({
   mode,
   onDone,
 }) => {
-  const { addToast } = useToast();
   const [tplLoading, setTplLoading] = useState(true);
   const [currencyOptions, setCurrencyOptions] = useState([]);
   const [paymentTypes, setPaymentTypes] = useState([]);
@@ -84,7 +83,7 @@ const CashMovementModal = ({
 
   const submit = async () => {
     if (!amount) {
-      addToast("Amount is required", "error");
+      ToastAlert.error("Amount is required");
       return;
     }
     setBusy(true);
@@ -102,10 +101,7 @@ const CashMovementModal = ({
         `/tellers/${tellerId}/cashiers/${cashierId}/${endpoint}`,
         payload
       );
-      addToast(
-        mode === "settle" ? "Cash settled" : "Cash allocated",
-        "success"
-      );
+      ToastAlert.success(mode === "settle" ? "Cash settled" : "Cash allocated");
       onClose();
       onDone?.();
     } catch (e) {
@@ -113,7 +109,7 @@ const CashMovementModal = ({
         e?.response?.data?.errors?.[0]?.defaultUserMessage ||
         e?.response?.data?.defaultUserMessage ||
         "Action failed";
-      addToast(msg, "error");
+      ToastAlert.error(msg);
     } finally {
       setBusy(false);
     }

@@ -3,7 +3,7 @@ import Card from "./Card";
 import Button from "./Button";
 import Skeleton from "./Skeleton";
 import api from "../../api/axios";
-import { useToast } from "../../context/ToastContext";
+import { ToastAlert } from "./toast";
 
 const normalize = (arr, idKey = "id", nameKey = "name") => {
   if (!Array.isArray(arr)) return [];
@@ -23,8 +23,6 @@ const normalize = (arr, idKey = "id", nameKey = "name") => {
  * - submitting (bool)
  */
 const IdentifierForm = ({ clientId, initial, onSubmit, submitting }) => {
-  const { addToast } = useToast();
-
   const [tplLoading, setTplLoading] = useState(true);
   const [docTypeOptions, setDocTypeOptions] = useState([]);
 
@@ -53,7 +51,7 @@ const IdentifierForm = ({ clientId, initial, onSubmit, submitting }) => {
       } catch (_e) {
         if (!cancelled) {
           setDocTypeOptions([]);
-          addToast("Failed to load identifier template", "error");
+          ToastAlert.error("Failed to load identifier template");
         }
       } finally {
         if (!cancelled) setTplLoading(false);
@@ -62,7 +60,7 @@ const IdentifierForm = ({ clientId, initial, onSubmit, submitting }) => {
     return () => {
       cancelled = true;
     };
-  }, [clientId, addToast]);
+  }, [clientId]);
 
   useEffect(() => {
     if (!initial) return;
@@ -85,7 +83,7 @@ const IdentifierForm = ({ clientId, initial, onSubmit, submitting }) => {
   const submit = async (ev) => {
     ev.preventDefault();
     if (!validate()) {
-      addToast("Please fix validation errors", "error");
+      ToastAlert.error("Please fix validation errors");
       return;
     }
     const payload = {

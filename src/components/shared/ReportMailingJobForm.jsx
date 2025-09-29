@@ -3,7 +3,7 @@ import api from "../../api/axios";
 import Card from "./Card";
 import Button from "./Button";
 import Skeleton from "./Skeleton";
-import { useToast } from "../../context/ToastContext";
+import { ToastAlert } from "./toast";
 
 /**
  * Props:
@@ -12,8 +12,6 @@ import { useToast } from "../../context/ToastContext";
  * - submitting: boolean
  */
 const ReportMailingJobForm = ({ initial, onSubmit, submitting }) => {
-  const { addToast } = useToast();
-
   const [loadingTpl, setLoadingTpl] = useState(true);
   const [tpl, setTpl] = useState(null);
 
@@ -231,7 +229,7 @@ const ReportMailingJobForm = ({ initial, onSubmit, submitting }) => {
   const submit = async (ev) => {
     ev.preventDefault();
     if (!validate()) {
-      addToast("Please fix validation errors", "error");
+      ToastAlert.error("Please fix validation errors");
       return;
     }
 
@@ -281,7 +279,7 @@ const ReportMailingJobForm = ({ initial, onSubmit, submitting }) => {
         err?.response?.data?.errors?.[0]?.defaultUserMessage ||
         err?.response?.data?.defaultUserMessage ||
         "Save failed";
-      addToast(msg, "error");
+      ToastAlert.error(msg);
     }
   };
 

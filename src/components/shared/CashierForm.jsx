@@ -3,7 +3,7 @@ import api from "../../api/axios";
 import Card from "./Card";
 import Button from "./Button";
 import Skeleton from "./Skeleton";
-import { useToast } from "../../context/ToastContext";
+import { ToastAlert } from "./toast";
 
 /**
  * Props:
@@ -16,8 +16,6 @@ import { useToast } from "../../context/ToastContext";
  *  { staffId, isFullDay, fromDate?, toDate?, startTime?, endTime?, description?, dateFormat:'yyyy-MM-dd', locale:'en' }
  */
 const CashierForm = ({ tellerId, initial, onSubmit, submitting }) => {
-  const { addToast } = useToast();
-
   const [tplLoading, setTplLoading] = useState(true);
   const [staffOptions, setStaffOptions] = useState([]);
 
@@ -84,7 +82,7 @@ const CashierForm = ({ tellerId, initial, onSubmit, submitting }) => {
   const submit = async (ev) => {
     ev.preventDefault();
     if (!validate()) {
-      addToast("Please fix validation errors", "error");
+      ToastAlert.error("Please fix validation errors");
       return;
     }
     const payload = {

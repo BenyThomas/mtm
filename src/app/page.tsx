@@ -96,7 +96,7 @@ const features = [
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const { login } = useAuth();
+  const { login } = useAuth() as AuthContextType;
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),

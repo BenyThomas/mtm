@@ -3,7 +3,7 @@ import Card from "./Card";
 import Button from "./Button";
 import Skeleton from "./Skeleton";
 import api from "../../api/axios";
-import { useToast } from "../../context/ToastContext";
+import { ToastAlert } from "./toast";
 
 /**
  * Props:
@@ -20,8 +20,6 @@ const ClientCollateralForm = ({
   onSubmit,
   submitting,
 }) => {
-  const { addToast } = useToast();
-
   const [tplLoading, setTplLoading] = useState(!template);
   const [typeOptions, setTypeOptions] = useState([]);
   const [qualityOptions, setQualityOptions] = useState([]);
@@ -98,7 +96,7 @@ const ClientCollateralForm = ({
         if (!cancelled) hydrateFromTemplate(r?.data || {});
       } catch (e) {
         if (!cancelled)
-          addToast("Failed to load client collateral template", "error");
+          ToastAlert.error("Failed to load client collateral template");
       } finally {
         if (!cancelled) setTplLoading(false);
       }
@@ -106,7 +104,7 @@ const ClientCollateralForm = ({
     return () => {
       cancelled = true;
     };
-  }, [clientId, template, addToast]);
+  }, [clientId, template]);
 
   useEffect(() => {
     if (!initial) return;

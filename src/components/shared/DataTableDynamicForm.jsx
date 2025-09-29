@@ -3,7 +3,7 @@ import api from "../../api/axios";
 import Button from "./Button";
 import Card from "./Card";
 import Skeleton from "./Skeleton";
-import { useToast } from "../../context/ToastContext";
+import { ToastAlert } from "./toast";
 
 /**
  * columns: array of column meta from GET /datatables/{datatable}
@@ -12,8 +12,6 @@ import { useToast } from "../../context/ToastContext";
  * submitting: boolean
  */
 const DataTableDynamicForm = ({ columns, initial, onSubmit, submitting }) => {
-  const { addToast } = useToast();
-
   const [values, setValues] = useState({});
   const [errors, setErrors] = useState({});
   const [codeOptions, setCodeOptions] = useState({}); // { colName: [{id,name}], ... }
@@ -119,7 +117,7 @@ const DataTableDynamicForm = ({ columns, initial, onSubmit, submitting }) => {
   const submit = async (ev) => {
     ev.preventDefault();
     if (!validate()) {
-      addToast("Please fix validation errors", "error");
+      ToastAlert.error("Please fix validation errors");
       return;
     }
     await onSubmit(values);

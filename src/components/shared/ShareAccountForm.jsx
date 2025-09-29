@@ -3,7 +3,7 @@ import api from "../../api/axios";
 import Card from "./Card";
 import Button from "./Button";
 import Skeleton from "./Skeleton";
-import { useToast } from "../../context/ToastContext";
+import { ToastAlert } from "./toast";
 
 /**
  * Creates a share application using /accounts/shares.
@@ -23,8 +23,6 @@ import { useToast } from "../../context/ToastContext";
  * }
  */
 const ShareAccountForm = ({ onSubmit, submitting }) => {
-  const { addToast } = useToast();
-
   const [tplLoading, setTplLoading] = useState(true);
   const [clientOptions, setClientOptions] = useState([]);
   const [productOptions, setProductOptions] = useState([]);
@@ -104,7 +102,7 @@ const ShareAccountForm = ({ onSubmit, submitting }) => {
   const submit = async (ev) => {
     ev.preventDefault();
     if (!validate()) {
-      addToast("Please fix validation errors", "error");
+      ToastAlert.error("Please fix validation errors");
       return;
     }
     const payload = {

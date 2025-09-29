@@ -3,7 +3,7 @@ import Card from "./Card";
 import Button from "./Button";
 import Skeleton from "./Skeleton";
 import api from "../../api/axios";
-import { useToast } from "../../context/ToastContext";
+import { ToastAlert } from "./toast";
 
 const FALLBACK_TEMPLATE = {
   currencyOptions: [
@@ -66,8 +66,6 @@ const numberOrUndefined = (v) =>
  * - submitting: boolean
  */
 const LoanProductForm = ({ initial, onSubmit, submitting }) => {
-  const { addToast } = useToast();
-
   const [loading, setLoading] = useState(true);
   const [tpl, setTpl] = useState(FALLBACK_TEMPLATE);
 
@@ -440,7 +438,7 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!validate()) {
-      addToast("Please fix validation errors", "error");
+      ToastAlert.error("Please fix validation errors");
       return;
     }
     const payload = buildPayload();

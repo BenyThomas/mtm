@@ -3,7 +3,7 @@ import api from "../../api/axios";
 import Button from "./Button";
 import Card from "./Card";
 import Skeleton from "./Skeleton";
-import { useToast } from "../../context/ToastContext";
+import { ToastAlert } from "./toast";
 
 // Fallback entities if template parsing fails
 const FALLBACK_ENTITIES = [
@@ -21,8 +21,6 @@ const FALLBACK_ENTITIES = [
  * - submitting: boolean
  */
 const EntityDatatableCheckForm = ({ initial, onSubmit, submitting }) => {
-  const { addToast } = useToast();
-
   const [loading, setLoading] = useState(true);
   const [template, setTemplate] = useState(null);
   const [datatables, setDatatables] = useState([]);
@@ -175,7 +173,7 @@ const EntityDatatableCheckForm = ({ initial, onSubmit, submitting }) => {
         e?.response?.data?.errors?.[0]?.defaultUserMessage ||
         e?.response?.data?.defaultUserMessage ||
         "Save failed";
-      addToast(msg, "error");
+      ToastAlert.error(msg);
     }
   };
 

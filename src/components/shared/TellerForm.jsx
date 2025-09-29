@@ -4,7 +4,7 @@ import useOffices from "../../hooks/useOffices";
 import Card from "./Card";
 import Button from "./Button";
 import Skeleton from "./Skeleton";
-import { useToast } from "../../context/ToastContext";
+import { ToastAlert } from "./toast";
 
 /** Normalize any incoming date to 'YYYY-MM-DD' for the date input */
 const toISOInput = (val) => {
@@ -43,7 +43,6 @@ const toISOInput = (val) => {
  * }
  */
 const TellerForm = ({ initial, onSubmit, submitting }) => {
-  const { addToast } = useToast();
   const { offices, loading } = useOffices();
 
   const officeOptions = useMemo(
@@ -82,7 +81,7 @@ const TellerForm = ({ initial, onSubmit, submitting }) => {
   const submit = async (ev) => {
     ev.preventDefault();
     if (!validate()) {
-      addToast("Please fix validation errors", "error");
+      ToastAlert.error("Please fix validation errors");
       return;
     }
 

@@ -3,7 +3,7 @@ import Card from "./Card";
 import Button from "./Button";
 import Skeleton from "./Skeleton";
 import api from "../../api/axios";
-import { useToast } from "../../context/ToastContext";
+import { ToastAlert } from "./toast";
 
 const normalize = (arr, idKey = "id", nameKey = "name") => {
   if (!Array.isArray(arr)) return [];
@@ -21,8 +21,6 @@ const normalize = (arr, idKey = "id", nameKey = "name") => {
 };
 
 const AddressForm = ({ clientId, initial, onSubmit, submitting }) => {
-  const { addToast } = useToast();
-
   const [tplLoading, setTplLoading] = useState(true);
 
   const [addressTypeOptions, setAddressTypeOptions] = useState([]);
@@ -79,7 +77,7 @@ const AddressForm = ({ clientId, initial, onSubmit, submitting }) => {
           setAddressTypeOptions([]);
           setCountryOptions([]);
           setStateOptions([]);
-          addToast("Failed to load address template", "error");
+          ToastAlert.error("Failed to load address template");
         }
       } finally {
         if (!cancelled) setTplLoading(false);
@@ -88,7 +86,7 @@ const AddressForm = ({ clientId, initial, onSubmit, submitting }) => {
     return () => {
       cancelled = true;
     };
-  }, [addToast]);
+  }, []);
 
   useEffect(() => {
     if (!initial) return;
@@ -125,7 +123,7 @@ const AddressForm = ({ clientId, initial, onSubmit, submitting }) => {
 
   const submit = async (ev) => {
     ev.preventDefault();
-    if (!validate()) return addToast("Please fix validation errors", "error");
+    if (!validate()) return ToastAlert.error("Please fix validation errors");
 
     const payload = {
       addressTypeId: Number(addressTypeId),

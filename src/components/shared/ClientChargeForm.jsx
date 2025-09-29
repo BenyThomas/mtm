@@ -3,7 +3,7 @@ import Card from "./Card";
 import Button from "./Button";
 import Skeleton from "./Skeleton";
 import api from "../../api/axios";
-import { useToast } from "../../context/ToastContext";
+import { ToastAlert } from "./toast";
 
 const toISO = (v) => (v ? String(v).slice(0, 10) : "");
 
@@ -23,8 +23,6 @@ const normalize = (arr, idKey = "id", nameKey = "name") => {
 };
 
 const ClientChargeForm = ({ clientId, onSubmit, submitting }) => {
-  const { addToast } = useToast();
-
   const [tplLoading, setTplLoading] = useState(true);
   const [chargesOptions, setChargesOptions] = useState([]);
   const [currencyCode, setCurrencyCode] = useState("");
@@ -52,7 +50,7 @@ const ClientChargeForm = ({ clientId, onSubmit, submitting }) => {
         if (!cancelled) {
           setChargesOptions([]);
           setCurrencyCode("");
-          addToast("Failed to load client charge template", "error");
+          ToastAlert.error("Failed to load client charge template");
         }
       } finally {
         if (!cancelled) setTplLoading(false);
@@ -61,7 +59,7 @@ const ClientChargeForm = ({ clientId, onSubmit, submitting }) => {
     return () => {
       cancelled = true;
     };
-  }, [clientId, addToast]);
+  }, [clientId]);
 
   const validate = () => {
     const e = {};
@@ -73,7 +71,7 @@ const ClientChargeForm = ({ clientId, onSubmit, submitting }) => {
 
   const submit = async (ev) => {
     ev.preventDefault();
-    if (!validate()) return addToast("Please fix validation errors", "error");
+    if (!validate()) return ToastAlert.error("Please fix validation errors");
 
     const payload = {
       dateFormat: "yyyy-MM-dd",

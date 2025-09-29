@@ -3,7 +3,7 @@ import Card from "./Card";
 import Button from "./Button";
 import Skeleton from "./Skeleton";
 import api from "../../api/axios";
-import { useToast } from "../../context/ToastContext";
+import { ToastAlert } from "./toast";
 
 const normalize = (arr, idKey = "id", nameKey = "name") => {
   if (!Array.isArray(arr)) return [];
@@ -23,8 +23,6 @@ const normalize = (arr, idKey = "id", nameKey = "name") => {
 const toISO = (v) => (v ? String(v).slice(0, 10) : "");
 
 const ClientForm = ({ initial, onSubmit, submitting }) => {
-  const { addToast } = useToast();
-
   const [tplLoading, setTplLoading] = useState(true);
 
   const [officeOptions, setOfficeOptions] = useState([]);
@@ -107,7 +105,7 @@ const ClientForm = ({ initial, onSubmit, submitting }) => {
         }
       } catch (e) {
         if (!cancelled) {
-          addToast("Failed to load client template", "error");
+          ToastAlert.error("Failed to load client template");
         }
       } finally {
         if (!cancelled) setTplLoading(false);
@@ -116,7 +114,7 @@ const ClientForm = ({ initial, onSubmit, submitting }) => {
     return () => {
       cancelled = true;
     };
-  }, [addToast, initial?.officeId, initial?.legalFormId]);
+  }, [initial?.officeId, initial?.legalFormId]);
 
   useEffect(() => {
     if (!initial) return;

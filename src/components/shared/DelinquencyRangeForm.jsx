@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Card from "./Card";
 import Button from "./Button";
-import { useToast } from "../../context/ToastContext";
+import { ToastAlert } from "./toast";
 
 /**
  * Props:
@@ -10,8 +10,6 @@ import { useToast } from "../../context/ToastContext";
  * - submitting (bool)
  */
 const DelinquencyRangeForm = ({ initial, onSubmit, submitting }) => {
-  const { addToast } = useToast();
-
   // normalize incoming range fields
   const initMin =
     initial?.minimumAgeDays ??
@@ -64,7 +62,7 @@ const DelinquencyRangeForm = ({ initial, onSubmit, submitting }) => {
   const submit = async (ev) => {
     ev.preventDefault();
     if (Object.keys(errors).length) {
-      addToast("Please fix validation errors", "error");
+      ToastAlert.error("Please fix validation errors");
       return;
     }
     const mi = Number(minDays);

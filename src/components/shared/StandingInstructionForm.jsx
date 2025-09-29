@@ -3,7 +3,7 @@ import api from "../../api/axios";
 import Card from "./Card";
 import Button from "./Button";
 import Skeleton from "./Skeleton";
-import { useToast } from "../../context/ToastContext";
+import { ToastAlert } from "./toast";
 
 /**
  * Props:
@@ -23,8 +23,6 @@ import { useToast } from "../../context/ToastContext";
  * }
  */
 const StandingInstructionForm = ({ initial, onSubmit, submitting }) => {
-  const { addToast } = useToast();
-
   const [tplLoading, setTplLoading] = useState(true);
 
   const [fromAccountOptions, setFromAccountOptions] = useState([]);
@@ -139,7 +137,7 @@ const StandingInstructionForm = ({ initial, onSubmit, submitting }) => {
   const submit = async (ev) => {
     ev.preventDefault();
     if (!validate()) {
-      addToast("Please fix validation errors", "error");
+      ToastAlert.error("Please fix validation errors");
       return;
     }
     const payload = {

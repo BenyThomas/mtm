@@ -4,6 +4,7 @@ import axios, {
   AxiosResponse,
   InternalAxiosRequestConfig,
 } from "axios";
+import { getCookie } from "cookies-next";
 
 /**
  * Shared Axios instance for Fineract API.
@@ -21,14 +22,10 @@ export const api: AxiosInstance = axios.create({
   timeout: 30000, // 30 seconds timeout
 });
 
-// Helper function to read from storage
-function readFromStorage(key: string): string | null {
+// Helper function to read from cookies
+function readFromCookies(key: string): string | null {
   if (typeof window === "undefined") return null;
-
-  // Prefer localStorage, then sessionStorage
-  const ls = localStorage.getItem(key);
-  if (ls != null) return ls;
-  return sessionStorage.getItem(key);
+  return getCookie(key) as string | null;
 }
 
 // Request interceptor
@@ -36,11 +33,11 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   if (typeof window === "undefined") return config;
 
   const tenant =
-    localStorage.getItem("fineract_tenant") ||
+    readFromCookies("fineract_tenant") ||
     process.env.NEXT_PUBLIC_TENANT ||
     "default";
 
-  const authKey = readFromStorage("fineract_auth_key");
+  const authKey = readFromCookies("fineract_auth_key");
 
   config.headers = config.headers ?? {};
   config.headers["Fineract-Platform-TenantId"] = tenant;
@@ -73,7 +70,6 @@ export const apiClient = {
     const response = await api.get<ApiResponse<T>>(url, config);
     return response.data as T;
   },
-
   post: async <T>(
     url: string,
     data?: unknown,

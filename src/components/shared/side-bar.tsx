@@ -1,19 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import NextLink from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Home,
-  Settings,
-  HelpCircle,
   Menu,
   ChevronLeft,
-  ArrowRightLeft,
-  ReceiptText,
-  Timer,
-  BookUser,
-  FolderKanban,
   Users,
   CreditCard,
   BarChart3,
@@ -62,7 +55,7 @@ import {
   TooltipProvider,
 } from "@/components/ui/tooltip";
 import Logo from "./logo";
-import { ThemeToggle } from "./theme-toggle";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 // Define navigation groups
 const navigationGroups = [
@@ -241,11 +234,6 @@ export function Sidebar() {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<string[]>(["Main"]);
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   const toggleGroup = (groupTitle: string) => {
     setExpandedGroups((prev) =>
@@ -254,37 +242,6 @@ export function Sidebar() {
         : [...prev, groupTitle]
     );
   };
-
-  const NavItem = ({
-    item,
-    isBottom = false,
-  }: {
-    item: NavBarItemType;
-    isBottom?: boolean;
-  }) => (
-    <Tooltip delayDuration={0}>
-      <TooltipTrigger asChild>
-        <NextLink
-          href={item.href}
-          className={cn(
-            "flex items-center rounded-md px-3 py-2 text-sm font-medium transition-colors",
-            pathname === item.href
-              ? "bg-blue-100 dark:bg-gray-800 text-blue-900 dark:text-white"
-              : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white hover:ease-in-out duration-150",
-            isCollapsed && "justify-center px-2"
-          )}
-        >
-          <item.icon className={cn("h-4 w-4", !isCollapsed && "mr-3")} />
-          {!isCollapsed && <span>{item.name}</span>}
-        </NextLink>
-      </TooltipTrigger>
-      {isCollapsed && (
-        <TooltipContent side="right" className="flex items-center gap-4">
-          {item.name}
-        </TooltipContent>
-      )}
-    </Tooltip>
-  );
 
   const NavGroupItem = ({ item }: { item: NavBarItemType }) => (
     <Tooltip delayDuration={0}>
@@ -310,10 +267,6 @@ export function Sidebar() {
       )}
     </Tooltip>
   );
-
-  // Debug: Check if we're in dark mode
-  const isDarkMode =
-    mounted && document.documentElement.classList.contains("dark");
 
   return (
     <div className="bg-white border-r border-gray-200 dark:bg-gray-900 dark:border-gray-700 overflow-y-auto">
@@ -404,12 +357,6 @@ export function Sidebar() {
             </div>
 
             <div className="border-t border-gray-200 dark:border-gray-700 p-2">
-              {/* Debug info - remove this later */}
-              {mounted && (
-                <div className="text-xs text-gray-500 dark:text-gray-400 mb-2 p-1 bg-gray-100 dark:bg-gray-800 rounded">
-                  Theme: {isDarkMode ? "dark" : "light"}
-                </div>
-              )}
               <ThemeToggle isCollapsed={isCollapsed} />
             </div>
           </div>

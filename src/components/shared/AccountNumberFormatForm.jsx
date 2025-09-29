@@ -4,8 +4,8 @@ import Card from "../components/Card";
 import Skeleton from "../components/Skeleton";
 import Button from "../components/Button";
 import Badge from "../components/Badge";
-import { useToast } from "../../context/ToastContext";
-import { useNavigate } from "react-router-dom";
+import { ToastAlert } from "./toast";
+import { useRouter } from "next/navigation";
 
 const todayISO = () => {
   const d = new Date();
@@ -31,8 +31,7 @@ const optValue = (o) => o?.id ?? o?.value ?? o?.code ?? "";
 const PAGE_SIZE = 25;
 
 const Audits = () => {
-  const { addToast } = useToast();
-  const navigate = useNavigate();
+  const router = useRouter();
 
   // template options
   const [loadingTpl, setLoadingTpl] = useState(true);
@@ -121,7 +120,7 @@ const Audits = () => {
         err?.response?.data?.errors?.[0]?.defaultUserMessage ||
         err?.response?.data?.defaultUserMessage ||
         "Failed to load audits";
-      addToast(msg, "error");
+      ToastAlert.error(msg);
     } finally {
       setLoading(false);
     }
@@ -382,7 +381,7 @@ const Audits = () => {
                     <td className="py-2 pr-4">
                       <Button
                         variant="secondary"
-                        onClick={() => navigate(`/audits/${a.id}`)}
+                        onClick={() => router.push(`/audits/${a.id}`)}
                       >
                         View
                       </Button>

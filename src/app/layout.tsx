@@ -27,9 +27,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="scroll-smooth">
+    <html lang="en" className="scroll-smooth" suppressHydrationWarning>
       <body
-        className={`${figtree.className} antialiased font-figtree bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100`}
+        className={`${figtree.className} antialiased font-figtree bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-200`}
         suppressHydrationWarning={true}
       >
         <Providers>
