@@ -14,8 +14,6 @@ import {
 } from "lucide-react";
 
 const DashboardPage = () => {
-  const { user, logout } = useAuth();
-
   const stats = [
     {
       title: "Total Clients",
@@ -59,30 +57,11 @@ const DashboardPage = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="h-[64.5px] bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-5 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-gray-900 dark:text-white">
-            Dashboard
-          </h1>
-          <p className="text-sm text-gray-600 dark:text-gray-400">
-            Welcome back,{" "}
-            <span className="capitalize font-medium">
-              {user.staffDisplayName || user.username}
-            </span>
-          </p>
-        </div>
-
-        <Button onClick={logout} variant="destructive" size="sm">
-          Logout
-        </Button>
-      </header>
-
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+      <main>
         {/* Welcome Section */}
-        <p className="text-gray-600 mb-6">
+        <p className="text-gray-600 dark:text-gray-50 mb-6">
           Here&apos;s an overview of your microfinance operations
         </p>
 
@@ -93,18 +72,18 @@ const DashboardPage = () => {
               <CardContent>
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-gray-600 mb-1">
+                    <p className="text-sm font-medium text-gray-600 dark:text-gray-50 mb-1">
                       {stat.title}
                     </p>
-                    <p className="text-2xl font-bold text-gray-900">
+                    <p className="text-2xl font-bold text-gray-900 dark:text-gray-50">
                       {stat.value}
                     </p>
-                    <p className="text-sm text-green-600 mt-1">
+                    <p className="text-sm text-green-600 dark:text-green-50 mt-1">
                       {stat.change} from last month
                     </p>
                   </div>
-                  <div className={`p-3 rounded-full ${stat.bgColor}`}>
-                    <stat.icon className={`h-6 w-6 ${stat.color}`} />
+                  <div className={`p-2 rounded-full ${stat.bgColor}`}>
+                    <stat.icon className={`h-5 w-5 ${stat.color}`} />
                   </div>
                 </div>
               </CardContent>

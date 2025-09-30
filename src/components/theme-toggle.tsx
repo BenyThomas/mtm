@@ -19,11 +19,20 @@ export const ThemeToggle = ({
   const { theme, setTheme, resolvedTheme } = useTheme();
 
   const getIcon = () => {
-    if (theme === "system") return <Monitor className="h-4 w-4" />;
+    if (theme === "system")
+      return (
+        <div className="p-2 rounded-full bg-gray-100 dark:bg-gray-800">
+          <Monitor className="h-4 w-4 text-gray-700 dark:text-gray-300" />
+        </div>
+      );
     return resolvedTheme === "dark" ? (
-      <Moon className="h-4 w-4" />
+      <div className="p-2 rounded-full bg-gray-100 dark:bg-gray-800">
+        <Moon className="h-4 w-4 text-gray-700 dark:text-gray-300" />
+      </div>
     ) : (
-      <Sun className="h-4 w-4" />
+      <div className="p-2 rounded-full bg-gray-100 dark:bg-gray-800">
+        <Sun className="h-4 w-4 text-gray-700 dark:text-gray-300" />
+      </div>
     );
   };
 
@@ -45,7 +54,7 @@ export const ThemeToggle = ({
       <Button
         variant="ghost"
         size="sm"
-        className="w-full justify-center px-2 py-2"
+        className="w-fit justify-center px-2 py-2 hover:bg-transparent"
         onClick={() => {
           const nextTheme =
             theme === "light" ? "dark" : theme === "dark" ? "system" : "light";
@@ -65,8 +74,8 @@ export const ThemeToggle = ({
           variant="ghost"
           size="sm"
           className={cn(
-            "w-full justify-start px-3 py-2 text-sm font-medium transition-colors",
-            "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white hover:ease-in-out duration-150"
+            "w-fit justify-start px-3 py-2 text-sm font-medium transition-colors",
+            "text-gray-700 dark:text-gray-300 hover:bg-transparent hover:text-gray-900 dark:hover:text-white hover:ease-in-out duration-150"
           )}
         >
           {getIcon()}
@@ -81,7 +90,7 @@ export const ThemeToggle = ({
             theme === "light" && "bg-accent"
           )}
         >
-          <Sun className="h-4 w-4" />
+          <Sun className="h-4 w-4 text-gray-700 dark:text-gray-300" />
           <span>Light</span>
         </DropdownMenuItem>
         <DropdownMenuItem
@@ -91,7 +100,7 @@ export const ThemeToggle = ({
             theme === "dark" && "bg-accent"
           )}
         >
-          <Moon className="h-4 w-4" />
+          <Moon className="h-4 w-4 text-gray-700 dark:text-gray-300" />
           <span>Dark</span>
         </DropdownMenuItem>
         <DropdownMenuItem
@@ -101,7 +110,7 @@ export const ThemeToggle = ({
             theme === "system" && "bg-accent"
           )}
         >
-          <Monitor className="h-4 w-4" />
+          <Monitor className="h-4 w-4 text-gray-700 dark:text-gray-300" />
           <span>System</span>
         </DropdownMenuItem>
       </DropdownMenuContent>

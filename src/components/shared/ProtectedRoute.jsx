@@ -1,23 +1,22 @@
+"use client";
+
 import React from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "../../contexts/AuthContext";
-import Skeleton from "./Skeleton";
+import LoadingOverlay from "./loading-overlay";
 
 const ProtectedRoute = ({ children }) => {
   const { isAuthenticated, checking } = useAuth();
   const router = useRouter();
 
   if (checking) {
-    return (
-      <div className="p-6">
-        <Skeleton height="2rem" />
-        <Skeleton height="12rem" className="mt-4" />
-      </div>
-    );
+    return <LoadingOverlay />;
   }
 
   if (!isAuthenticated) {
-    router.replace("/login");
+    setTimeout(() => {
+      router.replace("/");
+    }, 500);
     return null;
   }
 

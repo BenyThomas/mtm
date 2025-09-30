@@ -28,7 +28,7 @@ const protectedRoutes = [
 const authRoutes = ["/"];
 
 // Public routes that don't require authentication
-const publicRoutes = ["/login", "/register", "/forgot-password"];
+const publicRoutes = ["/", "/register", "/forgot-password"];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -53,7 +53,7 @@ export function middleware(request: NextRequest) {
 
   // Redirect unauthenticated users from protected routes to login
   if (isProtectedRoute && !isAuthenticated) {
-    const loginUrl = new URL("/login", request.url);
+    const loginUrl = new URL("/", request.url);
     loginUrl.searchParams.set("redirect", pathname);
     return NextResponse.redirect(loginUrl);
   }
@@ -70,7 +70,7 @@ export function middleware(request: NextRequest) {
 
   // For any other route, check authentication
   if (!isAuthenticated) {
-    const loginUrl = new URL("/login", request.url);
+    const loginUrl = new URL("/", request.url);
     loginUrl.searchParams.set("redirect", pathname);
     return NextResponse.redirect(loginUrl);
   }

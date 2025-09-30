@@ -55,7 +55,7 @@ import {
   TooltipProvider,
 } from "@/components/ui/tooltip";
 import Logo from "./logo";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { getCurrentYear } from "@/utils/helpers";
 
 // Define navigation groups
 const navigationGroups = [
@@ -357,7 +357,9 @@ export function Sidebar() {
             </div>
 
             <div className="border-t border-gray-200 dark:border-gray-700 p-2">
-              <ThemeToggle isCollapsed={isCollapsed} />
+              <span className="text-xs text-gray-700 dark:text-gray-400">
+                &copy; {getCurrentYear()} Kazy. All rights reserved.
+              </span>
             </div>
           </div>
         </>
