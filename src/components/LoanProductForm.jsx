@@ -101,6 +101,12 @@ const FALLBACK_TEMPLATE = {
 
 const numberOrUndefined = (v) =>
     v === '' || v === null || v === undefined ? undefined : Number(v);
+const optionIdOrValue = (o) => o?.id ?? o?.value;
+const optionCodeOrValue = (o) => o?.code ?? o?.value;
+const hasValidNumber = (v) => {
+    if (v === '' || v === null || v === undefined) return false;
+    return Number.isFinite(Number(v));
+};
 
 const SectionTitle = ({ icon, children, hint }) => (
     <div className="flex items-center justify-between mb-3">
@@ -172,8 +178,10 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
         interestOnLoanAccountId: '',
         incomeFromFeeAccountId: '',
         incomeFromPenaltyAccountId: '',
+        incomeFromRecoveryAccountId: '',
         writeOffAccountId: '',
         overpaymentLiabilityAccountId: '',
+        transfersInSuspenseAccountId: '',
 
         // Accrual Periodic
         receivableInterestAccountId: '',
@@ -371,9 +379,13 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                 toId(initial.incomeFromFeeAccount) || initial.incomeFromFeeAccountId || '',
             incomeFromPenaltyAccountId:
                 toId(initial.incomeFromPenaltyAccount) || initial.incomeFromPenaltyAccountId || '',
+            incomeFromRecoveryAccountId:
+                toId(initial.incomeFromRecoveryAccount) || initial.incomeFromRecoveryAccountId || '',
             writeOffAccountId: toId(initial.writeOffAccount) || initial.writeOffAccountId || '',
             overpaymentLiabilityAccountId:
                 toId(initial.overpaymentLiabilityAccount) || initial.overpaymentLiabilityAccountId || '',
+            transfersInSuspenseAccountId:
+                toId(initial.transfersInSuspenseAccount) || initial.transfersInSuspenseAccountId || '',
 
             receivableInterestAccountId:
                 toId(initial.receivableInterestAccount) || initial.receivableInterestAccountId || '',
@@ -444,8 +456,32 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
         if (form.numRepaymentsDefault === '' || Number(form.numRepaymentsDefault) <= 0) {
             e.numRepaymentsDefault = '# of repayments is required';
         }
+        if (form.rateDefault === '' || Number(form.rateDefault) < 0 || !hasValidNumber(form.rateDefault)) {
+            e.rateDefault = 'Default interest rate is required';
+        }
         if (!form.repaymentEvery || Number(form.repaymentEvery) <= 0) {
             e.repaymentEvery = 'Repayment every is required';
+        }
+        if (!hasValidNumber(form.interestRateFrequencyType)) {
+            e.interestRateFrequencyType = 'Rate frequency is required';
+        }
+        if (!hasValidNumber(form.repaymentFrequencyType)) {
+            e.repaymentFrequencyType = 'Repayment frequency is required';
+        }
+        if (!hasValidNumber(form.amortizationType)) {
+            e.amortizationType = 'Amortization is required';
+        }
+        if (!hasValidNumber(form.interestType)) {
+            e.interestType = 'Interest type is required';
+        }
+        if (!hasValidNumber(form.interestCalculationPeriodType)) {
+            e.interestCalculationPeriodType = 'Interest calculation period is required';
+        }
+        if (!hasValidNumber(form.daysInMonthType)) {
+            e.daysInMonthType = 'Days in month type is required';
+        }
+        if (!hasValidNumber(form.daysInYearType)) {
+            e.daysInYearType = 'Days in year type is required';
         }
         if (!form.transactionProcessingStrategyId) {
             e.transactionProcessingStrategyId = 'Processing strategy is required';
@@ -485,8 +521,10 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                 'interestOnLoanAccountId',
                 'incomeFromFeeAccountId',
                 'incomeFromPenaltyAccountId',
+                'incomeFromRecoveryAccountId',
                 'writeOffAccountId',
                 'overpaymentLiabilityAccountId',
+                'transfersInSuspenseAccountId',
             ].forEach((k) => {
                 if (!form[k]) e[k] = 'Required';
             });
@@ -621,8 +659,10 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
             payload.interestOnLoanAccountId = Number(form.interestOnLoanAccountId);
             payload.incomeFromFeeAccountId = Number(form.incomeFromFeeAccountId);
             payload.incomeFromPenaltyAccountId = Number(form.incomeFromPenaltyAccountId);
+            payload.incomeFromRecoveryAccountId = Number(form.incomeFromRecoveryAccountId);
             payload.writeOffAccountId = Number(form.writeOffAccountId);
             payload.overpaymentLiabilityAccountId = Number(form.overpaymentLiabilityAccountId);
+            payload.transfersInSuspenseAccountId = Number(form.transfersInSuspenseAccountId);
 
             if (isAccrual) {
                 payload.receivableInterestAccountId = Number(form.receivableInterestAccountId);
@@ -805,6 +845,7 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                             onChange={(e) => setField('rateDefault', e.target.value)}
                             className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                         />
+                        {errors.rateDefault && <p className="text-xs text-red-500 mt-1">{errors.rateDefault}</p>}
                     </div>
                     <div>
                         <label className="block text-sm font-medium">Max (%)</label>
@@ -825,11 +866,14 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                             className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                         >
                             {(interestRateFrequencyTypeOptions || []).map((o) => (
-                                <option key={o.id || o.value} value={o.id || o.value}>
+                                <option key={optionIdOrValue(o)} value={optionIdOrValue(o)}>
                                     {o.value || o.name}
                                 </option>
                             ))}
                         </select>
+                        {errors.interestRateFrequencyType && (
+                            <p className="text-xs text-red-500 mt-1">{errors.interestRateFrequencyType}</p>
+                        )}
                     </div>
                 </div>
             </Card>
@@ -895,11 +939,14 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                             className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                         >
                             {repaymentFrequencyTypeOptions.map((o) => (
-                                <option key={o.id || o.value} value={o.id || o.value}>
+                                <option key={optionIdOrValue(o)} value={optionIdOrValue(o)}>
                                     {o.value || o.name}
                                 </option>
                             ))}
                         </select>
+                        {errors.repaymentFrequencyType && (
+                            <p className="text-xs text-red-500 mt-1">{errors.repaymentFrequencyType}</p>
+                        )}
                     </div>
 
                     <div>
@@ -910,11 +957,14 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                             className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                         >
                             {amortizationTypeOptions.map((o) => (
-                                <option key={o.id || o.value} value={o.id || o.value}>
+                                <option key={optionIdOrValue(o)} value={optionIdOrValue(o)}>
                                     {o.value || o.name}
                                 </option>
                             ))}
                         </select>
+                        {errors.amortizationType && (
+                            <p className="text-xs text-red-500 mt-1">{errors.amortizationType}</p>
+                        )}
                     </div>
 
                     <div>
@@ -925,11 +975,14 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                             className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                         >
                             {interestTypeOptions.map((o) => (
-                                <option key={o.id || o.value} value={o.id || o.value}>
+                                <option key={optionIdOrValue(o)} value={optionIdOrValue(o)}>
                                     {o.value || o.name}
                                 </option>
                             ))}
                         </select>
+                        {errors.interestType && (
+                            <p className="text-xs text-red-500 mt-1">{errors.interestType}</p>
+                        )}
                     </div>
 
                     <div>
@@ -940,11 +993,14 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                             className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                         >
                             {interestCalculationPeriodTypeOptions.map((o) => (
-                                <option key={o.id || o.value} value={o.id || o.value}>
+                                <option key={optionIdOrValue(o)} value={optionIdOrValue(o)}>
                                     {o.value || o.name}
                                 </option>
                             ))}
                         </select>
+                        {errors.interestCalculationPeriodType && (
+                            <p className="text-xs text-red-500 mt-1">{errors.interestCalculationPeriodType}</p>
+                        )}
                     </div>
                 </div>
 
@@ -958,7 +1014,7 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                             className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                         >
                             {(loanScheduleTypeOptions || []).map((o) => (
-                                <option key={o.code || o.value} value={o.code || o.value}>
+                                <option key={optionCodeOrValue(o)} value={optionCodeOrValue(o)}>
                                     {o.value || o.code}
                                 </option>
                             ))}
@@ -972,7 +1028,7 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                             className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                         >
                             {(loanScheduleProcessingTypeOptions || []).map((o) => (
-                                <option key={o.code || o.value} value={o.code || o.value}>
+                                <option key={optionCodeOrValue(o)} value={optionCodeOrValue(o)}>
                                     {o.value || o.code}
                                 </option>
                             ))}
@@ -1283,7 +1339,7 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                                     className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                                 >
                                     {(capitalizedIncomeCalculationTypeOptions || []).map((o) => (
-                                        <option key={o.id || o.value} value={o.id || o.value}>
+                                        <option key={optionIdOrValue(o)} value={optionIdOrValue(o)}>
                                             {o.value || o.id}
                                         </option>
                                     ))}
@@ -1297,7 +1353,7 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                                     className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                                 >
                                     {(capitalizedIncomeStrategyOptions || []).map((o) => (
-                                        <option key={o.id || o.value} value={o.id || o.value}>
+                                        <option key={optionIdOrValue(o)} value={optionIdOrValue(o)}>
                                             {o.value || o.id}
                                         </option>
                                     ))}
@@ -1311,7 +1367,7 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                                     className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                                 >
                                     {(capitalizedIncomeTypeOptions || []).map((o) => (
-                                        <option key={o.id || o.value} value={o.id || o.value}>
+                                        <option key={optionIdOrValue(o)} value={optionIdOrValue(o)}>
                                             {o.value || o.id}
                                         </option>
                                     ))}
@@ -1361,7 +1417,7 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                                     className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                                 >
                                     {(buyDownFeeCalculationTypeOptions || []).map((o) => (
-                                        <option key={o.id || o.value} value={o.id || o.value}>
+                                        <option key={optionIdOrValue(o)} value={optionIdOrValue(o)}>
                                             {o.value || o.id}
                                         </option>
                                     ))}
@@ -1375,7 +1431,7 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                                     className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                                 >
                                     {(buyDownFeeStrategyOptions || []).map((o) => (
-                                        <option key={o.id || o.value} value={o.id || o.value}>
+                                        <option key={optionIdOrValue(o)} value={optionIdOrValue(o)}>
                                             {o.value || o.id}
                                         </option>
                                     ))}
@@ -1389,7 +1445,7 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                                     className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                                 >
                                     {(buyDownFeeIncomeTypeOptions || []).map((o) => (
-                                        <option key={o.id || o.value} value={o.id || o.value}>
+                                        <option key={optionIdOrValue(o)} value={optionIdOrValue(o)}>
                                             {o.value || o.id}
                                         </option>
                                     ))}
@@ -1520,6 +1576,23 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                                 </div>
 
                                 <div>
+                                    <label className="block text-sm font-medium">Income from Recovery (Income) *</label>
+                                    <select
+                                        value={form.incomeFromRecoveryAccountId}
+                                        onChange={(e) => setField('incomeFromRecoveryAccountId', e.target.value)}
+                                        className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                                    >
+                                        <option value="">Select</option>
+                                        {income.map((a) => (
+                                            <option key={a.id} value={a.id}>{acctOptionLabel(a)}</option>
+                                        ))}
+                                    </select>
+                                    {errors.incomeFromRecoveryAccountId && (
+                                        <p className="text-xs text-red-500 mt-1">{errors.incomeFromRecoveryAccountId}</p>
+                                    )}
+                                </div>
+
+                                <div>
                                     <label className="block text-sm font-medium">Write-off (Expense) *</label>
                                     <select
                                         value={form.writeOffAccountId}
@@ -1548,6 +1621,23 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                                     </select>
                                     {errors.overpaymentLiabilityAccountId && (
                                         <p className="text-xs text-red-500 mt-1">{errors.overpaymentLiabilityAccountId}</p>
+                                    )}
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium">Transfers in Suspense (Asset) *</label>
+                                    <select
+                                        value={form.transfersInSuspenseAccountId}
+                                        onChange={(e) => setField('transfersInSuspenseAccountId', e.target.value)}
+                                        className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                                    >
+                                        <option value="">Select</option>
+                                        {assets.map((a) => (
+                                            <option key={a.id} value={a.id}>{acctOptionLabel(a)}</option>
+                                        ))}
+                                    </select>
+                                    {errors.transfersInSuspenseAccountId && (
+                                        <p className="text-xs text-red-500 mt-1">{errors.transfersInSuspenseAccountId}</p>
                                     )}
                                 </div>
                             </div>

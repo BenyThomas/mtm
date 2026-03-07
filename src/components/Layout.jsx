@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 
 const ButtonLike = ({ children, className = '', ...props }) => (
     <button
-        className={`p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ring-offset-white dark:ring-offset-gray-900 ${className}`}
+        className={`rounded-xl p-2 text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ring-offset-white dark:ring-offset-gray-900 ${className}`}
         {...props}
     >
       {children}
@@ -17,12 +17,12 @@ const SideLink = ({ to, icon, label, onClick }) => (
         to={to}
         onClick={onClick}
         className={({ isActive }) =>
-            `flex items-center gap-2 px-3 py-2 rounded-md text-sm
+            `flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-all
        focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2
        ring-offset-white dark:ring-offset-gray-900
        ${isActive
-                ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-200'
-                : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-200'}`
+                ? 'bg-cyan-100 text-cyan-800 shadow-sm dark:bg-cyan-900/40 dark:text-cyan-200'
+                : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200'}`
         }
     >
       <span className="w-5 text-center">{icon}</span>
@@ -121,22 +121,26 @@ const Layout = () => {
   }, [can]);
 
   return (
-      <div className="min-h-screen bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+      <div className="min-h-screen text-slate-900 dark:text-slate-100">
+        <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+          <div className="absolute -top-28 -left-24 h-80 w-80 rounded-full bg-cyan-300/20 blur-3xl dark:bg-cyan-500/15" />
+          <div className="absolute top-0 right-0 h-[26rem] w-[26rem] rounded-full bg-emerald-300/20 blur-3xl dark:bg-emerald-500/10" />
+        </div>
         {/* Top bar with logout + theme toggle */}
         <Header onToggleSidebar={() => setOpen(v => !v)} />
 
-        <div className="flex">
+        <div className="mx-auto flex max-w-[1600px] gap-4 px-2 py-3 sm:px-4">
           {/* Sidebar */}
           <aside
-              className={`fixed md:sticky top-14 md:top-14 z-20 w-72 shrink-0
-            bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800
-            h-[calc(100vh-3.5rem)]
+              className={`fixed left-0 top-16 z-20 w-72 shrink-0 md:sticky md:top-[4.75rem]
+            border border-slate-200/70 bg-white/85 shadow-xl backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/75
+            h-[calc(100vh-4rem)] md:rounded-2xl
             ${open ? 'block' : 'hidden md:block'}`}
           >
             <nav className="h-full overflow-y-auto overscroll-contain px-3 py-3 space-y-6">
               {visibleGroups.map((group) => (
                   <div key={group.title}>
-                    <div className="px-3 text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">
+                    <div className="mb-2 px-3 text-xs uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
                       {group.title}
                     </div>
                     <div className="space-y-1">
@@ -156,8 +160,8 @@ const Layout = () => {
           </aside>
 
           {/* Main */}
-          <main className="flex-1 min-w-0 md:ml-0">
-            <div className="max-w-7xl mx-auto w-full p-4">
+          <main className="modern-enter min-w-0 flex-1 md:ml-0">
+            <div className="mx-auto w-full max-w-7xl rounded-2xl border border-slate-200/70 bg-white/55 p-4 backdrop-blur-sm dark:border-slate-700/50 dark:bg-slate-900/35 sm:p-5">
               <Outlet />
             </div>
           </main>

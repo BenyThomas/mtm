@@ -7,19 +7,19 @@ const KPICard = ({ title, value, suffix, loading, emptyMessage, children }) => {
         <Card>
             <div className="flex items-start justify-between">
                 <div>
-                    <div className="text-sm text-gray-500 dark:text-gray-400">{title}</div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">{title}</div>
                     {loading ? (
                         <div className="mt-2">
                             <Skeleton width="100px" height="1.75rem" />
                         </div>
                     ) : value === 0 || value === '0' || value === '0.00' ? (
-                        <div className="mt-2 text-lg font-semibold text-gray-500 dark:text-gray-400">
+                        <div className="mt-2 text-lg font-semibold text-slate-500 dark:text-slate-300">
                             {emptyMessage || 'No data'}
                         </div>
                     ) : (
-                        <div className="mt-1 text-2xl font-semibold">
+                        <div className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">
                             {value}
-                            {suffix ? <span className="text-base font-medium text-gray-500 dark:text-gray-400 ml-1">{suffix}</span> : null}
+                            {suffix ? <span className="ml-1 text-base font-medium text-slate-500 dark:text-slate-300">{suffix}</span> : null}
                         </div>
                     )}
                 </div>

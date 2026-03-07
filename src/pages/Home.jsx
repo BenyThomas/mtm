@@ -9,8 +9,8 @@ import { useLoading } from '../context/LoadingContext';
 import { useToast } from '../context/ToastContext';
 import { useNavigate } from 'react-router-dom';
 
-const BRAND_RED = '#F20519';
-const BRAND_BLUE = '#010D00';
+const BRAND_RED = '#be123c';
+const BRAND_BLUE = '#0f766e';
 
 function formatTZS(n) {
     if (isNaN(n)) return '0';
@@ -212,73 +212,118 @@ const Home = () => {
     };
 
     const parAccent = par30 > 30 ? 'text-red-600' : par30 > 10 ? 'text-amber-600' : 'text-emerald-600';
+    const overdueRate = activeLoans ? (overdueLoans.length / activeLoans) * 100 : 0;
+    const riskScore = Math.min(100, Math.round((par30 * 0.65) + (overdueRate * 0.35)));
+    const riskTone = riskScore >= 60 ? 'bg-rose-500' : riskScore >= 35 ? 'bg-amber-500' : 'bg-emerald-500';
+    const healthLabel = riskScore >= 60 ? 'High Risk' : riskScore >= 35 ? 'Watchlist' : 'Stable';
+    const nowLabel = new Date().toLocaleString('en-TZ', { dateStyle: 'medium', timeStyle: 'short' });
 
     return (
         <div className="space-y-6">
-            {/* Hero */}
-            <div
-                className="rounded-3xl p-6 sm:p-8 shadow-sm relative overflow-hidden"
-                style={{ background: `linear-gradient(135deg, ${BRAND_BLUE} 0%, #0b1b10 40%, ${BRAND_RED} 140%)` }}
-            >
-                <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full opacity-20" style={{ background: '#ffffff' }} />
-                <div className="absolute -left-16 -bottom-16 h-56 w-56 rounded-full opacity-10" style={{ background: '#ffffff' }} />
-                <div className="relative z-10 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                    <div className="text-white">
-                        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">MTM Dashboard</h1>
-                        <p className="mt-1 text-white/80">Snapshot of active clients & loans, arrears, and portfolio.</p>
+            <section className="relative overflow-hidden rounded-3xl border border-cyan-200/60 bg-gradient-to-br from-cyan-100 via-white to-teal-100 p-6 text-slate-900 shadow-xl sm:p-8">
+                <div className="absolute -left-24 -top-24 h-72 w-72 rounded-full bg-cyan-300/20 blur-3xl" />
+                <div className="absolute -right-24 top-10 h-72 w-72 rounded-full bg-emerald-300/20 blur-3xl" />
+                <div className="relative z-10 grid gap-6 lg:grid-cols-5">
+                    <div className="lg:col-span-3">
+                        <p className="text-xs uppercase tracking-[0.18em] text-slate-700">Portfolio Command Center</p>
+                        <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-5xl">Epik Dashboard</h1>
+                        <p className="mt-3 max-w-2xl text-sm text-slate-700 sm:text-base">
+                            One view for client momentum, loan exposure, arrears pressure, and collection risk.
+                        </p>
+                        <div className="mt-5 flex flex-wrap items-center gap-2">
+                            <Button onClick={goCreateClient} className="!border !border-white/40 !bg-white !text-slate-900 hover:!bg-slate-100">
+                                Create Client
+                            </Button>
+                            <Button variant="secondary" onClick={goCreateLoan}>
+                                Apply Loan
+                            </Button>
+                            <span className="rounded-xl border border-slate-300 bg-white/70 px-3 py-2 text-xs text-slate-800">Updated {nowLabel}</span>
+                        </div>
                     </div>
-                    <div className="flex gap-2">
-                        <Button onClick={goCreateClient} className="!rounded-2xl !px-4 !py-2 !font-medium bg-white text-[color:#010D00] hover:bg-gray-100 border border-white/40">
-                            + Create Client
-                        </Button>
-                        <Button variant="secondary" onClick={goCreateLoan} className="!rounded-2xl !px-4 !py-2 !font-medium bg-white/10 text-white border border-white/30 hover:bg-white/20">
-                            + Create Loan
-                        </Button>
+                    <div className="grid grid-cols-2 gap-3 lg:col-span-2">
+                        <div className="rounded-2xl border border-slate-300 bg-white/80 p-3 backdrop-blur">
+                            <div className="text-xs text-slate-700">Active Clients</div>
+                            <div className="mt-1 text-xl font-semibold text-slate-900">{activeClients}</div>
+                        </div>
+                        <div className="rounded-2xl border border-slate-300 bg-white/80 p-3 backdrop-blur">
+                            <div className="text-xs text-slate-700">Active Loans</div>
+                            <div className="mt-1 text-xl font-semibold text-slate-900">{activeLoans}</div>
+                        </div>
+                        <div className="rounded-2xl border border-slate-300 bg-white/80 p-3 backdrop-blur">
+                            <div className="text-xs text-slate-700">PAR 30+</div>
+                            <div className="mt-1 text-xl font-semibold text-slate-900">{par30.toFixed(2)}%</div>
+                        </div>
+                        <div className="rounded-2xl border border-slate-300 bg-white/80 p-3 backdrop-blur">
+                            <div className="text-xs text-slate-700">Overdue Outstanding</div>
+                            <div className="mt-1 text-sm font-semibold text-slate-900">{formatTZS(overdueOutstandingTotal)}</div>
+                        </div>
                     </div>
                 </div>
-            </div>
+            </section>
 
-            {/* KPI Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-                <div className="transition-transform duration-200 hover:-translate-y-0.5">
-                    <KPICard title="Active Clients" value={activeClients} loading={loading} emptyMessage="No active clients">
-                        <Sparkline data={clientCountSeries} height={36} />
-                    </KPICard>
-                </div>
+            <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <KPICard title="Active Clients" value={activeClients} loading={loading} emptyMessage="No active clients">
+                    <Sparkline data={clientCountSeries} height={36} />
+                </KPICard>
+                <KPICard title="Active Loans" value={activeLoans} loading={loading} emptyMessage="No active loans">
+                    <Sparkline data={loanAmountSeries} height={36} />
+                </KPICard>
+                <KPICard title="Portfolio Outstanding" value={formatTZS(portfolioOutstanding)} loading={loading} emptyMessage="No outstanding portfolio">
+                    <Sparkline data={loanAmountSeries} height={36} />
+                </KPICard>
+                <KPICard title="PAR > 30" value={<span className={cx('font-semibold', parAccent)}>{par30.toFixed(2)}%</span>} loading={loading} emptyMessage="No arrears">
+                    <Sparkline data={overdueSeries} height={36} />
+                </KPICard>
+            </section>
 
-                <div className="transition-transform duration-200 hover:-translate-y-0.5">
-                    <KPICard title="Active Loans" value={activeLoans} loading={loading} emptyMessage="No active loans">
-                        <Sparkline data={loanAmountSeries} height={36} />
-                    </KPICard>
-                </div>
+            <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                <Card>
+                    <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Risk Composite</div>
+                    <div className="mt-2 flex items-end justify-between">
+                        <div className="text-3xl font-bold">{riskScore}</div>
+                        <div className="text-sm font-medium">{healthLabel}</div>
+                    </div>
+                    <div className="mt-3 h-3 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+                        <div className={cx('h-full rounded-full', riskTone)} style={{ width: `${riskScore}%` }} />
+                    </div>
+                    <div className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+                        Weighted from PAR 30+ and overdue loan share.
+                    </div>
+                </Card>
 
-                <div className="transition-transform duration-200 hover:-translate-y-0.5">
-                    <KPICard title="Portfolio Outstanding" value={formatTZS(portfolioOutstanding)} loading={loading} emptyMessage="No outstanding portfolio">
-                        <Sparkline data={loanAmountSeries} height={36} />
-                    </KPICard>
-                </div>
+                <Card>
+                    <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Arrears Pressure</div>
+                    <div className="mt-2 text-2xl font-bold">{overdueRate.toFixed(1)}%</div>
+                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+                        <div className="h-full rounded-full bg-amber-500" style={{ width: `${Math.min(100, overdueRate)}%` }} />
+                    </div>
+                    <div className="mt-3 text-sm text-slate-600 dark:text-slate-300">
+                        {overdueLoans.length} overdue loans out of {activeLoans || 0} active loans.
+                    </div>
+                </Card>
 
-                <div className="transition-transform duration-200 hover:-translate-y-0.5">
-                    <KPICard title="PAR > 30" value={<span className={cx('font-semibold', parAccent)}>{par30.toFixed(2)}%</span>} loading={loading} emptyMessage="No arrears">
-                        <Sparkline data={overdueSeries} height={36} />
-                    </KPICard>
-                </div>
-            </div>
+                <Card>
+                    <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Portfolio Value</div>
+                    <div className="mt-2 text-2xl font-bold">{formatTZS(portfolioOutstanding)}</div>
+                    <div className="mt-2">
+                        <Sparkline data={loanAmountSeries} height={44} />
+                    </div>
+                    <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+                        Active exposure across disbursed loan book.
+                    </div>
+                </Card>
+            </section>
 
-            {/* Activity */}
-            <Card className="border border-gray-200/70 dark:border-gray-700/50 rounded-2xl">
-                <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-xl font-semibold flex items-center gap-2">
-                        <span className="inline-block h-2 w-2 rounded-full" style={{ background: BRAND_RED }} />
-                        Activity
-                    </h2>
-                    <div className="text-sm text-gray-500 dark:text-gray-400">KPIs update on reload</div>
+            <Card>
+                <div className="mb-4 flex items-center justify-between">
+                    <h2 className="text-lg font-semibold">Activity Summary</h2>
+                    <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Live view</div>
                 </div>
 
                 {loading ? (
-                    <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                         {[...Array(6)].map((_, idx) => (
-                            <div key={idx} className="space-y-2 p-3 border rounded-xl">
+                            <div key={idx} className="space-y-2 rounded-2xl border border-slate-200/60 p-3 dark:border-slate-700/60">
                                 <Skeleton height="1.25rem" width="60%" />
                                 <Skeleton height="1rem" width="85%" />
                                 <Skeleton height="1rem" width="70%" />
@@ -290,27 +335,21 @@ const Home = () => {
                         {error}
                     </div>
                 ) : (
-                    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                        <div className="rounded-xl border p-4 hover:shadow-sm transition-shadow">
-                            <div className="font-semibold mb-1">Clients</div>
-                            <div className="text-sm text-gray-600 dark:text-gray-400">
-                                Active: <span className="font-medium" style={{ color: BRAND_BLUE }}>{activeClients}</span>
-                            </div>
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                        <div className="rounded-2xl border border-slate-200/70 bg-white/70 p-4 dark:border-slate-700/70 dark:bg-slate-900/50">
+                            <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Clients</div>
+                            <div className="mt-2 text-2xl font-semibold" style={{ color: BRAND_BLUE }}>{activeClients}</div>
+                            <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">Currently active client accounts.</div>
                         </div>
-                        <div className="rounded-xl border p-4 hover:shadow-sm transition-shadow">
-                            <div className="font-semibold mb-1">Loans</div>
-                            <div className="text-sm text-gray-600 dark:text-gray-400">
-                                Active: <span className="font-medium" style={{ color: BRAND_BLUE }}>{activeLoans}</span>
-                            </div>
+                        <div className="rounded-2xl border border-slate-200/70 bg-white/70 p-4 dark:border-slate-700/70 dark:bg-slate-900/50">
+                            <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Loans</div>
+                            <div className="mt-2 text-2xl font-semibold" style={{ color: BRAND_BLUE }}>{activeLoans}</div>
+                            <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">Disbursed and active loan contracts.</div>
                         </div>
-                        <div className="rounded-xl border p-4 hover:shadow-sm transition-shadow">
-                            <div className="font-semibold mb-1">Overdue Loans</div>
-                            <div className="text-sm text-gray-600 dark:text-gray-400">
-                                Count: <span className="font-medium" style={{ color: BRAND_RED }}>{overdueLoans.length}</span>
-                            </div>
-                            <div className="text-sm text-gray-600 dark:text-gray-400">
-                                Outstanding: <span className="font-medium">{formatTZS(overdueOutstandingTotal)}</span>
-                            </div>
+                        <div className="rounded-2xl border border-slate-200/70 bg-white/70 p-4 dark:border-slate-700/70 dark:bg-slate-900/50">
+                            <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Overdue Exposure</div>
+                            <div className="mt-2 text-2xl font-semibold" style={{ color: BRAND_RED }}>{overdueLoans.length}</div>
+                            <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">{formatTZS(overdueOutstandingTotal)} outstanding overdue amount.</div>
                         </div>
                     </div>
                 )}

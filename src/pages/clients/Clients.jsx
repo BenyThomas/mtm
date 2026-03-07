@@ -231,6 +231,29 @@ const Clients = () => {
 
     return (
         <div className="space-y-6">
+            <section className="rounded-3xl border border-slate-200/70 bg-white/70 p-5 backdrop-blur-sm dark:border-slate-700/60 dark:bg-slate-900/40 sm:p-6">
+                <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+                    <div>
+                        <p className="text-xs uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Customer Management</p>
+                        <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">Clients</h1>
+                        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Browse, filter, and manage client lifecycle actions.</p>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                        <div className="rounded-xl border border-slate-200/70 bg-white/80 px-3 py-2 dark:border-slate-700/70 dark:bg-slate-900/60">
+                            <div className="text-xs text-slate-500 dark:text-slate-400">Rows</div>
+                            <div className="text-base font-semibold">{clients.length}</div>
+                        </div>
+                        <div className="rounded-xl border border-slate-200/70 bg-white/80 px-3 py-2 dark:border-slate-700/70 dark:bg-slate-900/60">
+                            <div className="text-xs text-slate-500 dark:text-slate-400">Total</div>
+                            <div className="text-base font-semibold">{total}</div>
+                        </div>
+                        <div className="rounded-xl border border-slate-200/70 bg-white/80 px-3 py-2 dark:border-slate-700/70 dark:bg-slate-900/60">
+                            <div className="text-xs text-slate-500 dark:text-slate-400">Page</div>
+                            <div className="text-base font-semibold">{page + 1}</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
 
             {/* Filters */}
             <Card>
@@ -239,7 +262,7 @@ const Clients = () => {
                     <div className="grid w-full gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:flex xl:flex-1">
                         {/* Search */}
                         <div className="xl:flex-1">
-                            <label className="block text-sm font-medium">Search</label>
+                            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search</label>
                             <input
                                 value={search}
                                 onChange={(e) => {
@@ -247,20 +270,20 @@ const Clients = () => {
                                     setPage(0);
                                 }}
                                 placeholder="Name / Account # / External ID / Office"
-                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-primary"
+                                className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
                             />
                         </div>
 
                         {/* Status */}
                         <div className="xl:w-56">
-                            <label className="block text-sm font-medium">Status</label>
+                            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Status</label>
                             <select
                                 value={status}
                                 onChange={(e) => {
                                     setStatus(e.target.value);
                                     setPage(0);
                                 }}
-                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                                className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
                             >
                                 {STATUS_OPTIONS.map((s) => (
                                     <option key={s.value} value={s.value}>
@@ -272,14 +295,14 @@ const Clients = () => {
 
                         {/* Office */}
                         <div className="xl:w-56">
-                            <label className="block text-sm font-medium">Office</label>
+                            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Office</label>
                             <select
                                 value={officeId}
                                 onChange={(e) => {
                                     setOfficeId(e.target.value);
                                     setPage(0);
                                 }}
-                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                                className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
                             >
                                 <option value="">All</option>
                                 {offices.map((o) => (
@@ -292,14 +315,14 @@ const Clients = () => {
 
                         {/* Rows per page */}
                         <div className="xl:w-40">
-                            <label className="block text-sm font-medium">Rows</label>
+                            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Rows</label>
                             <select
                                 value={limit}
                                 onChange={(e) => {
                                     setLimit(Number(e.target.value));
                                     setPage(0);
                                 }}
-                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                                className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
                             >
                                 {PAGE_SIZE_OPTIONS.map((n) => (
                                     <option key={n} value={n}>
@@ -313,46 +336,39 @@ const Clients = () => {
                     {/* Right: actions */}
                     <div className="flex items-end gap-2 xl:ml-4">
                         {/* Clear */}
-                        <button
+                        <Button
                             type="button"
+                            variant="ghost"
                             onClick={clearFilters}
                             title="Clear filters"
                             aria-label="Clear filters"
-                            className="p-2 rounded-xl ring-1 ring-gray-200 dark:ring-gray-700 bg-white/70 dark:bg-white/5 shadow-sm
-               text-red-700 dark:text-red-200 hover:bg-red-50 dark:hover:bg-red-900/10
-               hover:shadow-md transition-all duration-150 ease-out active:scale-95
-               focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/60 dark:focus-visible:ring-red-400/40"
+                            className="!h-10 !w-10 !p-0"
                         >
                             <XCircle className="w-5 h-5"/>
-                        </button>
+                        </Button>
 
                         {/* Refresh */}
-                        <button
+                        <Button
                             type="button"
+                            variant="secondary"
                             onClick={refresh}
                             title="Refresh"
                             aria-label="Refresh"
-                            className="p-2 rounded-xl ring-1 ring-gray-200 dark:ring-gray-700 bg-white/70 dark:bg-white/5 shadow-sm
-               text-green-700 dark:text-green-200 hover:bg-green-50 dark:hover:bg-green-900/10
-               hover:shadow-md transition-all duration-150 ease-out active:scale-95
-               focus:outline-none focus-visible:ring-2 focus-visible:ring-green-400/60 dark:focus-visible:ring-green-400/40"
+                            className="!h-10 !w-10 !p-0"
                         >
                             <RefreshCcw className="w-5 h-5"/>
-                        </button>
+                        </Button>
 
                         {/* New client */}
-                        <button
+                        <Button
                             type="button"
                             onClick={() => navigate('/clients/new')}
                             title="New client"
                             aria-label="New client"
-                            className="p-2 rounded-xl ring-1 ring-gray-200 dark:ring-gray-700 bg-white/70 dark:bg-white/5 shadow-sm
-               text-blue-700 dark:text-blue-200 hover:bg-blue-50 dark:hover:bg-blue-900/10
-               hover:shadow-md transition-all duration-150 ease-out active:scale-95
-               focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/60 dark:focus-visible:ring-blue-400/40"
+                            className="!h-10 !w-10 !p-0"
                         >
                             <Plus className="w-5 h-5"/>
-                        </button>
+                        </Button>
                     </div>
                 </div>
             </Card>

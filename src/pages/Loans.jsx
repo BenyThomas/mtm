@@ -164,34 +164,45 @@ const Loans = () => {
 
     return (
         <div className="space-y-6">
-            {/* Header / Quick actions */}
-            <div className="flex items-center justify-between">
-                <h1 className="text-2xl font-bold">Loans</h1>
-                <div className="space-x-2">
-                    <Button variant="secondary" onClick={() => navigate('/loans/apply')}>
-                        Apply for Loan
-                    </Button>
+            <section className="rounded-3xl border border-slate-200/70 bg-white/70 p-5 backdrop-blur-sm dark:border-slate-700/60 dark:bg-slate-900/40 sm:p-6">
+                <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+                    <div>
+                        <p className="text-xs uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Credit Operations</p>
+                        <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">Loans</h1>
+                        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Track disbursements, status, and product-level credit activity.</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <div className="rounded-xl border border-slate-200/70 bg-white/80 px-3 py-2 text-center dark:border-slate-700/70 dark:bg-slate-900/60">
+                            <div className="text-xs text-slate-500 dark:text-slate-400">Results</div>
+                            <div className="text-base font-semibold">{total}</div>
+                        </div>
+                        <div className="rounded-xl border border-slate-200/70 bg-white/80 px-3 py-2 text-center dark:border-slate-700/70 dark:bg-slate-900/60">
+                            <div className="text-xs text-slate-500 dark:text-slate-400">Page</div>
+                            <div className="text-base font-semibold">{page + 1}</div>
+                        </div>
+                        <Button onClick={() => navigate('/loans/apply')}>Apply for Loan</Button>
+                    </div>
                 </div>
-            </div>
+            </section>
 
             {/* Filters */}
             <Card>
-                <div className="grid md:grid-cols-2 xl:grid-cols-6 gap-3">
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
                     <div className="col-span-2">
-                        <label className="block text-sm font-medium">Search</label>
+                        <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search</label>
                         <input
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
                             placeholder="Client/Product/Loan #"
-                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-primary"
+                            className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
                         />
                     </div>
                     <div>
-                        <label className="block text-sm font-medium">Status</label>
+                        <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Status</label>
                         <select
                             value={status}
                             onChange={(e) => setStatus(e.target.value)}
-                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                            className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
                         >
                             {STATUS_OPTIONS.map((s) => (
                                 <option key={s.value} value={s.value}>
@@ -201,11 +212,11 @@ const Loans = () => {
                         </select>
                     </div>
                     <div>
-                        <label className="block text-sm font-medium">Product</label>
+                        <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Product</label>
                         <select
                             value={productId}
                             onChange={(e) => setProductId(e.target.value)}
-                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                            className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
                         >
                             <option value="">All</option>
                             {products.map((p) => (
@@ -216,30 +227,30 @@ const Loans = () => {
                         </select>
                     </div>
                     <div>
-                        <label className="block text-sm font-medium">Client ID</label>
+                        <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Client ID</label>
                         <input
                             type="number"
                             value={clientId}
                             onChange={(e) => setClientId(e.target.value)}
                             placeholder="e.g. 15"
-                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                            className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
                         />
                     </div>
                 </div>
 
-                <div className="mt-3 flex items-center justify-between">
-                    <Button variant="secondary" onClick={clearFilters}>
+                <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <Button variant="secondary" onClick={clearFilters} className="w-full sm:w-auto">
                         Clear
                     </Button>
-                    <div className="flex items-center space-x-2">
-                        <label className="text-sm">Rows</label>
+                    <div className="flex items-center justify-between gap-2 sm:justify-start">
+                        <label className="text-sm text-slate-600 dark:text-slate-300">Rows</label>
                         <select
                             value={limit}
                             onChange={(e) => {
                                 setLimit(Number(e.target.value));
                                 setPage(0);
                             }}
-                            className="border rounded p-1 dark:bg-gray-700 dark:border-gray-600"
+                            className="rounded-xl border px-2 py-1.5 dark:bg-gray-700 dark:border-gray-600"
                         >
                             {PAGE_SIZE_OPTIONS.map((n) => (
                                 <option key={n} value={n}>

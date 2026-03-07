@@ -1,19 +1,25 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import api from '../api/axios';
 import Card from '../components/Card';
-import Skeleton from '../components/Skeleton';
 import Badge from '../components/Badge';
 import Button from '../components/Button';
+import DataTable from '../components/DataTable';
 import { useNavigate } from 'react-router-dom';
+
+const PAGE_SIZE_OPTIONS = [10, 25, 50];
 
 const LoanProducts = () => {
     const navigate = useNavigate();
     const [loading, setLoading] = useState(true);
     const [products, setProducts] = useState([]);
 
-    // filters
     const [currency, setCurrency] = useState('');
-    const [status, setStatus] = useState(''); // '' | 'active' | 'inactive'
+    const [status, setStatus] = useState('');
+
+    const [page, setPage] = useState(0);
+    const [limit, setLimit] = useState(10);
+    const [sortBy, setSortBy] = useState('name');
+    const [sortDir, setSortDir] = useState('asc');
 
     const load = async () => {
         setLoading(true);
@@ -48,6 +54,117 @@ const LoanProducts = () => {
         });
     }, [products, currency, status]);
 
+    const sorted = useMemo(() => {
+        const list = [...filtered];
+        const valueOf = (p, key) => {
+            if (key === 'name') return p.name || '';
+            if (key === 'currency') return p.currency?.code || p.currencyCode || '';
+            if (key === 'minPrincipal') return Number(p.minPrincipal || p.principal?.minimum || 0);
+            if (key === 'maxPrincipal') return Number(p.maxPrincipal || p.principal?.maximum || 0);
+            if (key === 'interestRatePerPeriod') return Number(p.interestRatePerPeriod || p.interestRate || 0);
+            if (key === 'status') return (p.active ?? p.status?.active ?? true) ? 'active' : 'inactive';
+            return p[key] ?? '';
+        };
+
+        list.sort((a, b) => {
+            const av = valueOf(a, sortBy);
+            const bv = valueOf(b, sortBy);
+            if (typeof av === 'number' && typeof bv === 'number') {
+                return sortDir === 'asc' ? av - bv : bv - av;
+            }
+            const cmp = String(av).localeCompare(String(bv));
+            return sortDir === 'asc' ? cmp : -cmp;
+        });
+
+        return list;
+    }, [filtered, sortBy, sortDir]);
+
+    const paged = useMemo(() => {
+        const start = page * limit;
+        return sorted.slice(start, start + limit);
+    }, [sorted, page, limit]);
+
+    useEffect(() => {
+        setPage(0);
+    }, [currency, status, limit]);
+
+    const columns = useMemo(
+        () => [
+            {
+                key: 'name',
+                header: 'Product',
+                sortable: true,
+                render: (p) => (
+                    <div>
+                        <div className="font-semibold">{p.name || '-'}</div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400">ID: {p.id}</div>
+                    </div>
+                ),
+            },
+            {
+                key: 'currency',
+                header: 'Currency',
+                sortable: true,
+                render: (p) => p.currency?.code || p.currencyCode || '-',
+            },
+            {
+                key: 'minPrincipal',
+                header: 'Min Principal',
+                sortable: true,
+                render: (p) => p.minPrincipal || p.principal?.minimum || '-',
+            },
+            {
+                key: 'maxPrincipal',
+                header: 'Max Principal',
+                sortable: true,
+                render: (p) => p.maxPrincipal || p.principal?.maximum || '-',
+            },
+            {
+                key: 'interestRatePerPeriod',
+                header: 'Interest / Period',
+                sortable: true,
+                render: (p) => p.interestRatePerPeriod || p.interestRate || '-',
+            },
+            {
+                key: 'status',
+                header: 'Status',
+                sortable: true,
+                render: (p) => {
+                    const active = p.active ?? p.status?.active ?? true;
+                    return <Badge tone={active ? 'green' : 'yellow'}>{active ? 'Active' : 'Inactive'}</Badge>;
+                },
+            },
+            {
+                key: 'actions',
+                header: 'Actions',
+                sortable: false,
+                render: (p) => (
+                    <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/loan-products/${p.id}/edit`);
+                        }}
+                    >
+                        Edit
+                    </Button>
+                ),
+            },
+        ],
+        [navigate]
+    );
+
+    const onSort = (key) => {
+        if (!key || key === 'actions') return;
+        if (sortBy === key) {
+            setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+        } else {
+            setSortBy(key);
+            setSortDir('asc');
+        }
+    };
+
     return (
         <div className="space-y-6">
             <div className="flex items-center justify-between">
@@ -58,15 +175,17 @@ const LoanProducts = () => {
                 </div>
             </div>
 
-            {/* Filters */}
             <Card>
-                <div className="grid sm:grid-cols-3 gap-4">
+                <div className="grid gap-4 sm:grid-cols-3">
                     <div>
-                        <label className="block text-sm font-medium">Currency</label>
+                        <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Currency</label>
                         <select
                             value={currency}
-                            onChange={(e) => setCurrency(e.target.value)}
-                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                            onChange={(e) => {
+                                setCurrency(e.target.value);
+                                setPage(0);
+                            }}
+                            className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
                         >
                             <option value="">All</option>
                             {currencies.map((c) => (
@@ -74,84 +193,57 @@ const LoanProducts = () => {
                             ))}
                         </select>
                     </div>
+
                     <div>
-                        <label className="block text-sm font-medium">Status</label>
+                        <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Status</label>
                         <select
                             value={status}
-                            onChange={(e) => setStatus(e.target.value)}
-                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                            onChange={(e) => {
+                                setStatus(e.target.value);
+                                setPage(0);
+                            }}
+                            className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
                         >
                             <option value="">All</option>
                             <option value="active">Active</option>
                             <option value="inactive">Inactive</option>
                         </select>
                     </div>
+
+                    <div>
+                        <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Rows</label>
+                        <select
+                            value={limit}
+                            onChange={(e) => {
+                                setLimit(Number(e.target.value));
+                                setPage(0);
+                            }}
+                            className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                        >
+                            {PAGE_SIZE_OPTIONS.map((n) => (
+                                <option key={n} value={n}>{n}</option>
+                            ))}
+                        </select>
+                    </div>
                 </div>
             </Card>
 
-            {/* Grid */}
-            {loading ? (
-                <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
-                    {[...Array(6)].map((_, i) => (
-                        <Card key={i}><Skeleton height="8rem" /></Card>
-                    ))}
-                </div>
-            ) : !filtered.length ? (
-                <Card>No products found.</Card>
-            ) : (
-                <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
-                    {filtered.map((p) => {
-                        const cur = p.currency?.code || p.currencyCode;
-                        const active = p.active ?? p.status?.active ?? true;
-                        const min = p.minPrincipal || p.principal?.minimum || '-';
-                        const max = p.maxPrincipal || p.principal?.maximum || '-';
-                        const ir = p.interestRatePerPeriod || p.interestRate || '-';
-                        const amort = p.amortizationType?.value || p.amortizationType || '-';
-                        const freq = p.repaymentFrequencyType?.value || p.repaymentFrequencyType || '';
-                        const repayEvery = p.repaymentEvery || '';
-                        return (
-                            <Card key={p.id}>
-                                <div className="flex items-start justify-between">
-                                    <div>
-                                        <div className="text-lg font-semibold">{p.name}</div>
-                                        <div className="text-sm text-gray-500">{cur || '-'}</div>
-                                    </div>
-                                    <Badge tone={active ? 'green' : 'yellow'}>
-                                        {active ? 'Active' : 'Inactive'}
-                                    </Badge>
-                                </div>
-                                <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
-                                    <div>
-                                        <div className="text-gray-500">Min Principal</div>
-                                        <div className="font-medium">{min}</div>
-                                    </div>
-                                    <div>
-                                        <div className="text-gray-500">Max Principal</div>
-                                        <div className="font-medium">{max}</div>
-                                    </div>
-                                    <div>
-                                        <div className="text-gray-500">Interest / Period</div>
-                                        <div className="font-medium">{ir}</div>
-                                    </div>
-                                    <div>
-                                        <div className="text-gray-500">Amortization</div>
-                                        <div className="font-medium">{amort}</div>
-                                    </div>
-                                    <div className="col-span-2">
-                                        <div className="text-gray-500">Repayment</div>
-                                        <div className="font-medium">
-                                            {repayEvery ? `${repayEvery} × ${freq || ''}` : (freq || '-')}
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="mt-4">
-                                    <Button variant="secondary" onClick={() => navigate(`/loan-products/${p.id}/edit`)}>Edit</Button>
-                                </div>
-                            </Card>
-                        );
-                    })}
-                </div>
-            )}
+            <Card>
+                <DataTable
+                    columns={columns}
+                    data={paged}
+                    loading={loading}
+                    total={sorted.length}
+                    page={page}
+                    limit={limit}
+                    onPageChange={setPage}
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={onSort}
+                    onRowClick={(row) => navigate(`/loan-products/${row.id}/edit`)}
+                    emptyMessage="No products found"
+                />
+            </Card>
         </div>
     );
 };

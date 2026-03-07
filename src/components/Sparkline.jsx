@@ -44,7 +44,7 @@ const Sparkline = ({ data = [], width = 160, height = 36, strokeWidth = 2 }) => 
             ) : (
                 <polyline
                     fill="none"
-                    className="stroke-current text-secondary"
+                    className="stroke-current text-cyan-600 dark:text-cyan-300"
                     points={d}
                     strokeWidth={strokeWidth}
                     strokeLinejoin="round"
