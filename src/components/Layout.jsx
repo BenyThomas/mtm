@@ -33,6 +33,36 @@ const SideLink = ({ to, icon, label, onClick }) => (
 /** Add perm codes as needed for your deployment */
 const NAV_GROUPS = [
   {
+    title: 'Gateway',
+    items: [
+      { to: '/gateway', label: 'Overview', icon: 'G', perm: 'GW_OPS_READ' },
+      { to: '/gateway/invites', label: 'Invites', icon: 'I', perm: 'GW_OPS_READ' },
+      { to: '/gateway/loans', label: 'Gw Loans', icon: 'L', perm: 'GW_OPS_READ' },
+      { to: '/gateway/queues', label: 'Queues', icon: 'Q', perm: 'GW_OPS_READ' },
+      { to: '/gateway/resources', label: 'Resources', icon: 'R', perm: 'GW_OPS_READ' },
+      { to: '/gateway/product-catalog', label: 'Product Catalog', icon: 'P', perm: 'GW_OPS_READ' },
+      { to: '/gateway/loan-automation', label: 'Loan Automation', icon: 'A', perm: 'GW_OPS_WRITE' },
+    ],
+  },
+  {
+    title: 'Gateway Data',
+    items: [
+      { to: '/gateway/data/onboarding_records', label: 'Onboarding', icon: 'O', perm: 'GW_OPS_READ' },
+      { to: '/gateway/data/prospects', label: 'Prospects', icon: 'Pr', perm: 'GW_OPS_READ' },
+      { to: '/gateway/data/customers', label: 'Customers', icon: 'Cu', perm: 'GW_OPS_READ' },
+      { to: '/gateway/data/auth_accounts', label: 'Auth Accounts', icon: 'AA', perm: 'GW_OPS_READ' },
+      { to: '/gateway/data/auth_sessions', label: 'Auth Sessions', icon: 'AS', perm: 'GW_OPS_READ' },
+      { to: '/gateway/data/auth_refresh_tokens', label: 'Refresh Tokens', icon: 'RT', perm: 'GW_OPS_READ' },
+      { to: '/gateway/data/auth_otp_challenges', label: 'OTP Challenges', icon: 'OT', perm: 'GW_OPS_READ' },
+      { to: '/gateway/data/loans', label: 'Platform Loans', icon: 'L', perm: 'GW_OPS_READ' },
+      { to: '/gateway/data/products', label: 'Products', icon: 'Pd', perm: 'GW_OPS_READ' },
+      { to: '/gateway/data/product_snapshots', label: 'Product Snapshots', icon: 'PS', perm: 'GW_OPS_READ' },
+      { to: '/gateway/data/schedule_preview_cache', label: 'Schedule Cache', icon: 'SC', perm: 'GW_OPS_READ' },
+      { to: '/gateway/data/consent_documents', label: 'Consent Docs', icon: 'CD', perm: 'GW_OPS_READ' },
+      { to: '/gateway/data/audit_events', label: 'Audit Events', icon: 'Au', perm: 'GW_OPS_READ' },
+    ],
+  },
+  {
     title: 'Main',
     items: [
       { to: '/', label: 'Dashboard', icon: '🏠' },

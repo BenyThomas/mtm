@@ -12,8 +12,10 @@ RUN npm ci || npm install
 # --- Vite envs (match your .env naming!) ---
 # These ENV vars are read by Vite at build time as import.meta.env.VITE_*
 ARG VITE_API_URL=https://fineract.kazy.co.tz/fineract-provider
+ARG VITE_GATEWAY_API_URL=
 ARG VITE_TENANT=default
 ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_GATEWAY_API_URL=$VITE_GATEWAY_API_URL
 ENV VITE_TENANT=$VITE_TENANT
 
 # Increase memory for large builds (optional)
@@ -23,7 +25,7 @@ ENV NODE_OPTIONS="--max_old_space_size=1536"
 COPY . .
 
 # Debug in CI logs
-RUN echo ">>> VITE_API_URL=${VITE_API_URL}" && echo ">>> VITE_TENANT=${VITE_TENANT}"
+RUN echo ">>> VITE_API_URL=${VITE_API_URL}" && echo ">>> VITE_GATEWAY_API_URL=${VITE_GATEWAY_API_URL}" && echo ">>> VITE_TENANT=${VITE_TENANT}"
 
 # Build
 RUN npm run build

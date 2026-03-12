@@ -322,6 +322,9 @@ export const AuthProvider = ({ children }) => {
             // read wildcard covers all read-ish actions
             if (hasAllRead && READ_PREFIX.test(c)) return true;
 
+            // Project-specific wildcard for Gateway back-office permissions
+            if (permSet.has('GW_OPS_ALL') && c.startsWith('GW_OPS_')) return true;
+
             return permSet.has(c);
         },
         [permSet, hasAll, hasAllRead, READ_PREFIX]

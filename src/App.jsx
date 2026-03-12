@@ -99,6 +99,18 @@ import Roles from "./pages/admin/Roles";
 import Permissions from "./pages/admin/Permissions";
 import CollectionSheet from "./pages/funds/CollectionSheet";
 import Search from "./pages/search/Search";
+import GatewayDashboard from "./pages/gateway/GatewayDashboard";
+import GatewayResources from "./pages/gateway/Resources";
+import GatewayResourceDetails from "./pages/gateway/ResourceDetails";
+import GatewayQueues from "./pages/gateway/Queues";
+import GatewayProductCatalog from "./pages/gateway/ProductCatalog";
+import GatewayLoanAutomationConfig from "./pages/gateway/LoanAutomationConfig";
+import InvitesList from "./pages/gateway/invites/InvitesList";
+import InviteNew from "./pages/gateway/invites/InviteNew";
+import InviteDetails from "./pages/gateway/invites/InviteDetails";
+import GwLoansList from "./pages/gateway/loans/GwLoansList";
+import GwLoanDetails from "./pages/gateway/loans/GwLoanDetails";
+import GatewayDataList from "./pages/gateway/data/DataList";
 
 const NotFound = () => (
     <div>
@@ -263,6 +275,20 @@ const App = () => {
                             <Route path="/admin/permissions" element={<Permissions />} />
                             <Route path="/admin/roles" element={<Roles />} />
                             <Route path="/search" element={<Search />} />
+
+                            {/* Gateway back-office */}
+                            <Route path="/gateway" element={<GatewayDashboard />} />
+                            <Route path="/gateway/resources" element={<GatewayResources />} />
+                            <Route path="/gateway/resources/:type/:id" element={<GatewayResourceDetails />} />
+                            <Route path="/gateway/queues" element={<GatewayQueues />} />
+                            <Route path="/gateway/product-catalog" element={<GatewayProductCatalog />} />
+                            <Route path="/gateway/loan-automation" element={<GatewayLoanAutomationConfig />} />
+                            <Route path="/gateway/invites" element={<InvitesList />} />
+                            <Route path="/gateway/invites/new" element={<InviteNew />} />
+                            <Route path="/gateway/invites/:inviteId" element={<InviteDetails />} />
+                            <Route path="/gateway/loans" element={<GwLoansList />} />
+                            <Route path="/gateway/loans/:platformLoanId" element={<GwLoanDetails />} />
+                            <Route path="/gateway/data/:resource" element={<GatewayDataList />} />
 
 
 

@@ -7,9 +7,10 @@ import axios from 'axios';
  * - Uses Basic Authorization from stored Fineract auth key
  * - Emits "auth:unauthorized" on HTTP 401
  */
-const baseURL = import.meta.env.VITE_API_URL
-    ? `${import.meta.env.VITE_API_URL}/api/v1`
-    : '/api/api/v1';
+const fineractOrigin = import.meta.env.VITE_API_URL
+    ? String(import.meta.env.VITE_API_URL).replace(/\/+$/, '')
+    : '';
+const baseURL = fineractOrigin ? `${fineractOrigin}/api/v1` : '/api/api/v1';
 
 const api = axios.create({ baseURL });
 
