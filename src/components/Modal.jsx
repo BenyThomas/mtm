@@ -48,20 +48,20 @@ export default function Modal({
             <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] opacity-100 transition-opacity" />
 
             {/* Panel */}
-            <div className="absolute inset-0 flex items-center justify-center p-4 sm:p-6">
+            <div className="absolute inset-0 flex items-end justify-center p-2 sm:items-center sm:p-6">
                 <div
                     className={clsx(
                         'w-full',
                         sizeMap[size] || sizeMap['4xl'],
                         'bg-white dark:bg-gray-900 rounded-2xl shadow-2xl ring-1 ring-black/5',
                         'transition-all duration-200 ease-out',
-                        'max-h-[85vh] flex flex-col',
+                        'max-h-[calc(100vh-1rem)] sm:max-h-[85vh] flex flex-col overflow-hidden',
                         panelClassName
                     )}
                 >
                     {/* Header */}
                     {(title || !hideClose) && (
-                        <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+                        <div className="shrink-0 px-4 py-3 sm:px-5 sm:py-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
                             <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{title}</h3>
                             {!hideClose && (
                                 <button
@@ -76,14 +76,14 @@ export default function Modal({
                     )}
 
                     {/* Body */}
-                    <div className={clsx('px-5 py-5 overflow-y-auto', bodyClassName)}>
+                    <div className={clsx('flex-1 min-h-0 px-4 py-4 sm:px-5 sm:py-5 overflow-y-auto overscroll-contain', bodyClassName)}>
                         {children}
                     </div>
 
                     {/* Footer */}
                     {footer !== null && (
                         <div className={clsx(
-                            'px-5 py-4 border-t border-gray-100 dark:border-gray-800 flex items-center justify-end gap-2',
+                            'shrink-0 px-4 py-3 sm:px-5 sm:py-4 border-t border-gray-100 dark:border-gray-800 flex items-center justify-end gap-2',
                             footerClassName
                         )}>
                             {footer}

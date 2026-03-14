@@ -8,6 +8,8 @@ import Badge from '../../../components/Badge';
 import Can from '../../../components/Can';
 import useDebouncedValue from '../../../hooks/useDebouncedValue';
 import { deleteGwLoan, listGwLoans } from '../../../api/gateway/loans';
+import gatewayApi from '../../../api/gatewayAxios';
+import api from '../../../api/axios';
 import { useToast } from '../../../context/ToastContext';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
@@ -18,6 +20,8 @@ const STATUS_OPTIONS = [
   { value: 'APPROVED', label: 'Approved' },
   { value: 'DISBURSED', label: 'Disbursed' },
   { value: 'CLOSED', label: 'Closed' },
+  { value: 'CREATED_IN_FINERACT', label: 'CREATED' },
+  { value: 'UPSTREAM_FAILED', label: 'FAILED' },
 ];
 
 const statusTone = (s) => {
@@ -26,29 +30,70 @@ const statusTone = (s) => {
   if (v === 'DISBURSED') return 'blue';
   if (v === 'SUBMITTED') return 'yellow';
   if (v === 'CLOSED') return 'gray';
+  if (v === 'CREATED_IN_FINERACT') return 'yellow';
+  if (v === 'UPSTREAM_FAILED') return 'red';
   return 'blue';
 };
 
-const timeAgo = (iso) => {
-  if (!iso) return '';
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return '';
-  const diffMs = Date.now() - t;
-  const diffSec = Math.max(0, Math.floor(diffMs / 1000));
-  const units = [
-    { s: 60 * 60 * 24 * 365, label: 'y' },
-    { s: 60 * 60 * 24 * 30, label: 'mo' },
-    { s: 60 * 60 * 24 * 7, label: 'w' },
-    { s: 60 * 60 * 24, label: 'd' },
-    { s: 60 * 60, label: 'h' },
-    { s: 60, label: 'm' },
-    { s: 1, label: 's' },
-  ];
-  for (const u of units) {
-    if (diffSec >= u.s) return `${Math.floor(diffSec / u.s)}${u.label} ago`;
-  }
-  return 'now';
+const unwrap = (body) => (body && typeof body === 'object' && 'data' in body ? body.data : body);
+
+const toNumOrNull = (v) => {
+  if (v == null) return null;
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
 };
+
+const bestEffortTotalRepaymentFromSchedule = (d) => {
+  const schedule = d?.repaymentSchedule && typeof d.repaymentSchedule === 'object' ? d.repaymentSchedule : d;
+  const periods = Array.isArray(schedule?.periods) ? schedule.periods : [];
+  if (!periods.length) return null;
+
+  let total = 0;
+  let saw = false;
+  for (const p of periods) {
+    const periodIdx = toNumOrNull(p?.period);
+    if (periodIdx == null || periodIdx <= 0) continue;
+    const totalDue =
+      toNumOrNull(p?.totalDueForPeriod) ??
+      toNumOrNull(p?.totalInstallmentAmountForPeriod) ??
+      toNumOrNull(p?.totalInstallmentAmount) ??
+      null;
+    const principal = toNumOrNull(p?.principalDue) ?? toNumOrNull(p?.principalOriginalDue) ?? 0;
+    const interest = toNumOrNull(p?.interestDue) ?? toNumOrNull(p?.interestOriginalDue) ?? 0;
+    const fees = toNumOrNull(p?.feeChargesDue) ?? 0;
+    const penalty = toNumOrNull(p?.penaltyChargesDue) ?? 0;
+    const v = totalDue != null ? totalDue : principal + interest + fees + penalty;
+    total += v;
+    saw = true;
+  }
+  return saw ? total : null;
+};
+
+const formatMoney = (v) => {
+  const n = toNumOrNull(v);
+  if (n == null) return '-';
+  try {
+    return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(n);
+  } catch {
+    return String(n);
+  }
+};
+
+async function poolMap(items, concurrency, fn) {
+  const q = Array.isArray(items) ? items.slice() : [];
+  const out = [];
+  const workers = new Array(Math.max(1, Math.min(concurrency || 1, q.length || 1))).fill(0).map(async () => {
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const item = q.shift();
+      if (item === undefined) return;
+      out.push(await fn(item));
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
 
 const GwLoansList = () => {
   const navigate = useNavigate();
@@ -56,6 +101,11 @@ const GwLoansList = () => {
 
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
+
+  const [customerNameById, setCustomerNameById] = useState({});
+  const [customerPhoneById, setCustomerPhoneById] = useState({});
+  const [productNameByCode, setProductNameByCode] = useState({});
+  const [totalLoanAmountByPlatformId, setTotalLoanAmountByPlatformId] = useState({});
 
   // filters
   const [search, setSearch] = useState('');
@@ -82,6 +132,28 @@ const GwLoansList = () => {
     setProductCode('');
     setPage(0);
   };
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const r = await gatewayApi.get('/ops/products/snapshots');
+        const items = Array.isArray(r?.data) ? r.data : [];
+        const next = {};
+        for (const p of items) {
+          const code = p?.code ? String(p.code) : '';
+          if (!code) continue;
+          next[code] = String(p?.name || code);
+        }
+        if (mounted) setProductNameByCode(next);
+      } catch (_) {
+        // ignore
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -117,6 +189,99 @@ const GwLoansList = () => {
     };
   }, [debouncedSearch, status, customerId, productCode, page, limit, sortBy, sortDir, refreshTick]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const rowByCustomerId = new Map();
+    for (const r of rows || []) {
+      const id = r?.customerId != null ? String(r.customerId) : '';
+      if (!id) continue;
+      if (!rowByCustomerId.has(id)) rowByCustomerId.set(id, r);
+    }
+
+    const ids = Array.from(new Set((rows || []).map((r) => r?.customerId).filter(Boolean))).filter((rawId) => {
+      const id = String(rawId);
+      const row = rowByCustomerId.get(id);
+      // Prefer backend-enriched fields; only lookup if missing.
+      const hasName = !!row?.customerFullName;
+      const hasPhone = !!row?.customerPhone;
+      const needName = !hasName && !(id in (customerNameById || {})); // "in" checks even if value is null
+      const needPhone = !hasPhone && !(id in (customerPhoneById || {}));
+      return needName || needPhone;
+    });
+    if (!ids.length) return () => {};
+
+    (async () => {
+      const nameUpdates = {};
+      const phoneUpdates = {};
+      await poolMap(ids, 6, async (id) => {
+        try {
+          const r = await gatewayApi.get(`/ops/resources/customers/${encodeURIComponent(String(id))}`);
+          const c = unwrap(r?.data);
+          const first = String(c?.profile?.firstName || '').trim();
+          const last = String(c?.profile?.lastName || '').trim();
+          const full = [first, last].filter(Boolean).join(' ');
+          nameUpdates[String(id)] = full || String(c?.username || id);
+          const phone = String(c?.profile?.phone || '').trim();
+          // Important: negative-cache "no phone" to avoid retry loops.
+          phoneUpdates[String(id)] = phone || null;
+        } catch (_) {
+          nameUpdates[String(id)] = String(id);
+          // Important: negative-cache failures to avoid retry loops.
+          phoneUpdates[String(id)] = null;
+        }
+      });
+      if (cancelled) return;
+      setCustomerNameById((prev) => ({ ...(prev || {}), ...nameUpdates }));
+      setCustomerPhoneById((prev) => ({ ...(prev || {}), ...phoneUpdates }));
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [rows, customerNameById, customerPhoneById]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const needs = (rows || [])
+      .map((r) => ({
+        platformLoanId: r?.platformLoanId ? String(r.platformLoanId) : '',
+        fineractLoanId: r?.fineractLoanId ? String(r.fineractLoanId) : '',
+      }))
+      .filter((x) => x.platformLoanId && x.fineractLoanId)
+      .filter((x) => !(x.platformLoanId in (totalLoanAmountByPlatformId || {})));
+    if (!needs.length) return () => {};
+
+    (async () => {
+      const updates = {};
+      await poolMap(needs, 4, async ({ platformLoanId, fineractLoanId }) => {
+        try {
+          const r = await api.get(`/loans/${encodeURIComponent(String(fineractLoanId))}`, {
+            params: { associations: 'repaymentSchedule' },
+          });
+          const d = r?.data;
+          const fromSummary =
+            toNumOrNull(d?.summary?.totalExpectedRepayment) ??
+            toNumOrNull(d?.summary?.totalRepaymentExpected) ??
+            toNumOrNull(d?.summary?.totalRepayment) ??
+            null;
+          const fromSchedule = bestEffortTotalRepaymentFromSchedule(d);
+          const val = fromSummary ?? fromSchedule;
+          // Negative-cache "unavailable" to avoid repeated refetches.
+          updates[platformLoanId] = val ?? null;
+        } catch (_) {
+          // Negative-cache failures to avoid retry loops.
+          updates[platformLoanId] = null;
+        }
+      });
+      if (cancelled) return;
+      setTotalLoanAmountByPlatformId((prev) => ({ ...(prev || {}), ...updates }));
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [rows, totalLoanAmountByPlatformId]);
+
   const onSort = (key) => {
     if (sortBy === key) {
       setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
@@ -143,32 +308,49 @@ const GwLoansList = () => {
   const columns = useMemo(
     () => [
       {
-        key: 'platformLoanId',
-        header: 'Loan #',
+        key: 'customerId',
+        header: 'Name',
         sortable: true,
-        render: (r) => (
-          <div className="max-w-[220px] truncate font-mono text-xs" title={r?.platformLoanId || ''}>
-            {r?.platformLoanId || '-'}
-          </div>
-        ),
+        render: (r) => {
+          const id = r?.customerId ? String(r.customerId) : '';
+          const name = String(r?.customerFullName || '---');
+          const phone = String(r?.customerPhone || '---');
+          return (
+            <div className="min-w-[160px]">
+              <div className="font-medium text-slate-900 dark:text-slate-50">{name || id || '-'}</div>
+            </div>
+          );
+        },
       },
       {
-        key: 'customerId',
-        header: 'Customer',
-        sortable: true,
-        render: (r) => r?.customerId || '-',
+        key: 'customerPhone',
+        header: 'Phone',
+        sortable: false,
+        render: (r) => {
+          const id = r?.customerId ? String(r.customerId) : '';
+          return String(r?.customerPhone || '') || (id ? customerPhoneById?.[id] : '') || '-';
+        },
       },
       {
         key: 'productCode',
-        header: 'Product',
+        header: 'Loan Product',
         sortable: true,
-        render: (r) => r?.productCode || r?.fineractProductId || '-',
+        render: (r) => {
+          const code = r?.productCode ? String(r.productCode) : '';
+          const name = code ? productNameByCode?.[code] : '';
+          return (
+            <div className="min-w-[160px]">
+              <div className="font-medium text-slate-900 dark:text-slate-50">{name || code || '-'}</div>
+              {code ? <div className="text-[11px] text-slate-500 dark:text-slate-400">{code}</div> : null}
+            </div>
+          );
+        },
       },
       {
         key: 'principal',
         header: 'Principal',
         sortable: true,
-        render: (r) => (typeof r?.principal === 'number' ? r.principal : r?.principal || '-'),
+        render: (r) => formatMoney(r?.principal),
       },
       {
         key: 'tenureMonths',
@@ -177,21 +359,20 @@ const GwLoansList = () => {
         render: (r) => (r?.tenureMonths ?? '-') + '',
       },
       {
+        key: 'totalLoanAmount',
+        header: 'Total Loan Amount',
+        sortable: false,
+        render: (r) => {
+          const id = r?.platformLoanId ? String(r.platformLoanId) : '';
+          const v = id ? totalLoanAmountByPlatformId?.[id] : null;
+          return formatMoney(v);
+        },
+      },
+      {
         key: 'status',
         header: 'Status',
         sortable: true,
         render: (r) => <Badge tone={statusTone(r?.status)}>{r?.status || '-'}</Badge>,
-      },
-      {
-        key: 'appliedAt',
-        header: 'Applied',
-        sortable: true,
-        render: (r) => (
-          <div className="min-w-[90px]">
-            <div className="text-sm">{timeAgo(r?.appliedAt)}</div>
-            <div className="text-[11px] text-slate-500 dark:text-slate-400">{(r?.appliedAt || '').slice(0, 19).replace('T', ' ')}</div>
-          </div>
-        ),
       },
       {
         key: 'actions',
@@ -226,7 +407,7 @@ const GwLoansList = () => {
         ),
       },
     ],
-    [doDelete]
+    [doDelete, customerNameById, customerPhoneById, productNameByCode, totalLoanAmountByPlatformId]
   );
 
   const onRowClick = (row) => {
@@ -253,7 +434,7 @@ const GwLoansList = () => {
 
       <Card>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-          <div className="col-span-2">
+          <div className="md:col-span-2">
             <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search</label>
             <input
               value={search}

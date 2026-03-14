@@ -41,6 +41,8 @@ const txDateToISO = (d) => {
 };
 const txTypeLabel = (t) => t?.value || t?.code || '-';
 
+const isISODate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
+
 const LoanDetails = () => {
     const { id } = useParams();
     const { addToast } = useToast();
@@ -213,6 +215,23 @@ const LoanDetails = () => {
     const hasDisbursal =
         !!tl?.actualDisbursementDate || !!tl?.expectedDisbursementDate;
 
+    const submittedOnDateISO = txDateToISO(tl?.submittedOnDate);
+    const dueDateISO = useMemo(() => {
+        const tlDue = txDateToISO(tl?.expectedMaturityDate || tl?.actualMaturityDate);
+        if (tlDue) return tlDue;
+
+        const periods = loan?.repaymentSchedule?.periods;
+        if (!Array.isArray(periods) || !periods.length) return '';
+
+        let max = '';
+        for (const p of periods) {
+            const d = txDateToISO(p?.dueDate);
+            if (!d) continue;
+            if (!max || d > max) max = d;
+        }
+        return max;
+    }, [loan, tl?.expectedMaturityDate, tl?.actualMaturityDate]);
+
     // Officer presence (some payloads expose id or name)
     const hasOfficerAssigned = !!(loan?.loanOfficerId || loan?.loanOfficerName);
 
@@ -238,6 +257,38 @@ const LoanDetails = () => {
 
     // Approve Loan Application
     const approve = async () => {
+        // Client-side guards to avoid Fineract validation errors and reduce bad payloads.
+        // "Submission date" here refers to the date the user is submitting this approval (today).
+        const todayISO = dateISO();
+
+        if (!isISODate(approveDate)) {
+            addToast('Approved On date is required', 'error');
+            return;
+        }
+        if (approveDate > todayISO) {
+            addToast(`Approval date must be on or before ${todayISO}`, 'error');
+            return;
+        }
+        if (isISODate(submittedOnDateISO) && approveDate < submittedOnDateISO) {
+            addToast(`Approval date must be on or after submitted-on date (${submittedOnDateISO})`, 'error');
+            return;
+        }
+
+        if (expectedDisbursementDate) {
+            if (!isISODate(expectedDisbursementDate)) {
+                addToast('Expected Disbursement Date must be a valid date', 'error');
+                return;
+            }
+            if (expectedDisbursementDate < approveDate) {
+                addToast('Expected Disbursement Date cannot be before Approval Date', 'error');
+                return;
+            }
+            if (isISODate(dueDateISO) && expectedDisbursementDate > dueDateISO) {
+                addToast(`Expected Disbursement Date must be on or before due date (${dueDateISO})`, 'error');
+                return;
+            }
+        }
+
         setApproveBusy(true);
         try {
             const payload = {
@@ -901,6 +952,8 @@ const LoanDetails = () => {
                             type="date"
                             value={approveDate}
                             onChange={(e) => setApproveDate(e.target.value)}
+                            min={isISODate(submittedOnDateISO) ? submittedOnDateISO : undefined}
+                            max={dateISO()}
                             className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                         />
                     </div>
@@ -923,6 +976,8 @@ const LoanDetails = () => {
                                 type="date"
                                 value={expectedDisbursementDate}
                                 onChange={(e) => setExpectedDisbursementDate(e.target.value)}
+                                min={isISODate(approveDate) ? approveDate : undefined}
+                                max={isISODate(dueDateISO) ? dueDateISO : undefined}
                                 className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                             />
                         </div>

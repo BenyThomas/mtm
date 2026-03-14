@@ -7,6 +7,7 @@ import Skeleton from '../../../components/Skeleton';
 import Badge from '../../../components/Badge';
 import Modal from '../../../components/Modal';
 import Can from '../../../components/Can';
+import ScheduleTable from '../../../components/ScheduleTable';
 import {
   approveGwLoan,
   deleteGwLoan,
@@ -14,6 +15,7 @@ import {
   getGwLoan,
   replaceGwLoan,
 } from '../../../api/gateway/loans';
+import api from '../../../api/axios';
 import { useToast } from '../../../context/ToastContext';
 
 const pretty = (v) => JSON.stringify(v, null, 2);
@@ -53,7 +55,35 @@ const statusTone = (s) => {
   if (v === 'DISBURSED') return 'blue';
   if (v === 'SUBMITTED') return 'yellow';
   if (v === 'CLOSED') return 'gray';
+  if (v === 'CREATED_IN_FINERACT') return 'yellow';
+  if (v === 'UPSTREAM_FAILED') return 'red';
   return 'blue';
+};
+
+const toNumOrNull = (v) => {
+  if (v == null) return null;
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+const formatMoney = (v) => {
+  const n = toNumOrNull(v);
+  if (n == null) return '-';
+  try {
+    return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(n);
+  } catch {
+    return String(n);
+  }
+};
+
+const isPenaltyCharge = (c) => {
+  if (!c || typeof c !== 'object') return false;
+  if (c?.isPenalty === true) return true;
+  const tt = String(c?.chargeTimeType?.value || c?.chargeTimeType || '').toLowerCase();
+  if (tt.includes('penalt')) return true;
+  const name = String(c?.name || c?.chargeName || '').toLowerCase();
+  return name.includes('penalt');
 };
 
 const Field = ({ label, value, mono }) => (
@@ -62,6 +92,45 @@ const Field = ({ label, value, mono }) => (
     <div className={`mt-1 text-sm ${mono ? 'font-mono break-all' : ''} text-slate-900 dark:text-slate-50`}>{value || '-'}</div>
   </div>
 );
+
+const ChargesTable = ({ items }) => {
+  const rows = Array.isArray(items) ? items : [];
+  if (!rows.length) {
+    return <div className="text-sm text-slate-600 dark:text-slate-300">None</div>;
+  }
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-full text-sm">
+        <thead className="bg-slate-50/70 dark:bg-slate-900/40">
+          <tr>
+            <th className="px-3 py-2 text-left font-semibold">Name</th>
+            <th className="px-3 py-2 text-left font-semibold">Amount</th>
+            <th className="px-3 py-2 text-left font-semibold">Paid</th>
+            <th className="px-3 py-2 text-left font-semibold">Outstanding</th>
+            <th className="px-3 py-2 text-left font-semibold">Due</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((c, idx) => {
+            const due =
+              c?.dueDate && Array.isArray(c.dueDate) && c.dueDate.length >= 3
+                ? `${c.dueDate[0]}-${String(c.dueDate[1]).padStart(2, '0')}-${String(c.dueDate[2]).padStart(2, '0')}`
+                : c?.dueDate || '';
+            return (
+              <tr key={String(c?.id || c?.chargeId || idx)} className="border-t border-slate-200/60 dark:border-slate-700/60">
+                <td className="px-3 py-2">{String(c?.name || c?.chargeName || '')}</td>
+                <td className="px-3 py-2">{formatMoney(c?.amount)}</td>
+                <td className="px-3 py-2">{formatMoney(c?.amountPaid)}</td>
+                <td className="px-3 py-2">{formatMoney(c?.amountOutstanding)}</td>
+                <td className="px-3 py-2">{due ? String(due) : '-'}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+};
 
 const GwLoanDetails = () => {
   const { platformLoanId } = useParams();
@@ -74,6 +143,10 @@ const GwLoanDetails = () => {
   const [doc, setDoc] = useState(null);
   const [editor, setEditor] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
+
+  const [fxLoading, setFxLoading] = useState(false);
+  const [fxErr, setFxErr] = useState('');
+  const [fxLoan, setFxLoan] = useState(null);
 
   // workflow modals
   const [approveOpen, setApproveOpen] = useState(false);
@@ -104,6 +177,39 @@ const GwLoanDetails = () => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [platformLoanId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fineractLoanId = doc?.fineractLoanId ? String(doc.fineractLoanId) : '';
+    if (!fineractLoanId) {
+      setFxLoan(null);
+      setFxErr('');
+      setFxLoading(false);
+      return () => {};
+    }
+
+    (async () => {
+      setFxLoading(true);
+      setFxErr('');
+      try {
+        const r = await api.get(`/loans/${encodeURIComponent(fineractLoanId)}`, {
+          params: { associations: 'repaymentSchedule,charges' },
+        });
+        if (cancelled) return;
+        setFxLoan(r?.data || null);
+      } catch (e) {
+        if (cancelled) return;
+        setFxLoan(null);
+        setFxErr(e?.response?.data?.message || e?.message || 'Failed to load Fineract loan details');
+      } finally {
+        if (!cancelled) setFxLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [doc?.fineractLoanId]);
 
   const dirty = useMemo(() => {
     try {
@@ -155,8 +261,48 @@ const GwLoanDetails = () => {
     else addToast(`Failed to copy ${label}`, 'error');
   };
 
-  const canApprove = String(doc?.status || '').toUpperCase() === 'SUBMITTED';
-  const canDisburse = String(doc?.status || '').toUpperCase() === 'APPROVED';
+  const fxStatusText = useMemo(() => {
+    if (!fxLoan) return '';
+    const s = fxLoan?.status;
+    if (s && typeof s === 'object') {
+      return String(s?.value || s?.code || '');
+    }
+    return String(s || '');
+  }, [fxLoan]);
+
+  const statusUpper = String(doc?.status || '').trim().toUpperCase();
+  const fxStatusUpper = String(fxStatusText || '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, ' ');
+
+  const fxPendingApproval =
+    fxStatusUpper === 'SUBMITTED AND PENDING APPROVAL' ||
+    fxStatusUpper.includes('PENDING APPROVAL') ||
+    fxStatusUpper.startsWith('SUBMITTED');
+
+  const fxApproved = fxStatusUpper === 'APPROVED' || fxStatusUpper.includes('APPROVED');
+  const fxNotDisbursedOrClosed =
+    !fxStatusUpper.includes('ACTIVE') &&
+    !fxStatusUpper.includes('DISBURSED') &&
+    !fxStatusUpper.includes('CLOSED') &&
+    !fxStatusUpper.includes('WRITTEN OFF') &&
+    !fxStatusUpper.includes('WRITEOFF');
+
+  const canApprove =
+    statusUpper === 'SUBMITTED' ||
+    ((statusUpper !== 'APPROVED' && statusUpper !== 'DISBURSED' && statusUpper !== 'CLOSED') && fxPendingApproval);
+
+  const hasFineractLoanId = !!String(doc?.fineractLoanId || '').trim();
+  const canDisburse =
+    hasFineractLoanId &&
+    statusUpper !== 'DISBURSED' &&
+    statusUpper !== 'CLOSED' &&
+    (statusUpper === 'APPROVED' || (fxApproved && fxNotDisbursedOrClosed));
+
+  const fxCharges = useMemo(() => (Array.isArray(fxLoan?.charges) ? fxLoan.charges : []), [fxLoan]);
+  const fxPenalties = useMemo(() => fxCharges.filter(isPenaltyCharge), [fxCharges]);
+  const fxNonPenaltyCharges = useMemo(() => fxCharges.filter((c) => !isPenaltyCharge(c)), [fxCharges]);
 
   const submitApprove = async () => {
     setApproveBusy(true);
@@ -320,7 +466,13 @@ const GwLoanDetails = () => {
                     size="sm"
                     onClick={() => setDisburseOpen(true)}
                     disabled={!canDisburse}
-                    title={canDisburse ? 'Disburse loan' : 'Loan must be APPROVED'}
+                    title={
+                      canDisburse
+                        ? 'Disburse loan'
+                        : !hasFineractLoanId
+                          ? 'Missing Fineract loan id'
+                          : 'Loan must be APPROVED in Platform or Fineract'
+                    }
                   >
                     Disburse
                   </Button>
@@ -330,6 +482,7 @@ const GwLoanDetails = () => {
 
             <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Status" value={doc?.status} />
+              <Field label="Fineract Status" value={fxStatusText || (fxLoading ? 'Loading...' : '')} />
               <Field label="Expected Disbursement" value={doc?.expectedDisbursementDate} mono />
               <Field label="Disbursement Type" value={doc?.disbursementType} />
               <Field label="Provider" value={doc?.disbursementProvider} />
@@ -352,6 +505,49 @@ const GwLoanDetails = () => {
               </Card>
             ) : null}
           </Can>
+
+          <Card className="lg:col-span-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-sm font-semibold">Repayment Schedule</div>
+              {fxLoading ? (
+                <div className="inline-flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                  <Loader2 className="animate-spin" size={14} /> Loading
+                </div>
+              ) : null}
+            </div>
+
+            {!doc?.fineractLoanId ? (
+              <div className="mt-3 text-sm text-slate-600 dark:text-slate-300">No Fineract loan id, schedule unavailable.</div>
+            ) : fxErr ? (
+              <div className="mt-3 text-sm text-rose-700 dark:text-rose-300">{fxErr}</div>
+            ) : fxLoan?.repaymentSchedule ? (
+              <div className="mt-3">
+                <ScheduleTable schedule={fxLoan.repaymentSchedule} />
+              </div>
+            ) : (
+              <div className="mt-3 text-sm text-slate-600 dark:text-slate-300">No schedule available.</div>
+            )}
+          </Card>
+
+          <Card className="lg:col-span-2">
+            <div className="text-sm font-semibold">Charges and Penalties</div>
+            {!doc?.fineractLoanId ? (
+              <div className="mt-3 text-sm text-slate-600 dark:text-slate-300">No Fineract loan id, charges unavailable.</div>
+            ) : fxErr ? (
+              <div className="mt-3 text-sm text-rose-700 dark:text-rose-300">{fxErr}</div>
+            ) : (
+              <div className="mt-3 grid gap-4 lg:grid-cols-2">
+                <div>
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Charges</div>
+                  <ChargesTable items={fxNonPenaltyCharges} />
+                </div>
+                <div>
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Penalties</div>
+                  <ChargesTable items={fxPenalties} />
+                </div>
+              </div>
+            )}
+          </Card>
         </div>
       )}
 
