@@ -1,0 +1,64 @@
+name: Deploy mTM Frontend
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: mtm-production-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_HOST: 45.33.54.133
+      VITE_API_URL: ${{ secrets.VITE_API_URL != '' && secrets.VITE_API_URL || 'https://fineract.epikx.co.tz/fineract-provider' }}
+      VITE_GATEWAY_API_URL: ${{ secrets.VITE_GATEWAY_API_URL != '' && secrets.VITE_GATEWAY_API_URL || 'https://digital.epikx.co.tz' }}
+      VITE_TENANT: ${{ secrets.VITE_TENANT != '' && secrets.VITE_TENANT || 'default' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Package dist
+        run: tar -czf mtm-dist.tar.gz -C dist .
+
+      - name: Upload artifact to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ env.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_SSH_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          source: "mtm-dist.tar.gz"
+          target: "/tmp/"
+          overwrite: true
+
+      - name: Deploy artifact on server
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ env.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_SSH_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            sudo mkdir -p /var/www/bo.epikx.co.tz
+            sudo tar -xzf /tmp/mtm-dist.tar.gz -C /var/www/bo.epikx.co.tz
+            sudo chown -R www-data:www-data /var/www/bo.epikx.co.tz
+            rm -f /tmp/mtm-dist.tar.gz
+            sudo nginx -t
+            sudo systemctl reload nginx

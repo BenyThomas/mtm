@@ -55,7 +55,11 @@ export default function Modal({
                         sizeMap[size] || sizeMap['4xl'],
                         'bg-white dark:bg-gray-900 rounded-2xl shadow-2xl ring-1 ring-black/5',
                         'transition-all duration-200 ease-out',
-                        'max-h-[calc(100vh-1rem)] sm:max-h-[85vh] flex flex-col overflow-hidden',
+                        // Prefer dynamic viewport units when supported to avoid mobile "100vh" issues.
+                        // `!` ensures `dvh` wins when valid; when unsupported the declaration is ignored.
+                        'max-h-[calc(100vh-1rem)] !max-h-[calc(100dvh-1rem)]',
+                        'sm:max-h-[85vh] sm:!max-h-[85dvh]',
+                        'flex flex-col overflow-hidden',
                         panelClassName
                     )}
                 >
@@ -69,7 +73,7 @@ export default function Modal({
                                     className="inline-flex h-9 w-9 items-center justify-center rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800"
                                     aria-label="Close"
                                 >
-                                    <span className="text-2xl leading-none">×</span>
+                                    <span className="text-2xl leading-none">&times;</span>
                                 </button>
                             )}
                         </div>
@@ -83,7 +87,8 @@ export default function Modal({
                     {/* Footer */}
                     {footer !== null && (
                         <div className={clsx(
-                            'shrink-0 px-4 py-3 sm:px-5 sm:py-4 border-t border-gray-100 dark:border-gray-800 flex items-center justify-end gap-2',
+                            // Safe-area padding keeps actions visible on devices with a home indicator.
+                            'shrink-0 px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-5 sm:py-4 border-t border-gray-100 dark:border-gray-800 flex flex-wrap items-center justify-end gap-2',
                             footerClassName
                         )}>
                             {footer}

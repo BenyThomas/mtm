@@ -17,6 +17,19 @@ const splitCsv = (raw) =>
     .map((s) => s.trim())
     .filter(Boolean);
 
+const normalizeProviders = (arr) => {
+  const out = Array.from(
+    new Set(
+      (Array.isArray(arr) ? arr : [])
+        .map((x) => String(x || '').trim().toUpperCase())
+        .filter(Boolean),
+    ),
+  );
+  return out;
+};
+
+const KNOWN_AGGREGATORS = ['AZAMPAY', 'SELCOM', 'EPIKPAY'];
+
 const normalizeRule = (r) => ({
   enabled: r?.enabled ?? true,
   maxPrincipal: r?.maxPrincipal ?? '',
@@ -39,6 +52,8 @@ const LoanAutomationConfig = () => {
       setCfg({
         autoApprovalEnabled: !!d?.autoApprovalEnabled,
         autoDisbursementEnabled: !!d?.autoDisbursementEnabled,
+        paymentAggregatorEnabledProviders: normalizeProviders(d?.paymentAggregatorEnabledProviders),
+        paymentAggregatorDefaultProvider: String(d?.paymentAggregatorDefaultProvider || '').trim().toUpperCase() || '',
         disbursementAggregatorProvider: d?.disbursementAggregatorProvider || '',
         requireRuleMatch: d?.requireRuleMatch ?? true,
         approvalRules: Array.isArray(d?.approvalRules) ? d.approvalRules.map(normalizeRule) : [],
@@ -64,6 +79,8 @@ const LoanAutomationConfig = () => {
       const body = {
         autoApprovalEnabled: !!cfg?.autoApprovalEnabled,
         autoDisbursementEnabled: !!cfg?.autoDisbursementEnabled,
+        paymentAggregatorEnabledProviders: normalizeProviders(cfg?.paymentAggregatorEnabledProviders),
+        paymentAggregatorDefaultProvider: String(cfg?.paymentAggregatorDefaultProvider || '').trim().toUpperCase() || null,
         disbursementAggregatorProvider: String(cfg?.disbursementAggregatorProvider || '').trim() || null,
         requireRuleMatch: cfg?.requireRuleMatch ?? true,
         approvalRules: (cfg?.approvalRules || []).map((r) => ({
@@ -80,6 +97,8 @@ const LoanAutomationConfig = () => {
       setCfg({
         autoApprovalEnabled: !!d?.autoApprovalEnabled,
         autoDisbursementEnabled: !!d?.autoDisbursementEnabled,
+        paymentAggregatorEnabledProviders: normalizeProviders(d?.paymentAggregatorEnabledProviders),
+        paymentAggregatorDefaultProvider: String(d?.paymentAggregatorDefaultProvider || '').trim().toUpperCase() || '',
         disbursementAggregatorProvider: d?.disbursementAggregatorProvider || '',
         requireRuleMatch: d?.requireRuleMatch ?? true,
         approvalRules: Array.isArray(d?.approvalRules) ? d.approvalRules.map(normalizeRule) : [],
@@ -150,6 +169,79 @@ const LoanAutomationConfig = () => {
 
                 <div className="rounded-xl border border-slate-200/70 p-3 dark:border-slate-700/60 md:col-span-2">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Enabled Aggregator Providers
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {KNOWN_AGGREGATORS.map((code) => {
+                      const checked = (cfg.paymentAggregatorEnabledProviders || []).includes(code);
+                      return (
+                        <label
+                          key={code}
+                          className="flex items-center gap-2 rounded-xl border border-slate-200/70 px-3 py-2 text-sm dark:border-slate-700/60"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => {
+                              const next = new Set(cfg.paymentAggregatorEnabledProviders || []);
+                              if (e.target.checked) next.add(code);
+                              else next.delete(code);
+                              const arr = Array.from(next);
+                              setCfg((p) => ({
+                                ...p,
+                                paymentAggregatorEnabledProviders: arr,
+                                paymentAggregatorDefaultProvider:
+                                  p?.paymentAggregatorDefaultProvider && !arr.includes(p.paymentAggregatorDefaultProvider)
+                                    ? ''
+                                    : p?.paymentAggregatorDefaultProvider || '',
+                                disbursementAggregatorProvider:
+                                  p?.disbursementAggregatorProvider && !arr.includes(String(p.disbursementAggregatorProvider).toUpperCase())
+                                    ? ''
+                                    : p?.disbursementAggregatorProvider || '',
+                              }));
+                            }}
+                            disabled={saving}
+                          />
+                          <span>{code}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                    If empty, the backend falls back to server defaults from `application.properties`.
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-slate-200/70 p-3 dark:border-slate-700/60 md:col-span-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Default Aggregator Provider
+                  </div>
+                  <select
+                    className="mt-2 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                    value={String(cfg.paymentAggregatorDefaultProvider || '')}
+                    onChange={(e) => setCfg((p) => ({ ...p, paymentAggregatorDefaultProvider: e.target.value }))}
+                    disabled={saving}
+                  >
+                    <option value="">Server Default</option>
+                    {(cfg.paymentAggregatorEnabledProviders || []).length > 0
+                      ? (cfg.paymentAggregatorEnabledProviders || []).map((p) => (
+                          <option key={p} value={p}>
+                            {p}
+                          </option>
+                        ))
+                      : KNOWN_AGGREGATORS.map((p) => (
+                          <option key={p} value={p}>
+                            {p}
+                          </option>
+                        ))}
+                  </select>
+                  <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                    Used when a loan and config do not specify a preferred provider.
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-slate-200/70 p-3 dark:border-slate-700/60 md:col-span-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                     Preferred Aggregator Provider
                   </div>
                   <select
@@ -163,8 +255,17 @@ const LoanAutomationConfig = () => {
                     }
                   >
                     <option value="">Auto (use defaults/enabled)</option>
-                    <option value="AZAMPAY">AzamPay</option>
-                    <option value="SELCOM">Selcom</option>
+                    {(cfg.paymentAggregatorEnabledProviders || []).length > 0
+                      ? (cfg.paymentAggregatorEnabledProviders || []).map((p) => (
+                          <option key={p} value={p}>
+                            {p}
+                          </option>
+                        ))
+                      : KNOWN_AGGREGATORS.map((p) => (
+                          <option key={p} value={p}>
+                            {p}
+                          </option>
+                        ))}
                   </select>
                   <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
                     Used when a loan does not specify an aggregator provider.

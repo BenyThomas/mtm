@@ -16,10 +16,13 @@ import {
   replaceGwLoan,
 } from '../../../api/gateway/loans';
 import api from '../../../api/axios';
+import gatewayApi from '../../../api/gatewayAxios';
 import { useToast } from '../../../context/ToastContext';
 
 const pretty = (v) => JSON.stringify(v, null, 2);
 const dateISO = () => new Date().toISOString().slice(0, 10);
+const KNOWN_AGGREGATORS = ['AZAMPAY', 'SELCOM', 'EPIKPAY'];
+const DISBURSEMENT_TYPES = ['BANK', 'MOBILE_MONEY', 'CASH'];
 
 const copyToClipboard = async (text) => {
   const t = String(text || '');
@@ -58,6 +61,38 @@ const statusTone = (s) => {
   if (v === 'CREATED_IN_FINERACT') return 'yellow';
   if (v === 'UPSTREAM_FAILED') return 'red';
   return 'blue';
+};
+
+const normalizeText = (v) => {
+  const s = String(v ?? '').trim();
+  return s ? s : '';
+};
+
+const normalizeProvider = (v) => normalizeText(v).toUpperCase();
+
+const deriveTypeFromProvider = (provider) => {
+  const p = normalizeProvider(provider);
+  if (p === 'EPIKPAY') return 'CASH';
+  if (p === 'AZAMPAY' || p === 'SELCOM') return 'MOBILE_MONEY';
+  return '';
+};
+
+const extractGatewayErrorMessage = (e, fallback) => {
+  const body = e?.response?.data || {};
+  const upstreamPayload = body?.meta?.upstream?.payload || {};
+  const upstreamErrors = Array.isArray(upstreamPayload?.errors) ? upstreamPayload.errors : [];
+  if (upstreamErrors.length > 0) {
+    const first = upstreamErrors[0] || {};
+    const m = normalizeText(first?.defaultUserMessage) || normalizeText(first?.developerMessage);
+    if (m) return m;
+  }
+  const directErrors = Array.isArray(body?.errors) ? body.errors : [];
+  if (directErrors.length > 0) {
+    const first = directErrors[0] || {};
+    const m = normalizeText(first?.details);
+    if (m) return m;
+  }
+  return body?.message || e?.message || fallback;
 };
 
 const toNumOrNull = (v) => {
@@ -158,6 +193,10 @@ const GwLoanDetails = () => {
   const [disburseOpen, setDisburseOpen] = useState(false);
   const [disburseBusy, setDisburseBusy] = useState(false);
   const [actualDisbursementDate, setActualDisbursementDate] = useState(dateISO());
+  const [disbursementType, setDisbursementType] = useState('');
+  const [disbursementProvider, setDisbursementProvider] = useState('');
+  const [disbursementAccount, setDisbursementAccount] = useState('');
+  const [loanAutomationCfg, setLoanAutomationCfg] = useState(null);
 
   const load = async () => {
     setLoading(true);
@@ -329,18 +368,74 @@ const GwLoanDetails = () => {
   const submitDisburse = async () => {
     setDisburseBusy(true);
     try {
-      const payload = { actualDisbursementDate: actualDisbursementDate || undefined };
+      const payload = {
+        actualDisbursementDate: actualDisbursementDate || undefined,
+        disbursementType: normalizeText(disbursementType) || undefined,
+        disbursementProvider: normalizeProvider(disbursementProvider) || undefined,
+        disbursementAccount: normalizeText(disbursementAccount) || undefined,
+      };
       await disburseGwLoan(platformLoanId, payload);
       addToast('Disbursement triggered', 'success');
       setDisburseOpen(false);
       await load();
     } catch (e) {
-      const msg = e?.response?.data?.message || e?.message || 'Disburse failed';
+      const msg = extractGatewayErrorMessage(e, 'Disburse failed');
       setErr(msg);
       addToast(msg, 'error');
     } finally {
       setDisburseBusy(false);
     }
+  };
+
+  const resolveConfigProvider = (cfg) => {
+    const preferred = normalizeProvider(cfg?.disbursementAggregatorProvider);
+    if (preferred) return preferred;
+    return normalizeProvider(cfg?.paymentAggregatorDefaultProvider);
+  };
+
+  const resolveProviderOptions = (cfg) => {
+    const enabled = Array.isArray(cfg?.paymentAggregatorEnabledProviders)
+      ? cfg.paymentAggregatorEnabledProviders.map((x) => normalizeProvider(x)).filter(Boolean)
+      : [];
+    const uniq = Array.from(new Set([...enabled, ...KNOWN_AGGREGATORS]));
+    return uniq;
+  };
+
+  const openDisburseModal = async () => {
+    let cfg = loanAutomationCfg;
+    if (!cfg) {
+      try {
+        const r = await gatewayApi.get('/ops/config/loan-automation');
+        cfg = r?.data || null;
+        setLoanAutomationCfg(cfg);
+      } catch (_) {
+        cfg = null;
+      }
+    }
+
+    const configProvider = resolveConfigProvider(cfg);
+    const providerValue = normalizeProvider(doc?.disbursementProvider) || configProvider;
+    let typeValue = normalizeText(doc?.disbursementType).toUpperCase();
+    if (!typeValue) {
+      typeValue = deriveTypeFromProvider(providerValue);
+    }
+    let accountValue = normalizeText(doc?.disbursementAccount);
+
+    if (providerValue === 'EPIKPAY') {
+      typeValue = 'CASH';
+    }
+    if (!typeValue || !DISBURSEMENT_TYPES.includes(typeValue)) {
+      typeValue = 'MOBILE_MONEY';
+    }
+    if (typeValue === 'CASH') {
+      accountValue = '';
+    }
+
+    setActualDisbursementDate(dateISO());
+    setDisbursementType(typeValue);
+    setDisbursementProvider(providerValue);
+    setDisbursementAccount(accountValue);
+    setDisburseOpen(true);
   };
 
   return (
@@ -367,7 +462,7 @@ const GwLoanDetails = () => {
                 {showAdvanced ? 'Hide JSON' : 'Advanced JSON'}
               </Button>
               <Button onClick={save} disabled={!dirty || saving}>
-                {saving ? 'Saving…' : 'Save'}
+                {saving ? 'Saving...' : 'Save'}
               </Button>
               <Button
                 variant="danger"
@@ -464,7 +559,7 @@ const GwLoanDetails = () => {
                   </Button>
                   <Button
                     size="sm"
-                    onClick={() => setDisburseOpen(true)}
+                    onClick={openDisburseModal}
                     disabled={!canDisburse}
                     title={
                       canDisburse
@@ -564,7 +659,7 @@ const GwLoanDetails = () => {
             <Button onClick={submitApprove} disabled={approveBusy}>
               {approveBusy ? (
                 <span className="inline-flex items-center gap-2">
-                  <Loader2 className="animate-spin" size={16} /> Approving…
+                  <Loader2 className="animate-spin" size={16} /> Approving...
                 </span>
               ) : (
                 'Approve'
@@ -622,7 +717,7 @@ const GwLoanDetails = () => {
             <Button onClick={submitDisburse} disabled={disburseBusy}>
               {disburseBusy ? (
                 <span className="inline-flex items-center gap-2">
-                  <Loader2 className="animate-spin" size={16} /> Disbursing…
+                  <Loader2 className="animate-spin" size={16} /> Disbursing...
                 </span>
               ) : (
                 'Disburse'
@@ -641,8 +736,70 @@ const GwLoanDetails = () => {
               className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
             />
           </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Disbursement Type</label>
+            <select
+              value={disbursementType}
+              onChange={(e) => {
+                const nextType = normalizeText(e.target.value).toUpperCase();
+                setDisbursementType(nextType);
+                if (nextType === 'CASH') {
+                  const providerFallback = normalizeProvider(disbursementProvider) || resolveConfigProvider(loanAutomationCfg);
+                  setDisbursementProvider(providerFallback === 'EPIKPAY' ? 'EPIKPAY' : providerFallback);
+                  setDisbursementAccount('');
+                } else if (nextType === 'MOBILE_MONEY' && !normalizeProvider(disbursementProvider)) {
+                  const providerFallback = resolveConfigProvider(loanAutomationCfg);
+                  if (providerFallback) setDisbursementProvider(providerFallback);
+                }
+              }}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            >
+              {DISBURSEMENT_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Provider</label>
+            <select
+              value={disbursementProvider}
+              onChange={(e) => {
+                const provider = normalizeProvider(e.target.value);
+                setDisbursementProvider(provider);
+                if (provider === 'EPIKPAY') {
+                  setDisbursementType('CASH');
+                  setDisbursementAccount('');
+                } else if ((provider === 'SELCOM' || provider === 'AZAMPAY') && disbursementType !== 'BANK') {
+                  setDisbursementType('MOBILE_MONEY');
+                }
+              }}
+              disabled={disbursementType === 'BANK'}
+              className="mt-1 w-full rounded-xl border p-2.5 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-700 dark:border-gray-600"
+            >
+              <option value="">Auto (Loan Automation Config)</option>
+              {resolveProviderOptions(loanAutomationCfg).map((provider) => (
+                <option key={provider} value={provider}>
+                  {provider}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              {disbursementType === 'BANK' ? 'Bank Account Number' : disbursementType === 'MOBILE_MONEY' ? 'Wallet MSISDN' : 'Destination Account'}
+            </label>
+            <input
+              value={disbursementAccount}
+              onChange={(e) => setDisbursementAccount(e.target.value)}
+              disabled={disbursementType === 'CASH'}
+              placeholder={disbursementType === 'BANK' ? 'e.g. 015200000123' : disbursementType === 'MOBILE_MONEY' ? 'e.g. 2557XXXXXXXX' : 'Not required for CASH'}
+              className="mt-1 w-full rounded-xl border p-2.5 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
           <div className="sm:col-span-2 text-xs text-slate-500 dark:text-slate-400">
-            This triggers a disbursement order and executes it.
+            Provider defaults come from Loan Automation Config. EPIKPAY forces CASH, while AZAMPAY/SELCOM default to MOBILE_MONEY.
           </div>
         </div>
       </Modal>
