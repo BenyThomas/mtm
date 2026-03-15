@@ -13,6 +13,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: uat
     env:
       DEPLOY_HOST: 45.33.54.133
       VITE_API_URL: ${{ secrets.VITE_API_URL != '' && secrets.VITE_API_URL || 'https://fineract.epikx.co.tz/fineract-provider' }}
