@@ -42,6 +42,7 @@ const NAV_GROUPS = [
       { to: '/gateway/resources', label: 'Resources', icon: 'R', perm: 'GW_OPS_READ' },
       { to: '/gateway/product-catalog', label: 'Product Catalog', icon: 'P', perm: 'GW_OPS_READ' },
       { to: '/gateway/loan-automation', label: 'Loan Automation', icon: 'A', perm: 'GW_OPS_WRITE' },
+      { to: '/gateway/kyc', label: 'KYC Ops', icon: 'K', perm: 'GW_OPS_READ' },
     ],
   },
   {
