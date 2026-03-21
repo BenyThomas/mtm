@@ -9,6 +9,7 @@ import React, {
 import { useNavigate } from 'react-router-dom';
 import api from '../api/axios';
 import { useToast } from './ToastContext';
+import { DEFAULT_TENANT, ENV_TENANT, persistTenant, resolveTenant, TENANT_EDITABLE } from '../config/runtime';
 
 /**
  * AuthContext (Fineract)
@@ -109,9 +110,7 @@ export const AuthProvider = ({ children }) => {
     const [isAuthenticated, setIsAuthenticated] = useState(hasAuth());
     const [checking, setChecking] = useState(false);
     const [tenant, setTenant] = useState(
-        localStorage.getItem(STORAGE_KEYS.tenant) ||
-        import.meta.env.VITE_TENANT ||
-        'default'
+        resolveTenant() || DEFAULT_TENANT
     );
     const [user, setUser] = useState(() => {
         try {
@@ -135,9 +134,14 @@ export const AuthProvider = ({ children }) => {
     }, [navigate, addToast]);
 
     const switchTenant = useCallback((newTenant) => {
-        const t = (newTenant || '').trim() || 'default';
+        if (!TENANT_EDITABLE && ENV_TENANT) {
+            // Deployment-locked tenant: ignore UI-driven switches.
+            setTenant(ENV_TENANT);
+            return;
+        }
+        const t = resolveTenant({ inputTenant: newTenant });
         setTenant(t);
-        localStorage.setItem(STORAGE_KEYS.tenant, t);
+        persistTenant(t);
     }, []);
 
     /** Try best-effort: GET /users?username=... (if supported); else GET /users and find locally */
@@ -196,9 +200,9 @@ export const AuthProvider = ({ children }) => {
             setUser({});
             clearCreds();
 
-            const t = (tenantInput || tenant || 'default').trim();
-            localStorage.setItem(STORAGE_KEYS.tenant, t);
+            const t = resolveTenant({ inputTenant: tenantInput || tenant });
             setTenant(t);
+            persistTenant(t);
 
             try {
                 const res = await api.post('/authentication?returnClientList=false', {
@@ -213,11 +217,14 @@ export const AuthProvider = ({ children }) => {
                     throw new Error('Authentication failed');
                 }
 
-                // Dev logs of raw result
-
+                // Dev-only logs (never log auth keys in production).
+                if (import.meta.env.DEV) {
+                    const safe = { ...(res?.data || {}) };
+                    if (safe.base64EncodedAuthenticationKey) safe.base64EncodedAuthenticationKey = '[redacted]';
                     console.groupCollapsed('%c[Fineract] /authentication', 'color:#0ea5e9;font-weight:bold;');
-                    console.debug('payload:', res?.data);
+                    console.debug('payload:', safe);
                     console.groupEnd();
+                }
 
 
                 const authKey = res.data.base64EncodedAuthenticationKey; // base64(user:pass)
@@ -259,11 +266,13 @@ export const AuthProvider = ({ children }) => {
                         permissionsRaw: codes,
                     };
 
+                    if (import.meta.env.DEV) {
                         console.groupCollapsed('%c[Auth] Hydrated permissions', 'color:#22c55e;font-weight:bold;');
                         console.debug('username:', userObj.username);
                         console.debug('roleIds:', roleIds);
                         console.debug('codes:', codes);
                         console.groupEnd();
+                    }
                 }
 
                 // Persist & set state

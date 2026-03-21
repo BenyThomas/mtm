@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { resolveTenant } from '../config/runtime';
 
 /**
  * Shared Axios instance for the Gateway (digital-platform) back-office APIs.
@@ -25,10 +26,7 @@ function read(key) {
 }
 
 gatewayApi.interceptors.request.use((config) => {
-  const tenant =
-    localStorage.getItem('fineract_tenant') ||
-    import.meta.env.VITE_TENANT ||
-    'default';
+  const tenant = resolveTenant();
 
   const authKey = read('fineract_auth_key') || null;
 
