@@ -10,6 +10,12 @@ export async function listKycQuestions(context = 'FUEL') {
   return unwrap(r);
 }
 
+export async function listKycQuestionContexts() {
+  const r = await gatewayApi.get('/ops/kyc/question-contexts');
+  const data = unwrap(r);
+  return Array.isArray(data?.contexts) ? data.contexts : [];
+}
+
 export async function createKycQuestion(payload) {
   const r = await gatewayApi.post('/ops/kyc/questions', payload);
   return unwrap(r);

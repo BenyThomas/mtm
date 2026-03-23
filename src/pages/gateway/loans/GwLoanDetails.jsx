@@ -15,6 +15,8 @@ import {
   getGwLoan,
   replaceGwLoan,
 } from '../../../api/gateway/loans';
+import { listBankNames } from '../../../api/gateway/bankNames';
+import { getOpsResource } from '../../../api/gateway/opsResources';
 import api from '../../../api/axios';
 import gatewayApi from '../../../api/gatewayAxios';
 import { useToast } from '../../../context/ToastContext';
@@ -69,12 +71,23 @@ const normalizeText = (v) => {
 };
 
 const normalizeProvider = (v) => normalizeText(v).toUpperCase();
+const upper = (v) => normalizeText(v).toUpperCase();
 
 const deriveTypeFromProvider = (provider) => {
   const p = normalizeProvider(provider);
   if (p === 'EPIKPAY') return 'CASH';
   if (p === 'AZAMPAY' || p === 'SELCOM') return 'MOBILE_MONEY';
   return '';
+};
+
+const extractCustomerProfile = (customerDoc) => {
+  if (!customerDoc || typeof customerDoc !== 'object') return {};
+  const profile = customerDoc?.profile && typeof customerDoc.profile === 'object' ? customerDoc.profile : {};
+  return {
+    bankName: normalizeText(profile?.bankName),
+    bankAccount: normalizeText(profile?.bankAccount),
+    walletMsisdn: normalizeText(profile?.walletMsisdn),
+  };
 };
 
 const extractGatewayErrorMessage = (e, fallback) => {
@@ -195,8 +208,11 @@ const GwLoanDetails = () => {
   const [actualDisbursementDate, setActualDisbursementDate] = useState(dateISO());
   const [disbursementType, setDisbursementType] = useState('');
   const [disbursementProvider, setDisbursementProvider] = useState('');
+  const [disbursementBankName, setDisbursementBankName] = useState('');
   const [disbursementAccount, setDisbursementAccount] = useState('');
+  const [bankNameOptions, setBankNameOptions] = useState([]);
   const [loanAutomationCfg, setLoanAutomationCfg] = useState(null);
+  const [customerProfile, setCustomerProfile] = useState({});
 
   const load = async () => {
     setLoading(true);
@@ -249,6 +265,28 @@ const GwLoanDetails = () => {
       cancelled = true;
     };
   }, [doc?.fineractLoanId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const customerId = normalizeText(doc?.customerId);
+    if (!customerId) {
+      setCustomerProfile({});
+      return () => {};
+    }
+    (async () => {
+      try {
+        const customer = await getOpsResource('customers', customerId);
+        if (cancelled) return;
+        setCustomerProfile(extractCustomerProfile(customer));
+      } catch (_) {
+        if (cancelled) return;
+        setCustomerProfile({});
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [doc?.customerId]);
 
   const dirty = useMemo(() => {
     try {
@@ -339,6 +377,17 @@ const GwLoanDetails = () => {
     statusUpper !== 'CLOSED' &&
     (statusUpper === 'APPROVED' || (fxApproved && fxNotDisbursedOrClosed));
 
+  const customerDestinationByType = useMemo(() => ({
+    BANK: normalizeText(customerProfile?.bankAccount),
+    MOBILE_MONEY: normalizeText(customerProfile?.walletMsisdn),
+  }), [customerProfile]);
+
+  const destinationLabelByType = useMemo(() => ({
+    BANK: 'Customer Bank Account',
+    MOBILE_MONEY: 'Customer Wallet MSISDN',
+    CASH: 'Destination Account',
+  }), []);
+
   const fxCharges = useMemo(() => (Array.isArray(fxLoan?.charges) ? fxLoan.charges : []), [fxLoan]);
   const fxPenalties = useMemo(() => fxCharges.filter(isPenaltyCharge), [fxCharges]);
   const fxNonPenaltyCharges = useMemo(() => fxCharges.filter((c) => !isPenaltyCharge(c)), [fxCharges]);
@@ -372,8 +421,19 @@ const GwLoanDetails = () => {
         actualDisbursementDate: actualDisbursementDate || undefined,
         disbursementType: normalizeText(disbursementType) || undefined,
         disbursementProvider: normalizeProvider(disbursementProvider) || undefined,
+        disbursementBankName: normalizeText(disbursementBankName) || undefined,
         disbursementAccount: normalizeText(disbursementAccount) || undefined,
       };
+      if (payload.disbursementType && payload.disbursementType !== 'CASH' && !payload.disbursementBankName) {
+        addToast('Please select bank name before disbursement', 'error');
+        setDisburseBusy(false);
+        return;
+      }
+      if (payload.disbursementType && payload.disbursementType !== 'CASH' && !payload.disbursementAccount) {
+        addToast('Customer destination account is missing. Update customer profile first.', 'error');
+        setDisburseBusy(false);
+        return;
+      }
       await disburseGwLoan(platformLoanId, payload);
       addToast('Disbursement triggered', 'success');
       setDisburseOpen(false);
@@ -403,6 +463,7 @@ const GwLoanDetails = () => {
 
   const openDisburseModal = async () => {
     let cfg = loanAutomationCfg;
+    let banks = bankNameOptions;
     if (!cfg) {
       try {
         const r = await gatewayApi.get('/ops/config/loan-automation');
@@ -412,14 +473,28 @@ const GwLoanDetails = () => {
         cfg = null;
       }
     }
+    if (!Array.isArray(banks) || banks.length === 0) {
+      try {
+        const data = await listBankNames({ active: true, limit: 500, offset: 0, orderBy: 'name', sortOrder: 'asc' });
+        const rows = Array.isArray(data?.items) ? data.items : [];
+        banks = rows.map((x) => normalizeText(x?.name)).filter(Boolean);
+        setBankNameOptions(banks);
+      } catch (_) {
+        banks = [];
+      }
+    }
 
     const configProvider = resolveConfigProvider(cfg);
     const providerValue = normalizeProvider(doc?.disbursementProvider) || configProvider;
-    let typeValue = normalizeText(doc?.disbursementType).toUpperCase();
+    const bankNameValue = normalizeText(doc?.disbursementBankName);
+    if (bankNameValue && !banks.includes(bankNameValue)) {
+      banks = [...banks, bankNameValue];
+      setBankNameOptions(banks);
+    }
+    let typeValue = upper(doc?.disbursementType);
     if (!typeValue) {
       typeValue = deriveTypeFromProvider(providerValue);
     }
-    let accountValue = normalizeText(doc?.disbursementAccount);
 
     if (providerValue === 'EPIKPAY') {
       typeValue = 'CASH';
@@ -427,14 +502,15 @@ const GwLoanDetails = () => {
     if (!typeValue || !DISBURSEMENT_TYPES.includes(typeValue)) {
       typeValue = 'MOBILE_MONEY';
     }
-    if (typeValue === 'CASH') {
-      accountValue = '';
-    }
+
+    const customerAccountValue = typeValue === 'CASH' ? '' : (customerDestinationByType[typeValue] || '');
+    const customerBankName = normalizeText(customerProfile?.bankName);
 
     setActualDisbursementDate(dateISO());
     setDisbursementType(typeValue);
     setDisbursementProvider(providerValue);
-    setDisbursementAccount(accountValue);
+    setDisbursementBankName(customerBankName || bankNameValue);
+    setDisbursementAccount(customerAccountValue);
     setDisburseOpen(true);
   };
 
@@ -581,6 +657,7 @@ const GwLoanDetails = () => {
               <Field label="Expected Disbursement" value={doc?.expectedDisbursementDate} mono />
               <Field label="Disbursement Type" value={doc?.disbursementType} />
               <Field label="Provider" value={doc?.disbursementProvider} />
+              <Field label="Bank Name" value={doc?.disbursementBankName} />
               <Field label="Destination" value={doc?.disbursementAccount} mono />
             </div>
           </Card>
@@ -741,7 +818,7 @@ const GwLoanDetails = () => {
             <select
               value={disbursementType}
               onChange={(e) => {
-                const nextType = normalizeText(e.target.value).toUpperCase();
+                const nextType = upper(e.target.value);
                 setDisbursementType(nextType);
                 if (nextType === 'CASH') {
                   const providerFallback = normalizeProvider(disbursementProvider) || resolveConfigProvider(loanAutomationCfg);
@@ -750,6 +827,9 @@ const GwLoanDetails = () => {
                 } else if (nextType === 'MOBILE_MONEY' && !normalizeProvider(disbursementProvider)) {
                   const providerFallback = resolveConfigProvider(loanAutomationCfg);
                   if (providerFallback) setDisbursementProvider(providerFallback);
+                  setDisbursementAccount(customerDestinationByType.MOBILE_MONEY || '');
+                } else if (nextType === 'BANK') {
+                  setDisbursementAccount(customerDestinationByType.BANK || '');
                 }
               }}
               className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
@@ -773,6 +853,7 @@ const GwLoanDetails = () => {
                   setDisbursementAccount('');
                 } else if ((provider === 'SELCOM' || provider === 'AZAMPAY') && disbursementType !== 'BANK') {
                   setDisbursementType('MOBILE_MONEY');
+                  setDisbursementAccount(customerDestinationByType.MOBILE_MONEY || '');
                 }
               }}
               disabled={disbursementType === 'BANK'}
@@ -787,19 +868,33 @@ const GwLoanDetails = () => {
             </select>
           </div>
           <div className="sm:col-span-2">
-            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              {disbursementType === 'BANK' ? 'Bank Account Number' : disbursementType === 'MOBILE_MONEY' ? 'Wallet MSISDN' : 'Destination Account'}
-            </label>
-            <input
-              value={disbursementAccount}
-              onChange={(e) => setDisbursementAccount(e.target.value)}
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Bank Name</label>
+            <select
+              value={disbursementBankName}
+              onChange={(e) => setDisbursementBankName(normalizeText(e.target.value))}
               disabled={disbursementType === 'CASH'}
-              placeholder={disbursementType === 'BANK' ? 'e.g. 015200000123' : disbursementType === 'MOBILE_MONEY' ? 'e.g. 2557XXXXXXXX' : 'Not required for CASH'}
               className="mt-1 w-full rounded-xl border p-2.5 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-700 dark:border-gray-600"
-            />
+            >
+              <option value="">Select bank</option>
+              {bankNameOptions.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              {destinationLabelByType[disbursementType] || 'Customer Destination'}
+            </label>
+            <div className="mt-1 rounded-xl border bg-slate-50 px-3 py-2.5 text-sm dark:border-gray-600 dark:bg-gray-700/50">
+              {disbursementType === 'CASH'
+                ? 'Not required for CASH'
+                : (disbursementAccount || 'Missing in customer profile')}
+            </div>
           </div>
           <div className="sm:col-span-2 text-xs text-slate-500 dark:text-slate-400">
-            Provider defaults come from Loan Automation Config. EPIKPAY forces CASH, while AZAMPAY/SELCOM default to MOBILE_MONEY.
+            Destination account is sourced from customer profile (bank account/wallet) and is not editable here.
           </div>
         </div>
       </Modal>

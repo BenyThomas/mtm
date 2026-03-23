@@ -105,7 +105,9 @@ import GatewayResourceDetails from "./pages/gateway/ResourceDetails";
 import GatewayQueues from "./pages/gateway/Queues";
 import GatewayProductCatalog from "./pages/gateway/ProductCatalog";
 import GatewayLoanAutomationConfig from "./pages/gateway/LoanAutomationConfig";
+import GatewayBankNamesConfig from "./pages/gateway/BankNamesConfig";
 import GatewayKycOps from "./pages/gateway/KycOps";
+import DisbursementOrders from "./pages/gateway/DisbursementOrders";
 import InvitesList from "./pages/gateway/invites/InvitesList";
 import InviteNew from "./pages/gateway/invites/InviteNew";
 import InviteDetails from "./pages/gateway/invites/InviteDetails";
@@ -284,7 +286,9 @@ const App = () => {
                             <Route path="/gateway/queues" element={<GatewayQueues />} />
                             <Route path="/gateway/product-catalog" element={<GatewayProductCatalog />} />
                             <Route path="/gateway/loan-automation" element={<GatewayLoanAutomationConfig />} />
+                            <Route path="/gateway/bank-names" element={<GatewayBankNamesConfig />} />
                             <Route path="/gateway/kyc" element={<GatewayKycOps />} />
+                            <Route path="/gateway/disbursements" element={<DisbursementOrders />} />
                             <Route path="/gateway/invites" element={<InvitesList />} />
                             <Route path="/gateway/invites/new" element={<InviteNew />} />
                             <Route path="/gateway/invites/:inviteId" element={<InviteDetails />} />

@@ -49,6 +49,7 @@ const RESOURCES = {
   auth_sessions: { title: 'Auth Sessions', apiType: 'auth-sessions', defaultSortBy: 'createdAt' },
   consent_documents: { title: 'Consent Documents', apiType: 'consent-documents', defaultSortBy: 'createdAt' },
   customers: { title: 'Customers', apiType: 'customers', defaultSortBy: 'username' },
+  disbursement_orders: { title: 'Disbursement Orders', apiType: 'disbursement-orders', defaultSortBy: 'createdAt' },
   loans: { title: 'Platform Loans', apiType: 'loans', defaultSortBy: 'appliedAt' },
   onboarding_records: { title: 'Onboarding Records', apiType: 'onboarding-records', defaultSortBy: 'updatedAt' },
   product_snapshots: { title: 'Product Snapshots', apiType: 'product-snapshots', defaultSortBy: 'updatedAt' },
@@ -107,7 +108,7 @@ const DataList = () => {
         });
         if (cancelled) return;
         const items = Array.isArray(data?.items) ? data.items : [];
-        setRows(items.map((x, idx) => ({ ...x, id: x?.id ?? x?.cacheKey ?? x?.productCode ?? x?.auditEventId ?? x?.userId ?? x?.sessionId ?? x?.tokenId ?? x?.otpRef ?? x?.documentId ?? x?.platformCustomerId ?? x?.platformLoanId ?? x?.onboardingId ?? x?.prospectId ?? idx })));
+        setRows(items.map((x, idx) => ({ ...x, id: x?.id ?? x?.orderId ?? x?.cacheKey ?? x?.productCode ?? x?.auditEventId ?? x?.userId ?? x?.sessionId ?? x?.tokenId ?? x?.otpRef ?? x?.documentId ?? x?.platformCustomerId ?? x?.platformLoanId ?? x?.onboardingId ?? x?.prospectId ?? idx })));
         setTotal(Number(data?.total || items.length || 0));
       } catch {
         if (!cancelled) {
@@ -149,6 +150,7 @@ const DataList = () => {
       row?.tokenId ||
       row?.sessionId ||
       row?.documentId ||
+      row?.orderId ||
       row?.platformCustomerId ||
       row?.platformLoanId ||
       row?.onboardingId ||
@@ -177,7 +179,7 @@ const DataList = () => {
       key: 'id',
       header: 'ID',
       sortable: true,
-      render: (r) => r?.auditEventId || r?.userId || r?.otpRef || r?.tokenId || r?.sessionId || r?.documentId || r?.platformCustomerId || r?.platformLoanId || r?.onboardingId || r?.prospectId || r?.cacheKey || r?.id || r?.productCode || '-',
+      render: (r) => r?.auditEventId || r?.userId || r?.otpRef || r?.tokenId || r?.sessionId || r?.documentId || r?.orderId || r?.platformCustomerId || r?.platformLoanId || r?.onboardingId || r?.prospectId || r?.cacheKey || r?.id || r?.productCode || '-',
     });
 
     // A couple of type-specific "headline" columns
@@ -277,6 +279,7 @@ const DataList = () => {
       row?.tokenId ||
       row?.sessionId ||
       row?.documentId ||
+      row?.orderId ||
       row?.platformCustomerId ||
       row?.platformLoanId ||
       row?.onboardingId ||
@@ -387,4 +390,3 @@ const DataList = () => {
 };
 
 export default DataList;
-

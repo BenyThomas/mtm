@@ -37,6 +37,11 @@ const normalizeRule = (r) => ({
   productCodes: Array.isArray(r?.productCodes) ? r.productCodes.filter(Boolean) : [],
 });
 
+const toTrimmedOrNull = (v) => {
+  const s = String(v || '').trim();
+  return s || null;
+};
+
 const LoanAutomationConfig = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -55,6 +60,12 @@ const LoanAutomationConfig = () => {
         paymentAggregatorEnabledProviders: normalizeProviders(d?.paymentAggregatorEnabledProviders),
         paymentAggregatorDefaultProvider: String(d?.paymentAggregatorDefaultProvider || '').trim().toUpperCase() || '',
         disbursementAggregatorProvider: d?.disbursementAggregatorProvider || '',
+        azamPaySourceAccountEnabled: d?.azamPaySourceAccountEnabled ?? true,
+        azamPaySourceCountryCode: d?.azamPaySourceCountryCode || '',
+        azamPaySourceFullName: d?.azamPaySourceFullName || '',
+        azamPaySourceBankName: d?.azamPaySourceBankName || '',
+        azamPaySourceAccountNumber: d?.azamPaySourceAccountNumber || '',
+        azamPaySourceCurrency: d?.azamPaySourceCurrency || '',
         requireRuleMatch: d?.requireRuleMatch ?? true,
         approvalRules: Array.isArray(d?.approvalRules) ? d.approvalRules.map(normalizeRule) : [],
         updatedAt: d?.updatedAt || '',
@@ -82,6 +93,12 @@ const LoanAutomationConfig = () => {
         paymentAggregatorEnabledProviders: normalizeProviders(cfg?.paymentAggregatorEnabledProviders),
         paymentAggregatorDefaultProvider: String(cfg?.paymentAggregatorDefaultProvider || '').trim().toUpperCase() || null,
         disbursementAggregatorProvider: String(cfg?.disbursementAggregatorProvider || '').trim() || null,
+        azamPaySourceAccountEnabled: cfg?.azamPaySourceAccountEnabled ?? true,
+        azamPaySourceCountryCode: toTrimmedOrNull(cfg?.azamPaySourceCountryCode),
+        azamPaySourceFullName: toTrimmedOrNull(cfg?.azamPaySourceFullName),
+        azamPaySourceBankName: toTrimmedOrNull(cfg?.azamPaySourceBankName),
+        azamPaySourceAccountNumber: toTrimmedOrNull(cfg?.azamPaySourceAccountNumber),
+        azamPaySourceCurrency: toTrimmedOrNull(cfg?.azamPaySourceCurrency),
         requireRuleMatch: cfg?.requireRuleMatch ?? true,
         approvalRules: (cfg?.approvalRules || []).map((r) => ({
           enabled: r?.enabled ?? true,
@@ -100,6 +117,12 @@ const LoanAutomationConfig = () => {
         paymentAggregatorEnabledProviders: normalizeProviders(d?.paymentAggregatorEnabledProviders),
         paymentAggregatorDefaultProvider: String(d?.paymentAggregatorDefaultProvider || '').trim().toUpperCase() || '',
         disbursementAggregatorProvider: d?.disbursementAggregatorProvider || '',
+        azamPaySourceAccountEnabled: d?.azamPaySourceAccountEnabled ?? true,
+        azamPaySourceCountryCode: d?.azamPaySourceCountryCode || '',
+        azamPaySourceFullName: d?.azamPaySourceFullName || '',
+        azamPaySourceBankName: d?.azamPaySourceBankName || '',
+        azamPaySourceAccountNumber: d?.azamPaySourceAccountNumber || '',
+        azamPaySourceCurrency: d?.azamPaySourceCurrency || '',
         requireRuleMatch: d?.requireRuleMatch ?? true,
         approvalRules: Array.isArray(d?.approvalRules) ? d.approvalRules.map(normalizeRule) : [],
         updatedAt: d?.updatedAt || '',
@@ -285,6 +308,92 @@ const LoanAutomationConfig = () => {
                     </div>
                   </div>
                 </label>
+
+                <div className="rounded-xl border border-slate-200/70 p-3 dark:border-slate-700/60 md:col-span-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    AzamPay Disbursement Source Account
+                  </div>
+                  <label className="mt-2 flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={!!cfg.azamPaySourceAccountEnabled}
+                      onChange={(e) => setCfg((p) => ({ ...p, azamPaySourceAccountEnabled: e.target.checked }))}
+                      disabled={saving}
+                    />
+                    <span className="text-sm">Enable ops-configured source account</span>
+                  </label>
+
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        Source Country Code
+                      </label>
+                      <input
+                        value={cfg.azamPaySourceCountryCode || ''}
+                        onChange={(e) => setCfg((p) => ({ ...p, azamPaySourceCountryCode: e.target.value }))}
+                        placeholder="e.g. TZ"
+                        className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                        disabled={saving}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        Source Full Name
+                      </label>
+                      <input
+                        value={cfg.azamPaySourceFullName || ''}
+                        onChange={(e) => setCfg((p) => ({ ...p, azamPaySourceFullName: e.target.value }))}
+                        placeholder="e.g. Digital Platform Ltd"
+                        className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                        disabled={saving}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        Source Bank Name
+                      </label>
+                      <input
+                        value={cfg.azamPaySourceBankName || ''}
+                        onChange={(e) => setCfg((p) => ({ ...p, azamPaySourceBankName: e.target.value }))}
+                        placeholder="e.g. tigo"
+                        className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                        disabled={saving}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        Source Account Number
+                      </label>
+                      <input
+                        value={cfg.azamPaySourceAccountNumber || ''}
+                        onChange={(e) => setCfg((p) => ({ ...p, azamPaySourceAccountNumber: e.target.value }))}
+                        placeholder="e.g. 2557XXXXXXXX"
+                        className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                        disabled={saving}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        Source Currency
+                      </label>
+                      <input
+                        value={cfg.azamPaySourceCurrency || ''}
+                        onChange={(e) => setCfg((p) => ({ ...p, azamPaySourceCurrency: e.target.value }))}
+                        placeholder="e.g. TZS"
+                        className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                        disabled={saving}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+                    When enabled, these values are used for AzamPay disbursement source details when provided.
+                  </div>
+                </div>
               </div>
 
               <div>

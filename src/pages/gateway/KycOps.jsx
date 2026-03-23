@@ -8,6 +8,7 @@ import {
   createKycQuestion,
   deleteKycQuestion,
   getKycPolicy,
+  listKycQuestionContexts,
   listKycQuestions,
   listVerificationTasks,
   updateKycQuestion,
@@ -73,6 +74,7 @@ const fmtAgo = (iso) => {
 
 const emptyQuestion = (context = 'FUEL') => ({
   context,
+  questionContext: context,
   order: 0,
   code: '',
   text: '',
@@ -99,6 +101,7 @@ const KycOps = () => {
   const [qErr, setQErr] = useState('');
   const [editing, setEditing] = useState(null); // {mode:'new'|'edit', data, original}
   const [savingQ, setSavingQ] = useState(false);
+  const [questionContexts, setQuestionContexts] = useState(['FUEL']);
 
   // Questions datatable (client-side filter/sort/pagination)
   const [qSearch, setQSearch] = useState('');
@@ -106,6 +109,7 @@ const KycOps = () => {
   const [qActive, setQActive] = useState(''); // '' | 'ACTIVE' | 'INACTIVE'
   const [qType, setQType] = useState(''); // '' | STRING | PHONE | ...
   const [qTrigger, setQTrigger] = useState(''); // '' | EMPLOYER | ...
+  const [qQuestionContext, setQQuestionContext] = useState(''); // '' | INCOME | BUSINESS | ...
   const [qSortBy, setQSortBy] = useState('order'); // order | code | updatedAt | answerType
   const [qSortDir, setQSortDir] = useState('asc'); // asc | desc
   const [qPage, setQPage] = useState(0);
@@ -137,6 +141,21 @@ const KycOps = () => {
     }
   };
 
+  const reloadQuestionContexts = async () => {
+    try {
+      const values = await listKycQuestionContexts();
+      const clean = (Array.isArray(values) ? values : [])
+        .map((v) => String(v || '').trim().toUpperCase())
+        .filter(Boolean);
+      const unique = Array.from(new Set(clean));
+      if (unique.length) {
+        setQuestionContexts(unique.sort((a, b) => a.localeCompare(b)));
+      }
+    } catch {
+      // Keep default fallback values from state.
+    }
+  };
+
   const reloadPolicy = async () => {
     setLoadingP(true);
     setPErr('');
@@ -156,6 +175,10 @@ const KycOps = () => {
     reloadPolicy();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [context]);
+
+  useEffect(() => {
+    reloadQuestionContexts();
+  }, []);
 
   const startNew = () => {
     const maxOrder = Math.max(
@@ -203,6 +226,7 @@ const KycOps = () => {
         options: Array.isArray(d.options) ? d.options.filter(Boolean) : [],
         displayCondition: String(d.displayCondition || '').trim() || null,
         verificationTrigger: String(d.verificationTrigger || '').trim() || null,
+        questionContext: String(d.questionContext || context).trim().toUpperCase(),
         contributions: DIMENSIONS.reduce((acc, k) => {
           acc[k] = toInt(d?.contributions?.[k], 0);
           return acc;
@@ -278,6 +302,7 @@ const KycOps = () => {
     setQActive('');
     setQType('');
     setQTrigger('');
+    setQQuestionContext('');
     setQSortBy('order');
     setQSortDir('asc');
     setQPage(0);
@@ -316,9 +341,16 @@ const KycOps = () => {
       if (qActive === 'INACTIVE' && q.active) return false;
       if (qType && String(q.answerType || '').toUpperCase() !== qType) return false;
       if (qTrigger && String(q.verificationTrigger || '').toUpperCase() !== qTrigger) return false;
+      if (
+        qQuestionContext &&
+        String(q.questionContext || q.context || '').toUpperCase() !== qQuestionContext
+      ) {
+        return false;
+      }
       if (!s) return true;
       const hay = [
         q.code,
+        q.questionContext || q.context,
         q.text,
         q.answerType,
         q.displayCondition,
@@ -355,7 +387,17 @@ const KycOps = () => {
     });
 
     return sorted.map((q) => ({ ...q, id: q.questionId }));
-  }, [questions, qSearch, qMandatory, qActive, qType, qTrigger, qSortBy, qSortDir]);
+  }, [
+    questions,
+    qSearch,
+    qMandatory,
+    qActive,
+    qType,
+    qTrigger,
+    qQuestionContext,
+    qSortBy,
+    qSortDir,
+  ]);
 
   const qTotal = questionRows.length;
   const qPaged = useMemo(() => {
@@ -376,6 +418,11 @@ const KycOps = () => {
         header: 'Code',
         sortable: true,
         render: (r) => <span className="font-mono text-xs">{r.code}</span>,
+      },
+      {
+        key: 'questionContext',
+        header: 'Q Context',
+        render: (r) => <span className="font-mono text-xs">{r.questionContext || r.context || '-'}</span>,
       },
       { key: 'text', header: 'Text', render: (r) => <span className="truncate">{r.text}</span> },
       { key: 'answerType', header: 'Type', sortable: true },
@@ -494,7 +541,7 @@ const KycOps = () => {
           {qErr ? <p className="text-sm text-red-600">{qErr}</p> : null}
 
           <Card>
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
               <div className="md:col-span-2">
                 <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   Search
@@ -583,6 +630,27 @@ const KycOps = () => {
                   {['EMPLOYER', 'WORKMATE', 'COLLEAGUE_1', 'COLLEAGUE_2', 'SUPPORTER'].map((t) => (
                     <option key={t} value={t}>
                       {t}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Q Context
+                </label>
+                <select
+                  value={qQuestionContext}
+                  onChange={(e) => {
+                    setQQuestionContext(e.target.value);
+                    setQPage(0);
+                  }}
+                  className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                >
+                  <option value="">All</option>
+                  {questionContexts.map((qc) => (
+                    <option key={qc} value={qc}>
+                      {qc}
                     </option>
                   ))}
                 </select>
@@ -690,6 +758,26 @@ const KycOps = () => {
                     {['STRING', 'PHONE', 'ID', 'DATE', 'NUMBER', 'SELECT'].map((t) => (
                       <option key={t} value={t}>
                         {t}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="text-sm">
+                  <div className="mb-1 font-semibold">Question Context</div>
+                  <select
+                    className="w-full rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900/70"
+                    value={editing.data.questionContext || context}
+                    onChange={(e) =>
+                      setEditing((s) => ({
+                        ...s,
+                        data: { ...s.data, questionContext: e.target.value },
+                      }))
+                    }
+                  >
+                    {questionContexts.map((qc) => (
+                      <option key={qc} value={qc}>
+                        {qc}
                       </option>
                     ))}
                   </select>
