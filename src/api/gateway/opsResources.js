@@ -15,7 +15,11 @@ export async function getOpsResource(type, id) {
   return unwrap(r);
 }
 
+export async function createOpsResource(type, payload) {
+  const r = await gatewayApi.post(`/ops/resources/${encodeURIComponent(type)}`, payload);
+  return unwrap(r);
+}
+
 export async function deleteOpsResource(type, id) {
   await gatewayApi.delete(`/ops/resources/${encodeURIComponent(type)}/${encodeURIComponent(id)}`);
 }
-

@@ -21,3 +21,8 @@ export async function refreshDisbursementOrderStatus(orderId) {
   const r = await gatewayApi.post(`/ops/disbursement-orders/${encodeURIComponent(orderId)}/status-check`);
   return unwrap(r);
 }
+
+export async function retryDisbursementOrder(orderId) {
+  const r = await gatewayApi.post('/ops/actions/retry-disbursement', { orderId });
+  return unwrap(r);
+}

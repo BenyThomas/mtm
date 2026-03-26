@@ -4,13 +4,115 @@ import Card from '../../../components/Card';
 import Button from '../../../components/Button';
 import DataTable from '../../../components/DataTable';
 import Badge from '../../../components/Badge';
+import Modal from '../../../components/Modal';
 import useDebouncedValue from '../../../hooks/useDebouncedValue';
-import { deleteOpsResource, listOpsResources } from '../../../api/gateway/opsResources';
+import { createOpsResource, deleteOpsResource, listOpsResources } from '../../../api/gateway/opsResources';
 import Can from '../../../components/Can';
 import { Trash2 } from 'lucide-react';
 import { useToast } from '../../../context/ToastContext';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
+const TENURE_UNITS = ['DAYS', 'WEEKS', 'MONTHS', 'YEARS'];
+const CREATE_FORM_SCHEMAS = {
+  'score-band-policies': {
+    title: 'Score Band Policy',
+    fields: [
+      { key: 'bandCode', label: 'Band Code', type: 'text', required: true, placeholder: 'D, C1, B2, A+' },
+      { key: 'minScore', label: 'Min Score', type: 'number', required: true, placeholder: '300' },
+      { key: 'maxScore', label: 'Max Score', type: 'number', required: true, placeholder: '399' },
+      { key: 'eligibilityStatus', label: 'Eligibility Status', type: 'text', required: true, placeholder: 'Provisional' },
+      { key: 'maxEligibleAmount', label: 'Max Eligible Amount', type: 'decimal', required: true, placeholder: '12000' },
+      { key: 'maxTenure', label: 'Max Tenure', type: 'number', required: true, placeholder: '1' },
+      { key: 'tenureUnit', label: 'Tenure Unit', type: 'select', options: TENURE_UNITS, required: true, defaultValue: 'WEEKS' },
+      { key: 'maxRepayments', label: 'Max Repayments', type: 'number', required: true, placeholder: '1' },
+      { key: 'allowsProvisional', label: 'Allows Provisional', type: 'boolean', defaultValue: true },
+      { key: 'requiresManualReview', label: 'Requires Manual Review', type: 'boolean', defaultValue: false },
+      { key: 'active', label: 'Active', type: 'boolean', defaultValue: true },
+    ],
+  },
+  'loan-product-policies': {
+    title: 'Loan Product Policy',
+    fields: [
+      { key: 'productCode', label: 'Product Code', type: 'text', required: true, placeholder: 'QUICK_LOAN' },
+      { key: 'productName', label: 'Product Name', type: 'text', required: true, placeholder: 'Quick Loan' },
+      { key: 'minScore', label: 'Min Score', type: 'number', required: true, placeholder: '300' },
+      { key: 'maxProductAmount', label: 'Max Product Amount', type: 'decimal', required: true, placeholder: '20000' },
+      { key: 'maxTenure', label: 'Max Tenure', type: 'number', required: true, placeholder: '3' },
+      { key: 'tenureUnit', label: 'Tenure Unit', type: 'select', options: TENURE_UNITS, required: true, defaultValue: 'WEEKS' },
+      { key: 'maxRepayments', label: 'Max Repayments', type: 'number', required: true, placeholder: '3' },
+      { key: 'allowedStatuses', label: 'Allowed Statuses', type: 'tags', placeholder: 'Provisional,Restricted,Eligible,Preferred' },
+      { key: 'allowedCustomerSegments', label: 'Allowed Customer Segments', type: 'tags', placeholder: 'SALARIED,BUSINESS' },
+      { key: 'active', label: 'Active', type: 'boolean', defaultValue: true },
+    ],
+  },
+  'borrower-scores': {
+    title: 'Borrower Score',
+    fields: [
+      { key: 'customerId', label: 'Customer ID', type: 'text', required: true, placeholder: 'customer-123' },
+      { key: 'score', label: 'Score', type: 'number', required: true, placeholder: '640' },
+      { key: 'scoreBand', label: 'Score Band', type: 'text', placeholder: 'B3' },
+      { key: 'eligibilityStatus', label: 'Eligibility Status', type: 'text', placeholder: 'Eligible' },
+      { key: 'version', label: 'Version', type: 'number', placeholder: '1' },
+      { key: 'scoreBreakdown', label: 'Score Breakdown (JSON object)', type: 'json', placeholder: '{ "repaymentHistory": 134.75 }' },
+      { key: 'contextBreakdown', label: 'Context Breakdown (JSON array)', type: 'json', placeholder: '[{ "contextCode":"repaymentHistory","maxPoints":192.5,"earnedPoints":134.75 }]' },
+      { key: 'active', label: 'Active', type: 'boolean', defaultValue: true },
+    ],
+  },
+  'borrower-eligibility-results': {
+    title: 'Borrower Eligibility Result',
+    fields: [
+      { key: 'customerId', label: 'Customer ID', type: 'text', required: true, placeholder: 'customer-123' },
+      { key: 'score', label: 'Score', type: 'number', required: true, placeholder: '380' },
+      { key: 'scoreBand', label: 'Score Band', type: 'text', placeholder: 'D' },
+      { key: 'maxEligibleAmount', label: 'Max Eligible Amount', type: 'decimal', required: true, placeholder: '12000' },
+      { key: 'eligibilityStatus', label: 'Eligibility Status', type: 'text', required: true, placeholder: 'Provisional' },
+      { key: 'decisionReason', label: 'Decision Reason', type: 'text', placeholder: 'HARD_DECLINE' },
+      { key: 'eligibleProducts', label: 'Eligible Products (JSON array)', type: 'json', placeholder: '[{ "productCode":"QUICK_LOAN", "productName":"Quick Loan", "eligibleAmount":12000, "eligibleTenure":1, "eligibleTenureUnit":"WEEKS", "eligibleNoRepayment":1 }]' },
+      { key: 'active', label: 'Active', type: 'boolean', defaultValue: true },
+    ],
+  },
+};
+
+const defaultsForSchema = (schema) => {
+  if (!schema?.fields) return {};
+  return schema.fields.reduce((acc, field) => {
+    if (field.defaultValue !== undefined) {
+      acc[field.key] = field.defaultValue;
+    } else if (field.type === 'boolean') {
+      acc[field.key] = false;
+    } else {
+      acc[field.key] = '';
+    }
+    return acc;
+  }, {});
+};
+
+const parseJsonText = (raw, fallback) => {
+  if (raw == null || String(raw).trim() === '') return fallback;
+  return JSON.parse(String(raw));
+};
+
+const payloadFromSchema = (schema, values) => {
+  const out = {};
+  const errors = [];
+  for (const field of schema.fields || []) {
+    const raw = values[field.key];
+    const str = typeof raw === 'string' ? raw.trim() : raw;
+    if (field.required && (str === '' || str === null || str === undefined)) {
+      errors.push(`${field.label} is required`);
+      continue;
+    }
+    if (str === '' || str === null || str === undefined) continue;
+
+    if (field.type === 'number') out[field.key] = Number(str);
+    else if (field.type === 'decimal') out[field.key] = Number(str);
+    else if (field.type === 'boolean') out[field.key] = Boolean(str);
+    else if (field.type === 'tags') out[field.key] = String(str).split(',').map((s) => s.trim()).filter(Boolean);
+    else if (field.type === 'json') out[field.key] = parseJsonText(str, field.placeholder?.trim().startsWith('[') ? [] : {});
+    else out[field.key] = str;
+  }
+  return { payload: out, errors };
+};
 
 const toneForStatus = (s) => {
   const v = String(s || '').toUpperCase();
@@ -54,6 +156,10 @@ const RESOURCES = {
   onboarding_records: { title: 'Onboarding Records', apiType: 'onboarding-records', defaultSortBy: 'updatedAt' },
   product_snapshots: { title: 'Product Snapshots', apiType: 'product-snapshots', defaultSortBy: 'updatedAt' },
   products: { title: 'Products', apiType: 'products', defaultSortBy: 'productCode' },
+  score_band_policies: { title: 'Score Band Policies', apiType: 'score-band-policies', defaultSortBy: 'minScore' },
+  loan_product_policies: { title: 'Loan Product Policies', apiType: 'loan-product-policies', defaultSortBy: 'productCode' },
+  borrower_scores: { title: 'Borrower Scores', apiType: 'borrower-scores', defaultSortBy: 'computedAt' },
+  borrower_eligibility_results: { title: 'Borrower Eligibility Results', apiType: 'borrower-eligibility-results', defaultSortBy: 'generatedAt' },
   prospects: { title: 'Prospects', apiType: 'prospects', defaultSortBy: 'createdAt' },
   schedule_preview_cache: { title: 'Schedule Preview Cache', apiType: 'schedule-preview-cache', defaultSortBy: 'createdAt' },
 };
@@ -82,15 +188,153 @@ const DataList = () => {
 
   const [loading, setLoading] = useState(false);
   const [refreshTick, setRefreshTick] = useState(0);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createBusy, setCreateBusy] = useState(false);
+  const [createMode, setCreateMode] = useState('form');
+  const [createFormValues, setCreateFormValues] = useState({});
+  const [createJson, setCreateJson] = useState('{\n  \n}');
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [customers, setCustomers] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [productSearch, setProductSearch] = useState('');
+  const createSchema = cfg ? CREATE_FORM_SCHEMAS[cfg.apiType] : null;
+  const needsCustomerPicker = cfg?.apiType === 'borrower-scores' || cfg?.apiType === 'borrower-eligibility-results';
+  const needsProductPicker = cfg?.apiType === 'loan-product-policies' || cfg?.apiType === 'borrower-eligibility-results';
+
+  const resolveDocId = (row) =>
+    row?.auditEventId ||
+    row?.userId ||
+    row?.otpRef ||
+    row?.tokenId ||
+    row?.sessionId ||
+    row?.documentId ||
+    row?.orderId ||
+    row?.platformCustomerId ||
+    row?.platformLoanId ||
+    row?.onboardingId ||
+    row?.prospectId ||
+    row?.cacheKey ||
+    row?.id ||
+    row?.productCode;
 
   useEffect(() => {
     if (!cfg) return;
+    setRows([]);
+    setTotal(0);
     setSortBy(cfg.defaultSortBy || 'createdAt');
     setSortDir('desc');
     setSearch('');
     setStatus('');
     setPage(0);
   }, [cfg?.apiType]);
+
+  useEffect(() => {
+    if (!createOpen || (!needsCustomerPicker && !needsProductPicker)) return;
+    let cancelled = false;
+    (async () => {
+      setLookupLoading(true);
+      try {
+        if (needsCustomerPicker) {
+          const data = await listOpsResources('customers', { limit: 200, offset: 0, orderBy: 'username', sortOrder: 'asc' });
+          if (!cancelled) setCustomers(Array.isArray(data?.items) ? data.items : []);
+        }
+        if (needsProductPicker) {
+          const data = await listOpsResources('products', { limit: 200, offset: 0, orderBy: 'productCode', sortOrder: 'asc' });
+          if (!cancelled) setProducts(Array.isArray(data?.items) ? data.items : []);
+        }
+      } catch {
+        if (!cancelled) {
+          setCustomers([]);
+          setProducts([]);
+        }
+      } finally {
+        if (!cancelled) setLookupLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [createOpen, needsCustomerPicker, needsProductPicker]);
+
+  const filteredCustomers = useMemo(() => {
+    const q = customerSearch.trim().toLowerCase();
+    if (!q) return customers.slice(0, 12);
+    return customers
+      .filter((c) => {
+        const id = String(c?.platformCustomerId || c?.customerId || c?.id || '').toLowerCase();
+        const username = String(c?.username || '').toLowerCase();
+        const phone = String(c?.phone || c?.mobileNo || '').toLowerCase();
+        return id.includes(q) || username.includes(q) || phone.includes(q);
+      })
+      .slice(0, 12);
+  }, [customers, customerSearch]);
+
+  const filteredProducts = useMemo(() => {
+    const q = productSearch.trim().toLowerCase();
+    if (!q) return products.slice(0, 12);
+    return products
+      .filter((p) => {
+        const code = String(p?.productCode || '').toLowerCase();
+        const name = String(p?.name || p?.productName || '').toLowerCase();
+        return code.includes(q) || name.includes(q);
+      })
+      .slice(0, 12);
+  }, [products, productSearch]);
+
+  const inferProductTenureUnit = (product) => {
+    const freqId = Number(product?.repaymentFrequencyType?.id);
+    if (Number.isFinite(freqId)) {
+      if (freqId === 0) return Number(product?.repaymentEvery) === 7 ? 'WEEKS' : 'DAYS';
+      if (freqId === 1) return 'WEEKS';
+      if (freqId === 2) return 'MONTHS';
+      if (freqId === 3) return 'YEARS';
+    }
+    return 'WEEKS';
+  };
+
+  const applyCustomerPrefill = (customer) => {
+    const customerId = customer?.platformCustomerId || customer?.customerId || customer?.id || '';
+    setCreateFormValues((prev) => ({
+      ...prev,
+      customerId: customerId ? String(customerId) : prev.customerId,
+    }));
+    setCustomerSearch(customer?.username || String(customerId || ''));
+  };
+
+  const applyProductPrefill = (product) => {
+    const code = product?.productCode || '';
+    const name = product?.name || product?.productName || '';
+    const maxAmount = product?.eligibilityMaxAmount ?? product?.maxAmount ?? product?.maxPrincipal ?? '';
+    const maxTenure = product?.eligibilityMaxTenure ?? product?.maxTenureMonths ?? product?.maxNumberOfRepayments ?? '';
+    const maxRepayments = product?.maxNumberOfRepayments ?? product?.maxTenureMonths ?? product?.eligibilityMaxTenure ?? '';
+    const tenureUnit = inferProductTenureUnit(product);
+
+    setCreateFormValues((prev) => {
+      const next = {
+        ...prev,
+        productCode: code || prev.productCode,
+        productName: name || prev.productName,
+        maxProductAmount: maxAmount !== '' ? maxAmount : prev.maxProductAmount,
+        maxTenure: maxTenure !== '' ? maxTenure : prev.maxTenure,
+        maxRepayments: maxRepayments !== '' ? maxRepayments : prev.maxRepayments,
+        tenureUnit: tenureUnit || prev.tenureUnit,
+      };
+      if (cfg?.apiType === 'borrower-eligibility-results') {
+        const amount = Number(next.maxEligibleAmount || maxAmount || 0);
+        next.eligibleProducts = JSON.stringify([{
+          productCode: code || '',
+          productName: name || '',
+          eligibleAmount: Number.isFinite(amount) ? amount : 0,
+          eligibleTenure: Number(next.maxTenure || 1),
+          eligibleTenureUnit: tenureUnit || 'WEEKS',
+          eligibleNoRepayment: Number(next.maxTenure || 1),
+        }], null, 2);
+      }
+      return next;
+    });
+    setProductSearch(`${code}${name ? ` - ${name}` : ''}`);
+  };
 
   useEffect(() => {
     if (!cfg) return;
@@ -108,7 +352,25 @@ const DataList = () => {
         });
         if (cancelled) return;
         const items = Array.isArray(data?.items) ? data.items : [];
-        setRows(items.map((x, idx) => ({ ...x, id: x?.id ?? x?.orderId ?? x?.cacheKey ?? x?.productCode ?? x?.auditEventId ?? x?.userId ?? x?.sessionId ?? x?.tokenId ?? x?.otpRef ?? x?.documentId ?? x?.platformCustomerId ?? x?.platformLoanId ?? x?.onboardingId ?? x?.prospectId ?? idx })));
+        setRows(items.map((x, idx) => ({
+          ...x,
+          id:
+            x?.auditEventId ||
+            x?.userId ||
+            x?.otpRef ||
+            x?.tokenId ||
+            x?.sessionId ||
+            x?.documentId ||
+            x?.orderId ||
+            x?.platformCustomerId ||
+            x?.platformLoanId ||
+            x?.onboardingId ||
+            x?.prospectId ||
+            x?.cacheKey ||
+            x?.id ||
+            x?.productCode ||
+            idx,
+        })));
         setTotal(Number(data?.total || items.length || 0));
       } catch {
         if (!cancelled) {
@@ -143,21 +405,11 @@ const DataList = () => {
   const doDelete = async (row, e) => {
     e?.stopPropagation?.();
     if (!cfg) return;
-    const id =
-      row?.auditEventId ||
-      row?.userId ||
-      row?.otpRef ||
-      row?.tokenId ||
-      row?.sessionId ||
-      row?.documentId ||
-      row?.orderId ||
-      row?.platformCustomerId ||
-      row?.platformLoanId ||
-      row?.onboardingId ||
-      row?.prospectId ||
-      row?.id ||
-      row?.cacheKey ||
-      row?.productCode;
+    const id = resolveDocId(row);
+    if (id === undefined || id === null || String(id).trim() === '') {
+      addToast('Resource not found', 'error');
+      return;
+    }
     // eslint-disable-next-line no-alert
     if (!window.confirm('Delete this record? This cannot be undone.')) return;
     try {
@@ -166,6 +418,56 @@ const DataList = () => {
       setRefreshTick((t) => t + 1);
     } catch (err) {
       addToast(err?.response?.data?.message || err?.message || 'Delete failed', 'error');
+    }
+  };
+
+  const openCreate = () => {
+    const defaults = defaultsForSchema(createSchema);
+    setCreateFormValues(defaults);
+    setCreateJson(JSON.stringify(defaults, null, 2));
+    setCreateMode(createSchema ? 'form' : 'json');
+    setCustomerSearch('');
+    setProductSearch('');
+    setCreateOpen(true);
+  };
+
+  const doCreate = async () => {
+    if (!cfg) return;
+    let payload;
+    if (createMode === 'form' && createSchema) {
+      try {
+        const built = payloadFromSchema(createSchema, createFormValues);
+        if (built.errors.length) {
+          addToast(built.errors[0], 'error');
+          return;
+        }
+        payload = built.payload;
+      } catch {
+        addToast('Invalid form values', 'error');
+        return;
+      }
+    } else {
+      try {
+        payload = JSON.parse(createJson);
+      } catch {
+        addToast('Invalid JSON payload', 'error');
+        return;
+      }
+    }
+    setCreateBusy(true);
+    try {
+      const created = await createOpsResource(cfg.apiType, payload);
+      addToast('Created', 'success');
+      setCreateOpen(false);
+      setRefreshTick((t) => t + 1);
+      const id = resolveDocId(created);
+      if (id !== undefined && id !== null && String(id).trim() !== '') {
+        navigate(`/gateway/resources/${encodeURIComponent(cfg.apiType)}/${encodeURIComponent(String(id))}`);
+      }
+    } catch (err) {
+      addToast(err?.response?.data?.message || err?.message || 'Create failed', 'error');
+    } finally {
+      setCreateBusy(false);
     }
   };
 
@@ -214,6 +516,39 @@ const DataList = () => {
       base.push({ key: 'productCode', header: 'Code', sortable: true, render: (r) => r?.productCode || '-' });
       base.push({ key: 'name', header: 'Name', sortable: true, render: (r) => r?.name || '-' });
       base.push({ key: 'fineractProductId', header: 'Fineract ID', sortable: true, render: (r) => r?.fineractProductId ?? '-' });
+      base.push({ key: 'isDefault', header: 'Default', sortable: false, render: (r) => (r?.default || r?.isDefault ? 'Yes' : 'No') });
+    }
+    if (cfg.apiType === 'score-band-policies') {
+      base.push({ key: 'bandCode', header: 'Band', sortable: true, render: (r) => r?.bandCode || '-' });
+      base.push({ key: 'minScore', header: 'Min Score', sortable: true, render: (r) => r?.minScore ?? '-' });
+      base.push({ key: 'maxScore', header: 'Max Score', sortable: true, render: (r) => r?.maxScore ?? '-' });
+      base.push({ key: 'eligibilityStatus', header: 'Status', sortable: true, render: (r) => r?.eligibilityStatus || '-' });
+      base.push({ key: 'maxEligibleAmount', header: 'Max Amount', sortable: true, render: (r) => r?.maxEligibleAmount ?? '-' });
+      base.push({ key: 'maxTenure', header: 'Max Tenure', sortable: true, render: (r) => r?.maxTenure ?? '-' });
+      base.push({ key: 'maxRepayments', header: 'Max Repayments', sortable: true, render: (r) => r?.maxRepayments ?? '-' });
+    }
+    if (cfg.apiType === 'loan-product-policies') {
+      base.push({ key: 'productCode', header: 'Product Code', sortable: true, render: (r) => r?.productCode || '-' });
+      base.push({ key: 'productName', header: 'Product Name', sortable: true, render: (r) => r?.productName || '-' });
+      base.push({ key: 'minScore', header: 'Min Score', sortable: true, render: (r) => r?.minScore ?? '-' });
+      base.push({ key: 'maxProductAmount', header: 'Max Amount', sortable: true, render: (r) => r?.maxProductAmount ?? '-' });
+      base.push({ key: 'maxTenure', header: 'Max Tenure', sortable: true, render: (r) => r?.maxTenure ?? '-' });
+      base.push({ key: 'maxRepayments', header: 'Max Repayments', sortable: true, render: (r) => r?.maxRepayments ?? '-' });
+    }
+    if (cfg.apiType === 'borrower-scores') {
+      base.push({ key: 'customerId', header: 'Customer', sortable: true, render: (r) => r?.customerId || '-' });
+      base.push({ key: 'score', header: 'Score', sortable: true, render: (r) => r?.score ?? '-' });
+      base.push({ key: 'scoreBand', header: 'Band', sortable: true, render: (r) => r?.scoreBand || '-' });
+      base.push({ key: 'eligibilityStatus', header: 'Eligibility', sortable: true, render: (r) => r?.eligibilityStatus || '-' });
+      base.push({ key: 'computedAt', header: 'Computed', sortable: true, render: (r) => r?.computedAt || '-' });
+    }
+    if (cfg.apiType === 'borrower-eligibility-results') {
+      base.push({ key: 'customerId', header: 'Customer', sortable: true, render: (r) => r?.customerId || '-' });
+      base.push({ key: 'score', header: 'Score', sortable: true, render: (r) => r?.score ?? '-' });
+      base.push({ key: 'scoreBand', header: 'Band', sortable: true, render: (r) => r?.scoreBand || '-' });
+      base.push({ key: 'maxEligibleAmount', header: 'Max Eligible', sortable: true, render: (r) => r?.maxEligibleAmount ?? '-' });
+      base.push({ key: 'eligibilityStatus', header: 'Eligibility', sortable: true, render: (r) => r?.eligibilityStatus || '-' });
+      base.push({ key: 'generatedAt', header: 'Generated', sortable: true, render: (r) => r?.generatedAt || '-' });
     }
     if (cfg.apiType === 'audit-events') {
       base.push({ key: 'action', header: 'Action', sortable: true, render: (r) => r?.action || '-' });
@@ -233,7 +568,8 @@ const DataList = () => {
       header: 'Status',
       sortable: true,
       render: (r) => {
-        const s = r?.status || r?.onboardingState || '';
+        const activeStatus = typeof r?.active === 'boolean' ? (r.active ? 'ACTIVE' : 'INACTIVE') : '';
+        const s = r?.status || r?.onboardingState || activeStatus || '';
         return s ? <Badge tone={toneForStatus(s)}>{s}</Badge> : '-';
       },
     });
@@ -272,21 +608,11 @@ const DataList = () => {
 
   const onRowClick = (row) => {
     if (!cfg) return;
-    const id =
-      row?.auditEventId ||
-      row?.userId ||
-      row?.otpRef ||
-      row?.tokenId ||
-      row?.sessionId ||
-      row?.documentId ||
-      row?.orderId ||
-      row?.platformCustomerId ||
-      row?.platformLoanId ||
-      row?.onboardingId ||
-      row?.prospectId ||
-      row?.cacheKey ||
-      row?.id ||
-      row?.productCode;
+    const id = resolveDocId(row);
+    if (id === undefined || id === null || String(id).trim() === '') {
+      addToast('Resource not found', 'error');
+      return;
+    }
     navigate(`/gateway/resources/${encodeURIComponent(cfg.apiType)}/${encodeURIComponent(String(id))}`);
   };
 
@@ -346,9 +672,16 @@ const DataList = () => {
         </div>
 
         <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <Button variant="secondary" onClick={clearFilters} className="w-full sm:w-auto">
-            Clear
-          </Button>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Button variant="secondary" onClick={clearFilters} className="w-full sm:w-auto">
+              Clear
+            </Button>
+            <Can any={['GW_OPS_WRITE']}>
+              <Button onClick={openCreate} className="w-full sm:w-auto">
+                Create
+              </Button>
+            </Can>
+          </div>
           <div className="flex items-center justify-between gap-2 sm:justify-start">
             <label className="text-sm text-slate-600 dark:text-slate-300">Rows</label>
             <select
@@ -371,6 +704,7 @@ const DataList = () => {
 
       <Card>
         <DataTable
+          key={cfg.apiType}
           columns={columns}
           data={rows}
           loading={loading}
@@ -385,6 +719,196 @@ const DataList = () => {
           emptyMessage="No records found"
         />
       </Card>
+
+      <Modal
+        open={createOpen}
+        onClose={() => {
+          if (!createBusy) setCreateOpen(false);
+        }}
+        title={`Create ${cfg.title}`}
+        size="3xl"
+        footer={(
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => setCreateOpen(false)}
+              disabled={createBusy}
+            >
+              Cancel
+            </Button>
+            <Button onClick={doCreate} disabled={createBusy}>
+              {createBusy ? 'Creating...' : 'Create'}
+            </Button>
+          </>
+        )}
+      >
+        <div className="space-y-3">
+          <div className="rounded-xl border border-slate-200/70 bg-slate-50/80 p-3 dark:border-slate-700/70 dark:bg-slate-900/50">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  {createSchema ? `${createSchema.title} Form` : 'JSON Payload'}
+                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  {createSchema ? 'Use structured fields or switch to JSON for advanced payload.' : `Provide payload for ${cfg.apiType}.`}
+                </div>
+              </div>
+              {createSchema ? (
+                <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700">
+                  <button
+                    type="button"
+                    className={`px-3 py-1.5 text-xs font-semibold ${createMode === 'form' ? 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-200' : 'text-slate-600 dark:text-slate-300'}`}
+                    onClick={() => setCreateMode('form')}
+                  >
+                    Form
+                  </button>
+                  <button
+                    type="button"
+                    className={`px-3 py-1.5 text-xs font-semibold ${createMode === 'json' ? 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-200' : 'text-slate-600 dark:text-slate-300'}`}
+                    onClick={() => {
+                      try {
+                        if (createSchema) {
+                          const built = payloadFromSchema(createSchema, createFormValues);
+                          setCreateJson(JSON.stringify(built.payload, null, 2));
+                        }
+                      } catch {
+                        setCreateJson('{\n  \n}');
+                      }
+                      setCreateMode('json');
+                    }}
+                  >
+                    JSON
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          {createMode === 'form' && createSchema ? (
+            <div className="space-y-4">
+              {(needsCustomerPicker || needsProductPicker) ? (
+                <div className="grid gap-3 rounded-xl border border-cyan-200/70 bg-cyan-50/70 p-3 dark:border-cyan-900/50 dark:bg-cyan-900/20 md:grid-cols-2">
+                  {needsCustomerPicker ? (
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wide text-cyan-700 dark:text-cyan-300">
+                        Select Customer
+                      </label>
+                      <input
+                        value={customerSearch}
+                        onChange={(e) => setCustomerSearch(e.target.value)}
+                        placeholder={lookupLoading ? 'Loading customers...' : 'Search by ID, username, phone'}
+                        className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                      />
+                      <div className="mt-2 max-h-28 overflow-auto rounded-lg border border-cyan-200/70 bg-white/70 dark:border-cyan-900/50 dark:bg-slate-900/60">
+                        {filteredCustomers.map((c) => {
+                          const id = c?.platformCustomerId || c?.customerId || c?.id;
+                          const label = `${c?.username || 'Customer'} (${id || '-'})`;
+                          return (
+                            <button
+                              key={`c_${id || label}`}
+                              type="button"
+                              onClick={() => applyCustomerPrefill(c)}
+                              className="block w-full px-3 py-2 text-left text-sm hover:bg-cyan-100/70 dark:hover:bg-cyan-900/30"
+                            >
+                              {label}
+                            </button>
+                          );
+                        })}
+                        {!filteredCustomers.length ? <div className="px-3 py-2 text-xs text-slate-500">No customers</div> : null}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {needsProductPicker ? (
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wide text-cyan-700 dark:text-cyan-300">
+                        Select Loan Product
+                      </label>
+                      <input
+                        value={productSearch}
+                        onChange={(e) => setProductSearch(e.target.value)}
+                        placeholder={lookupLoading ? 'Loading products...' : 'Search by code or name'}
+                        className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                      />
+                      <div className="mt-2 max-h-28 overflow-auto rounded-lg border border-cyan-200/70 bg-white/70 dark:border-cyan-900/50 dark:bg-slate-900/60">
+                        {filteredProducts.map((p) => {
+                          const code = p?.productCode || '';
+                          const name = p?.name || p?.productName || '';
+                          return (
+                            <button
+                              key={`p_${code || name}`}
+                              type="button"
+                              onClick={() => applyProductPrefill(p)}
+                              className="block w-full px-3 py-2 text-left text-sm hover:bg-cyan-100/70 dark:hover:bg-cyan-900/30"
+                            >
+                              {code}{name ? ` - ${name}` : ''}
+                            </button>
+                          );
+                        })}
+                        {!filteredProducts.length ? <div className="px-3 py-2 text-xs text-slate-500">No products</div> : null}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <div className="grid gap-3 md:grid-cols-2">
+                {createSchema.fields.map((field) => (
+                  <div key={field.key} className={field.type === 'json' ? 'md:col-span-2' : ''}>
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      {field.label}{field.required ? ' *' : ''}
+                    </label>
+                    {field.type === 'boolean' ? (
+                      <button
+                        type="button"
+                        className={`mt-1 inline-flex items-center rounded-lg px-3 py-2 text-sm font-medium ${createFormValues[field.key] ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200'}`}
+                        onClick={() => setCreateFormValues((prev) => ({ ...prev, [field.key]: !prev[field.key] }))}
+                      >
+                        {createFormValues[field.key] ? 'True' : 'False'}
+                      </button>
+                    ) : field.type === 'select' ? (
+                      <select
+                        value={createFormValues[field.key] ?? ''}
+                        onChange={(e) => setCreateFormValues((prev) => ({ ...prev, [field.key]: e.target.value }))}
+                        className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                      >
+                        <option value="">Select...</option>
+                        {(field.options || []).map((opt) => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                      </select>
+                    ) : field.type === 'json' ? (
+                      <textarea
+                        className="mt-1 h-28 w-full resize-none rounded-xl bg-slate-950 p-3 font-mono text-xs text-slate-100"
+                        value={createFormValues[field.key] ?? ''}
+                        onChange={(e) => setCreateFormValues((prev) => ({ ...prev, [field.key]: e.target.value }))}
+                        placeholder={field.placeholder || '{ }'}
+                        spellCheck={false}
+                      />
+                    ) : (
+                      <input
+                        type={field.type === 'number' || field.type === 'decimal' ? 'number' : 'text'}
+                        step={field.type === 'decimal' ? '0.01' : '1'}
+                        value={createFormValues[field.key] ?? ''}
+                        onChange={(e) => setCreateFormValues((prev) => ({ ...prev, [field.key]: e.target.value }))}
+                        placeholder={field.placeholder || ''}
+                        className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <textarea
+              className="h-[45vh] w-full resize-none rounded-xl bg-slate-950 p-4 font-mono text-xs leading-relaxed text-slate-100"
+              value={createJson}
+              onChange={(e) => setCreateJson(e.target.value)}
+              spellCheck={false}
+            />
+          )}
+        </div>
+      </Modal>
     </div>
   );
 };

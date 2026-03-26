@@ -13,6 +13,7 @@ import {
   getDisbursementOrderStatus,
   listDisbursementOrders,
   refreshDisbursementOrderStatus,
+  retryDisbursementOrder,
 } from '../../api/gateway/disbursementOrders';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
@@ -89,6 +90,7 @@ const DisbursementOrders = () => {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [statusBusy, setStatusBusy] = useState(false);
+  const [retryBusyByOrderId, setRetryBusyByOrderId] = useState({});
 
   useEffect(() => {
     let cancelled = false;
@@ -170,6 +172,28 @@ const DisbursementOrders = () => {
     }
   };
 
+  const retryOrder = async (orderId) => {
+    if (!orderId) return;
+    setRetryBusyByOrderId((prev) => ({ ...prev, [orderId]: true }));
+    try {
+      await retryDisbursementOrder(orderId);
+      const [order, statusResp] = await Promise.all([
+        getDisbursementOrder(orderId),
+        getDisbursementOrderStatus(orderId),
+      ]);
+      if (selected?.orderId === orderId) {
+        setSelected(order);
+        setSelectedStatus(statusResp);
+      }
+      setRefreshTick((t) => t + 1);
+      addToast('Retry submitted', 'success');
+    } catch (e) {
+      addToast(e?.response?.data?.message || e?.message || 'Retry failed', 'error');
+    } finally {
+      setRetryBusyByOrderId((prev) => ({ ...prev, [orderId]: false }));
+    }
+  };
+
   const metrics = useMemo(() => {
     const source = rows || [];
     const counts = {
@@ -194,13 +218,39 @@ const DisbursementOrders = () => {
         header: 'Actions',
         sortable: false,
         render: (r) => (
-          <Button size="sm" variant="ghost" className="px-2" onClick={() => openDetails(r)} title="View journey">
-            <Eye size={16} />
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="px-2"
+              onClick={(e) => {
+                e.stopPropagation();
+                openDetails(r);
+              }}
+              title="View journey"
+            >
+              <Eye size={16} />
+            </Button>
+            {String(r?.status || '').toUpperCase() !== 'DISBURSED' ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                className="px-2"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  retryOrder(r?.orderId);
+                }}
+                disabled={!!retryBusyByOrderId[r?.orderId]}
+                title="Retry disbursement"
+              >
+                Retry
+              </Button>
+            ) : null}
+          </div>
         ),
       },
     ],
-    []
+    [retryBusyByOrderId]
   );
 
   const journey = selected?.journey || {};
@@ -300,6 +350,13 @@ const DisbursementOrders = () => {
                   Refresh Status
                 </span>
               )}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => retryOrder(selected?.orderId)}
+              disabled={!selected?.orderId || !!retryBusyByOrderId[selected?.orderId]}
+            >
+              {!!retryBusyByOrderId[selected?.orderId] ? 'Retrying...' : 'Retry'}
             </Button>
           </>
         }

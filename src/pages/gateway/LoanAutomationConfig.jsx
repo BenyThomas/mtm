@@ -42,6 +42,23 @@ const toTrimmedOrNull = (v) => {
   return s || null;
 };
 
+const mapConfigFromApi = (d) => ({
+  autoApprovalEnabled: !!d?.autoApprovalEnabled,
+  autoDisbursementEnabled: !!d?.autoDisbursementEnabled,
+  paymentAggregatorEnabledProviders: normalizeProviders(d?.paymentAggregatorEnabledProviders),
+  paymentAggregatorDefaultProvider: String(d?.paymentAggregatorDefaultProvider || '').trim().toUpperCase() || '',
+  disbursementAggregatorProvider: d?.disbursementAggregatorProvider || '',
+  azamPaySourceAccountEnabled: d?.azamPaySourceAccountEnabled ?? true,
+  azamPaySourceCountryCode: d?.azamPaySourceCountryCode || '',
+  azamPaySourceFullName: d?.azamPaySourceFullName || '',
+  azamPaySourceBankName: d?.azamPaySourceBankName || '',
+  azamPaySourceAccountNumber: d?.azamPaySourceAccountNumber || '',
+  azamPaySourceCurrency: d?.azamPaySourceCurrency || '',
+  requireRuleMatch: d?.requireRuleMatch ?? true,
+  approvalRules: Array.isArray(d?.approvalRules) ? d.approvalRules.map(normalizeRule) : [],
+  updatedAt: d?.updatedAt || '',
+});
+
 const LoanAutomationConfig = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -54,22 +71,7 @@ const LoanAutomationConfig = () => {
     try {
       const r = await gatewayApi.get('/ops/config/loan-automation');
       const d = r?.data || {};
-      setCfg({
-        autoApprovalEnabled: !!d?.autoApprovalEnabled,
-        autoDisbursementEnabled: !!d?.autoDisbursementEnabled,
-        paymentAggregatorEnabledProviders: normalizeProviders(d?.paymentAggregatorEnabledProviders),
-        paymentAggregatorDefaultProvider: String(d?.paymentAggregatorDefaultProvider || '').trim().toUpperCase() || '',
-        disbursementAggregatorProvider: d?.disbursementAggregatorProvider || '',
-        azamPaySourceAccountEnabled: d?.azamPaySourceAccountEnabled ?? true,
-        azamPaySourceCountryCode: d?.azamPaySourceCountryCode || '',
-        azamPaySourceFullName: d?.azamPaySourceFullName || '',
-        azamPaySourceBankName: d?.azamPaySourceBankName || '',
-        azamPaySourceAccountNumber: d?.azamPaySourceAccountNumber || '',
-        azamPaySourceCurrency: d?.azamPaySourceCurrency || '',
-        requireRuleMatch: d?.requireRuleMatch ?? true,
-        approvalRules: Array.isArray(d?.approvalRules) ? d.approvalRules.map(normalizeRule) : [],
-        updatedAt: d?.updatedAt || '',
-      });
+      setCfg(mapConfigFromApi(d));
     } catch (e) {
       setErr(e?.response?.data?.message || e?.message || 'Failed to load config');
       setCfg(null);
@@ -87,7 +89,10 @@ const LoanAutomationConfig = () => {
     setSaving(true);
     setErr('');
     try {
+      const latestResp = await gatewayApi.get('/ops/config/loan-automation');
+      const latest = latestResp?.data || {};
       const body = {
+        ...latest,
         autoApprovalEnabled: !!cfg?.autoApprovalEnabled,
         autoDisbursementEnabled: !!cfg?.autoDisbursementEnabled,
         paymentAggregatorEnabledProviders: normalizeProviders(cfg?.paymentAggregatorEnabledProviders),
@@ -111,22 +116,7 @@ const LoanAutomationConfig = () => {
       };
       const r = await gatewayApi.put('/ops/config/loan-automation', body);
       const d = r?.data || {};
-      setCfg({
-        autoApprovalEnabled: !!d?.autoApprovalEnabled,
-        autoDisbursementEnabled: !!d?.autoDisbursementEnabled,
-        paymentAggregatorEnabledProviders: normalizeProviders(d?.paymentAggregatorEnabledProviders),
-        paymentAggregatorDefaultProvider: String(d?.paymentAggregatorDefaultProvider || '').trim().toUpperCase() || '',
-        disbursementAggregatorProvider: d?.disbursementAggregatorProvider || '',
-        azamPaySourceAccountEnabled: d?.azamPaySourceAccountEnabled ?? true,
-        azamPaySourceCountryCode: d?.azamPaySourceCountryCode || '',
-        azamPaySourceFullName: d?.azamPaySourceFullName || '',
-        azamPaySourceBankName: d?.azamPaySourceBankName || '',
-        azamPaySourceAccountNumber: d?.azamPaySourceAccountNumber || '',
-        azamPaySourceCurrency: d?.azamPaySourceCurrency || '',
-        requireRuleMatch: d?.requireRuleMatch ?? true,
-        approvalRules: Array.isArray(d?.approvalRules) ? d.approvalRules.map(normalizeRule) : [],
-        updatedAt: d?.updatedAt || '',
-      });
+      setCfg(mapConfigFromApi(d));
     } catch (e) {
       setErr(e?.response?.data?.message || e?.message || 'Save failed');
     } finally {
