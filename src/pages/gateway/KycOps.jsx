@@ -90,6 +90,8 @@ const emptyQuestion = (context = 'FUEL') => ({
   skippable: false,
   displayCondition: '',
   verificationTrigger: '',
+  persistToProfile: false,
+  profileFieldKey: '',
   active: true,
   scoreWeightPercent: 0,
 });
@@ -229,6 +231,8 @@ const KycOps = () => {
         options: Array.isArray(d.options) ? d.options.filter(Boolean) : [],
         displayCondition: String(d.displayCondition || '').trim() || null,
         verificationTrigger: String(d.verificationTrigger || '').trim() || null,
+        persistToProfile: !!d.persistToProfile,
+        profileFieldKey: String(d.profileFieldKey || '').trim(),
         questionContext: String(d.questionContext || context).trim().toUpperCase(),
       };
       if (editing.mode === 'new') {
@@ -439,6 +443,7 @@ const KycOps = () => {
             {r.skippable ? ' | Skippable' : ''}
             {r.displayCondition ? ` | if ${r.displayCondition}` : ''}
             {r.verificationTrigger ? ` | triggers ${r.verificationTrigger}` : ''}
+            {r.persistToProfile ? ` | saves ${r.profileFieldKey || 'profile'}` : ''}
             {!r.active ? ' | Inactive' : ''}
           </span>
         ),
@@ -866,9 +871,9 @@ const KycOps = () => {
                   />
                 </label>
 
-                <label className="text-sm">
-                  <div className="mb-1 font-semibold">Verification Trigger</div>
-                  <select
+                  <label className="text-sm">
+                    <div className="mb-1 font-semibold">Verification Trigger</div>
+                    <select
                     className="w-full rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900/70"
                     value={editing.data.verificationTrigger || ''}
                     onChange={(e) =>
@@ -885,12 +890,31 @@ const KycOps = () => {
                       </option>
                     ))}
                   </select>
-                </label>
+                  </label>
+
+                  <label className="text-sm">
+                    <div className="mb-1 font-semibold">Profile Field Key</div>
+                    <input
+                      className="w-full rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900/70"
+                      value={editing.data.profileFieldKey || ''}
+                      onChange={(e) =>
+                        setEditing((s) => ({
+                          ...s,
+                          data: { ...s.data, profileFieldKey: e.target.value },
+                        }))
+                      }
+                      placeholder="street or additional.landmark"
+                    />
+                    <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                      Fixed fields: region, district, ward, street, gender. Dynamic fields: additional.someKey
+                    </div>
+                  </label>
 
                   <div className="md:col-span-2 flex flex-wrap items-center gap-4">
                     {[
                       { k: 'mandatory', label: 'Mandatory' },
                       { k: 'skippable', label: 'Skippable' },
+                      { k: 'persistToProfile', label: 'Persist To Profile' },
                       { k: 'active', label: 'Active' },
                     ].map((x) => (
                       <label key={x.k} className="flex items-center gap-2 text-sm">
