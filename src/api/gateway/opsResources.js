@@ -20,6 +20,14 @@ export async function createOpsResource(type, payload) {
   return unwrap(r);
 }
 
+export async function updateOpsResource(type, id, payload) {
+  const r = await gatewayApi.put(
+    `/ops/resources/${encodeURIComponent(type)}/${encodeURIComponent(id)}`,
+    payload
+  );
+  return unwrap(r);
+}
+
 export async function deleteOpsResource(type, id) {
   await gatewayApi.delete(`/ops/resources/${encodeURIComponent(type)}/${encodeURIComponent(id)}`);
 }

@@ -4,13 +4,16 @@ import Card from '../../components/Card';
 import Button from '../../components/Button';
 import DataTable from '../../components/DataTable';
 import Badge from '../../components/Badge';
+import Modal from '../../components/Modal';
 import useDebouncedValue from '../../hooks/useDebouncedValue';
 import { useToast } from '../../context/ToastContext';
 import { createBankName, deleteBankName, listBankNames, patchBankName, updateBankName } from '../../api/gateway/bankNames';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
+const TYPE_OPTIONS = ['BANK', 'MNO'];
 
 const statusTone = (active) => (active ? 'green' : 'gray');
+const typeTone = (type) => (String(type || '').toUpperCase() === 'MNO' ? 'blue' : 'amber');
 
 const timeAgo = (iso) => {
   if (!iso) return '';
@@ -40,11 +43,14 @@ const BankNamesConfig = () => {
   const [refreshTick, setRefreshTick] = useState(0);
 
   const [newName, setNewName] = useState('');
+  const [newType, setNewType] = useState('BANK');
   const [newActive, setNewActive] = useState(true);
+  const [createOpen, setCreateOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const [editingId, setEditingId] = useState('');
   const [editingName, setEditingName] = useState('');
+  const [editingType, setEditingType] = useState('BANK');
   const [editingActive, setEditingActive] = useState(true);
 
   useEffect(() => {
@@ -91,6 +97,7 @@ const BankNamesConfig = () => {
 
   const resetCreate = () => {
     setNewName('');
+    setNewType('BANK');
     setNewActive(true);
   };
 
@@ -102,9 +109,10 @@ const BankNamesConfig = () => {
     }
     setSaving(true);
     try {
-      await createBankName({ name, active: !!newActive });
+      await createBankName({ name, type: newType, active: !!newActive });
       addToast('Bank name added', 'success');
       resetCreate();
+      setCreateOpen(false);
       setRefreshTick((t) => t + 1);
     } catch (e) {
       addToast(e?.response?.data?.message || e?.message || 'Create failed', 'error');
@@ -116,12 +124,14 @@ const BankNamesConfig = () => {
   const startEdit = (row) => {
     setEditingId(row?.bankNameId || '');
     setEditingName(row?.name || '');
+    setEditingType(String(row?.type || 'BANK').toUpperCase());
     setEditingActive(!!row?.active);
   };
 
   const cancelEdit = () => {
     setEditingId('');
     setEditingName('');
+    setEditingType('BANK');
     setEditingActive(true);
   };
 
@@ -134,7 +144,7 @@ const BankNamesConfig = () => {
     }
     setSaving(true);
     try {
-      await updateBankName(id, { name, active: !!editingActive });
+      await updateBankName(id, { name, type: editingType, active: !!editingActive });
       addToast('Bank name updated', 'success');
       cancelEdit();
       setRefreshTick((t) => t + 1);
@@ -173,6 +183,12 @@ const BankNamesConfig = () => {
   const columns = useMemo(
     () => [
       { key: 'name', header: 'Name', sortable: true, render: (r) => r?.name || '-' },
+      {
+        key: 'type',
+        header: 'Type',
+        sortable: true,
+        render: (r) => <Badge tone={typeTone(r?.type)}>{String(r?.type || 'BANK').toUpperCase()}</Badge>,
+      },
       {
         key: 'active',
         header: 'Status',
@@ -230,62 +246,15 @@ const BankNamesConfig = () => {
           <h1 className="text-2xl font-bold">Bank Names</h1>
           <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">CRUD and lookup source for customer onboarding bank names.</div>
         </div>
+        <Button
+          onClick={() => {
+            resetCreate();
+            setCreateOpen(true);
+          }}
+        >
+          Add Bank Name
+        </Button>
       </section>
-
-      <Card>
-        <div className="grid gap-3 md:grid-cols-4">
-          <div className="md:col-span-2">
-            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Bank Name</label>
-            <input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="e.g. NMB Bank"
-              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
-              disabled={saving}
-            />
-          </div>
-          <label className="flex items-center gap-2 pt-6">
-            <input type="checkbox" checked={newActive} onChange={(e) => setNewActive(e.target.checked)} disabled={saving} />
-            <span className="text-sm">Active</span>
-          </label>
-          <div className="flex items-end justify-end gap-2">
-            <Button variant="secondary" onClick={resetCreate} disabled={saving}>
-              Clear
-            </Button>
-            <Button onClick={create} disabled={saving}>
-              Add Bank
-            </Button>
-          </div>
-        </div>
-      </Card>
-
-      {editingId ? (
-        <Card>
-          <div className="grid gap-3 md:grid-cols-4">
-            <div className="md:col-span-2">
-              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Edit Bank Name</label>
-              <input
-                value={editingName}
-                onChange={(e) => setEditingName(e.target.value)}
-                className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
-                disabled={saving}
-              />
-            </div>
-            <label className="flex items-center gap-2 pt-6">
-              <input type="checkbox" checked={editingActive} onChange={(e) => setEditingActive(e.target.checked)} disabled={saving} />
-              <span className="text-sm">Active</span>
-            </label>
-            <div className="flex items-end justify-end gap-2">
-              <Button variant="secondary" onClick={cancelEdit} disabled={saving}>
-                Cancel
-              </Button>
-              <Button onClick={saveEdit} disabled={saving}>
-                Save
-              </Button>
-            </div>
-          </div>
-        </Card>
-      ) : null}
 
       <Card>
         <div className="grid gap-3 md:grid-cols-4">
@@ -351,6 +320,103 @@ const BankNamesConfig = () => {
           emptyMessage="No bank names found"
         />
       </Card>
+
+      <Modal
+        open={createOpen}
+        onClose={() => (saving ? null : setCreateOpen(false))}
+        title="Add Bank Name"
+        size="lg"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setCreateOpen(false)} disabled={saving}>
+              Cancel
+            </Button>
+            <Button onClick={create} disabled={saving}>
+              {saving ? 'Saving...' : 'Add Bank'}
+            </Button>
+          </>
+        }
+      >
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="md:col-span-2">
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Bank Name</label>
+            <input
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="e.g. NMB Bank"
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+              disabled={saving}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Type</label>
+            <select
+              value={newType}
+              onChange={(e) => setNewType(e.target.value)}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+              disabled={saving}
+            >
+              {TYPE_OPTIONS.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+          </div>
+          <label className="flex items-center gap-2 pt-6">
+            <input type="checkbox" checked={newActive} onChange={(e) => setNewActive(e.target.checked)} disabled={saving} />
+            <span className="text-sm">Active</span>
+          </label>
+        </div>
+      </Modal>
+
+      <Modal
+        open={!!editingId}
+        onClose={() => (saving ? null : cancelEdit())}
+        title="Edit Bank Name"
+        size="lg"
+        footer={
+          <>
+            <Button variant="secondary" onClick={cancelEdit} disabled={saving}>
+              Cancel
+            </Button>
+            <Button onClick={saveEdit} disabled={saving}>
+              {saving ? 'Saving...' : 'Save'}
+            </Button>
+          </>
+        }
+      >
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="md:col-span-2">
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Bank Name</label>
+            <input
+              value={editingName}
+              onChange={(e) => setEditingName(e.target.value)}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+              disabled={saving}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Type</label>
+            <select
+              value={editingType}
+              onChange={(e) => setEditingType(e.target.value)}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+              disabled={saving}
+            >
+              {TYPE_OPTIONS.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+          </div>
+          <label className="flex items-center gap-2 pt-6">
+            <input type="checkbox" checked={editingActive} onChange={(e) => setEditingActive(e.target.checked)} disabled={saving} />
+            <span className="text-sm">Active</span>
+          </label>
+        </div>
+      </Modal>
     </div>
   );
 };

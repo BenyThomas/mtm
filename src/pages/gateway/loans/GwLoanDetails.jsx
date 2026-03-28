@@ -25,6 +25,10 @@ const pretty = (v) => JSON.stringify(v, null, 2);
 const dateISO = () => new Date().toISOString().slice(0, 10);
 const KNOWN_AGGREGATORS = ['AZAMPAY', 'SELCOM', 'EPIKPAY'];
 const DISBURSEMENT_TYPES = ['BANK', 'MOBILE_MONEY', 'CASH'];
+const BANK_NAME_TYPE_BY_DISBURSEMENT = {
+  BANK: 'BANK',
+  MOBILE_MONEY: 'MNO',
+};
 
 const copyToClipboard = async (text) => {
   const t = String(text || '');
@@ -382,6 +386,18 @@ const GwLoanDetails = () => {
     MOBILE_MONEY: normalizeText(customerProfile?.walletMsisdn),
   }), [customerProfile]);
 
+  const filteredBankNameOptions = useMemo(() => {
+    const requiredType = BANK_NAME_TYPE_BY_DISBURSEMENT[disbursementType];
+    if (!requiredType) {
+      return [];
+    }
+    const rows = Array.isArray(bankNameOptions) ? bankNameOptions : [];
+    return rows
+      .filter((item) => upper(item?.type || 'BANK') === requiredType)
+      .map((item) => normalizeText(item?.name))
+      .filter(Boolean);
+  }, [bankNameOptions, disbursementType]);
+
   const destinationLabelByType = useMemo(() => ({
     BANK: 'Customer Bank Account',
     MOBILE_MONEY: 'Customer Wallet MSISDN',
@@ -477,7 +493,12 @@ const GwLoanDetails = () => {
       try {
         const data = await listBankNames({ active: true, limit: 500, offset: 0, orderBy: 'name', sortOrder: 'asc' });
         const rows = Array.isArray(data?.items) ? data.items : [];
-        banks = rows.map((x) => normalizeText(x?.name)).filter(Boolean);
+        banks = rows
+          .map((x) => ({
+            name: normalizeText(x?.name),
+            type: upper(x?.type || 'BANK'),
+          }))
+          .filter((x) => x.name);
         setBankNameOptions(banks);
       } catch (_) {
         banks = [];
@@ -487,8 +508,9 @@ const GwLoanDetails = () => {
     const configProvider = resolveConfigProvider(cfg);
     const providerValue = normalizeProvider(doc?.disbursementProvider) || configProvider;
     const bankNameValue = normalizeText(doc?.disbursementBankName);
-    if (bankNameValue && !banks.includes(bankNameValue)) {
-      banks = [...banks, bankNameValue];
+    const bankTypeValue = BANK_NAME_TYPE_BY_DISBURSEMENT[upper(doc?.disbursementType) || deriveTypeFromProvider(providerValue)] || 'BANK';
+    if (bankNameValue && !banks.some((item) => normalizeText(item?.name) === bankNameValue)) {
+      banks = [...banks, { name: bankNameValue, type: bankTypeValue }];
       setBankNameOptions(banks);
     }
     let typeValue = upper(doc?.disbursementType);
@@ -505,11 +527,18 @@ const GwLoanDetails = () => {
 
     const customerAccountValue = typeValue === 'CASH' ? '' : (customerDestinationByType[typeValue] || '');
     const customerBankName = normalizeText(customerProfile?.bankName);
+    const allowedNames = banks
+      .filter((item) => upper(item?.type || 'BANK') === (BANK_NAME_TYPE_BY_DISBURSEMENT[typeValue] || ''))
+      .map((item) => normalizeText(item?.name))
+      .filter(Boolean);
+    const initialBankName = allowedNames.includes(customerBankName)
+      ? customerBankName
+      : (allowedNames.includes(bankNameValue) ? bankNameValue : '');
 
     setActualDisbursementDate(dateISO());
     setDisbursementType(typeValue);
     setDisbursementProvider(providerValue);
-    setDisbursementBankName(customerBankName || bankNameValue);
+    setDisbursementBankName(typeValue === 'CASH' ? '' : initialBankName);
     setDisbursementAccount(customerAccountValue);
     setDisburseOpen(true);
   };
@@ -820,6 +849,7 @@ const GwLoanDetails = () => {
               onChange={(e) => {
                 const nextType = upper(e.target.value);
                 setDisbursementType(nextType);
+                setDisbursementBankName('');
                 if (nextType === 'CASH') {
                   const providerFallback = normalizeProvider(disbursementProvider) || resolveConfigProvider(loanAutomationCfg);
                   setDisbursementProvider(providerFallback === 'EPIKPAY' ? 'EPIKPAY' : providerFallback);
@@ -875,8 +905,8 @@ const GwLoanDetails = () => {
               disabled={disbursementType === 'CASH'}
               className="mt-1 w-full rounded-xl border p-2.5 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-700 dark:border-gray-600"
             >
-              <option value="">Select bank</option>
-              {bankNameOptions.map((name) => (
+              <option value="">{disbursementType === 'MOBILE_MONEY' ? 'Select MNO' : 'Select bank'}</option>
+              {filteredBankNameOptions.map((name) => (
                 <option key={name} value={name}>
                   {name}
                 </option>

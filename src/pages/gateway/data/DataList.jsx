@@ -6,9 +6,9 @@ import DataTable from '../../../components/DataTable';
 import Badge from '../../../components/Badge';
 import Modal from '../../../components/Modal';
 import useDebouncedValue from '../../../hooks/useDebouncedValue';
-import { createOpsResource, deleteOpsResource, listOpsResources } from '../../../api/gateway/opsResources';
+import { createOpsResource, deleteOpsResource, listOpsResources, updateOpsResource } from '../../../api/gateway/opsResources';
 import Can from '../../../components/Can';
-import { Trash2 } from 'lucide-react';
+import { Pencil, Trash2 } from 'lucide-react';
 import { useToast } from '../../../context/ToastContext';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
@@ -193,6 +193,10 @@ const DataList = () => {
   const [createMode, setCreateMode] = useState('form');
   const [createFormValues, setCreateFormValues] = useState({});
   const [createJson, setCreateJson] = useState('{\n  \n}');
+  const [editOpen, setEditOpen] = useState(false);
+  const [editBusy, setEditBusy] = useState(false);
+  const [editFormValues, setEditFormValues] = useState({});
+  const [editRow, setEditRow] = useState(null);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [customers, setCustomers] = useState([]);
   const [products, setProducts] = useState([]);
@@ -471,6 +475,55 @@ const DataList = () => {
     }
   };
 
+  const openEdit = (row) => {
+    if (!cfg || cfg.apiType !== 'score-band-policies' || !createSchema) return;
+    const defaults = defaultsForSchema(createSchema);
+    const values = { ...defaults };
+    for (const field of createSchema.fields) {
+      if (field.type === 'boolean') {
+        values[field.key] = Boolean(row?.[field.key]);
+      } else if (row?.[field.key] !== undefined && row?.[field.key] !== null) {
+        values[field.key] = row[field.key];
+      }
+    }
+    setEditRow(row);
+    setEditFormValues(values);
+    setEditOpen(true);
+  };
+
+  const doEdit = async () => {
+    if (!cfg || cfg.apiType !== 'score-band-policies' || !createSchema || !editRow) return;
+    const id = resolveDocId(editRow);
+    if (id === undefined || id === null || String(id).trim() === '') {
+      addToast('Resource not found', 'error');
+      return;
+    }
+    let payload;
+    try {
+      const built = payloadFromSchema(createSchema, editFormValues);
+      if (built.errors.length) {
+        addToast(built.errors[0], 'error');
+        return;
+      }
+      payload = { ...editRow, ...built.payload };
+    } catch {
+      addToast('Invalid form values', 'error');
+      return;
+    }
+    setEditBusy(true);
+    try {
+      await updateOpsResource(cfg.apiType, id, payload);
+      addToast('Updated', 'success');
+      setEditOpen(false);
+      setEditRow(null);
+      setRefreshTick((t) => t + 1);
+    } catch (err) {
+      addToast(err?.response?.data?.message || err?.message || 'Update failed', 'error');
+    } finally {
+      setEditBusy(false);
+    }
+  };
+
   const columns = useMemo(() => {
     if (!cfg) return [];
 
@@ -585,8 +638,22 @@ const DataList = () => {
       key: 'actions',
       header: 'Actions',
       sortable: false,
-      render: (r) => (
+          render: (r) => (
         <div className="flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
+          {cfg.apiType === 'score-band-policies' ? (
+            <Can any={['GW_OPS_WRITE']}>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="px-2"
+                onClick={() => openEdit(r)}
+                aria-label="Edit"
+                title="Edit"
+              >
+                <Pencil size={16} />
+              </Button>
+            </Can>
+          ) : null}
           <Can any={['GW_OPS_WRITE']}>
             <Button
               size="sm"
@@ -608,6 +675,10 @@ const DataList = () => {
 
   const onRowClick = (row) => {
     if (!cfg) return;
+    if (cfg.apiType === 'score-band-policies') {
+      openEdit(row);
+      return;
+    }
     const id = resolveDocId(row);
     if (id === undefined || id === null || String(id).trim() === '') {
       addToast('Resource not found', 'error');
@@ -719,6 +790,74 @@ const DataList = () => {
           emptyMessage="No records found"
         />
       </Card>
+
+      <Modal
+        open={editOpen}
+        onClose={() => {
+          if (!editBusy) {
+            setEditOpen(false);
+            setEditRow(null);
+          }
+        }}
+        title="Edit Score Band Policy"
+        size="3xl"
+        footer={(
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setEditOpen(false);
+                setEditRow(null);
+              }}
+              disabled={editBusy}
+            >
+              Cancel
+            </Button>
+            <Button onClick={doEdit} disabled={editBusy}>
+              {editBusy ? 'Saving...' : 'Save'}
+            </Button>
+          </>
+        )}
+      >
+        <div className="grid gap-3 md:grid-cols-2">
+          {(createSchema?.fields || []).map((field) => (
+            <div key={`edit_${field.key}`}>
+              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                {field.label}{field.required ? ' *' : ''}
+              </label>
+              {field.type === 'boolean' ? (
+                <button
+                  type="button"
+                  className={`mt-1 inline-flex items-center rounded-lg px-3 py-2 text-sm font-medium ${editFormValues[field.key] ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200'}`}
+                  onClick={() => setEditFormValues((prev) => ({ ...prev, [field.key]: !prev[field.key] }))}
+                >
+                  {editFormValues[field.key] ? 'True' : 'False'}
+                </button>
+              ) : field.type === 'select' ? (
+                <select
+                  value={editFormValues[field.key] ?? ''}
+                  onChange={(e) => setEditFormValues((prev) => ({ ...prev, [field.key]: e.target.value }))}
+                  className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                >
+                  <option value="">Select...</option>
+                  {(field.options || []).map((opt) => (
+                    <option key={opt} value={opt}>{opt}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type={field.type === 'number' || field.type === 'decimal' ? 'number' : 'text'}
+                  step={field.type === 'decimal' ? '0.01' : '1'}
+                  value={editFormValues[field.key] ?? ''}
+                  onChange={(e) => setEditFormValues((prev) => ({ ...prev, [field.key]: e.target.value }))}
+                  placeholder={field.placeholder || ''}
+                  className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                />
+              )}
+            </div>
+          ))}
+        </div>
+      </Modal>
 
       <Modal
         open={createOpen}
