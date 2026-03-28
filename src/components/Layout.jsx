@@ -170,6 +170,7 @@ const Layout = () => {
         <div className="mx-auto flex max-w-[1600px] gap-4 px-2 py-3 sm:px-4">
           {/* Sidebar */}
           <aside
+              data-app-chrome="true"
               className={`fixed left-0 top-16 z-20 w-72 shrink-0 md:sticky md:top-[4.75rem]
             border border-slate-200/70 bg-white/85 shadow-xl backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/75
             h-[calc(100vh-4rem)] md:rounded-2xl

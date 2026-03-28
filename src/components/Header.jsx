@@ -25,7 +25,10 @@ const Header = ({ onToggleSidebar }) => {
     );
 
     return (
-        <header className="sticky top-0 z-30 h-16 border-b border-slate-200/70 bg-white/70 backdrop-blur-xl dark:border-slate-800/80 dark:bg-slate-950/55">
+        <header
+            data-app-chrome="true"
+            className="sticky top-0 z-30 h-16 border-b border-slate-200/70 bg-white/70 backdrop-blur-xl dark:border-slate-800/80 dark:bg-slate-950/55"
+        >
             <div className="mx-auto flex h-full max-w-[1600px] items-center justify-between px-3 sm:px-5">
                 <div className="flex items-center gap-2 sm:gap-3">
                     <button

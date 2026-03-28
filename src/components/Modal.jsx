@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import clsx from 'clsx';
 
 const sizeMap = {
@@ -28,15 +29,35 @@ export default function Modal({
     useEffect(() => {
         if (!open) return;
         const prev = document.body.style.overflow;
+        const currentCount = Number(document.body.dataset.modalOpenCount || '0');
+        document.body.dataset.modalOpenCount = String(currentCount + 1);
+        document.body.classList.add('modal-open');
         document.body.style.overflow = 'hidden';
-        return () => (document.body.style.overflow = prev);
+        return () => {
+            const nextCount = Math.max(0, Number(document.body.dataset.modalOpenCount || '1') - 1);
+            document.body.dataset.modalOpenCount = String(nextCount);
+            if (nextCount === 0) {
+                document.body.classList.remove('modal-open');
+                delete document.body.dataset.modalOpenCount;
+            }
+            document.body.style.overflow = prev;
+        };
     }, [open]);
+
+    useEffect(() => {
+        if (!open) return;
+        const onKeyDown = (event) => {
+            if (event.key === 'Escape') onClose?.();
+        };
+        window.addEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
+    }, [open, onClose]);
 
     if (!open) return null;
 
-    return (
+    const modal = (
         <div
-            className="fixed inset-0 z-50"
+            className="fixed inset-0 z-[1000]"
             aria-modal="true"
             role="dialog"
             onMouseDown={(e) => {
@@ -98,4 +119,6 @@ export default function Modal({
             </div>
         </div>
     );
+
+    return createPortal(modal, document.body);
 }

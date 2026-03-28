@@ -3,6 +3,7 @@ import { Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import Button from '../../components/Button';
 import Card from '../../components/Card';
 import DataTable from '../../components/DataTable';
+import Modal from '../../components/Modal';
 import Skeleton from '../../components/Skeleton';
 import {
   createKycQuestion,
@@ -15,13 +16,18 @@ import {
   upsertKycPolicy,
 } from '../../api/gateway/kycOps';
 
-const DIMENSIONS = [
-  'identityConfidence',
-  'affordability',
-  'businessActivity',
-  'vehicleLegitimacy',
-  'fraudRisk',
-  'productEligibility',
+const POLICY_CONTEXTS = [
+  'IDENTITY',
+  'FUEL',
+  'INCOME',
+  'EMPLOYMENT',
+  'BUSINESS',
+  'REFERENCE',
+  'VEHICLE',
+  'ADDRESS',
+  'OTHER',
+  'REPAYMENT',
+  'CRB',
 ];
 
 const toInt = (v, fallback = 0) => {
@@ -85,10 +91,7 @@ const emptyQuestion = (context = 'FUEL') => ({
   displayCondition: '',
   verificationTrigger: '',
   active: true,
-  contributions: DIMENSIONS.reduce((acc, k) => {
-    acc[k] = 0;
-    return acc;
-  }, {}),
+  scoreWeightPercent: 0,
 });
 
 const KycOps = () => {
@@ -198,7 +201,6 @@ const KycOps = () => {
         ...emptyQuestion(context),
         ...q,
         options: Array.isArray(q?.options) ? q.options : [],
-        contributions: { ...emptyQuestion(context).contributions, ...(q?.contributions || {}) },
       },
       original: q,
     });
@@ -223,14 +225,11 @@ const KycOps = () => {
         context,
         order: toInt(d.order, 0),
         code,
+        scoreWeightPercent: Math.max(0, Number(d.scoreWeightPercent || 0)),
         options: Array.isArray(d.options) ? d.options.filter(Boolean) : [],
         displayCondition: String(d.displayCondition || '').trim() || null,
         verificationTrigger: String(d.verificationTrigger || '').trim() || null,
         questionContext: String(d.questionContext || context).trim().toUpperCase(),
-        contributions: DIMENSIONS.reduce((acc, k) => {
-          acc[k] = toInt(d?.contributions?.[k], 0);
-          return acc;
-        }, {}),
       };
       if (editing.mode === 'new') {
         await createKycQuestion(payload);
@@ -254,19 +253,19 @@ const KycOps = () => {
     setSavingP(true);
     setPErr('');
     try {
-      const weights = { ...(policy.weights || {}) };
-      DIMENSIONS.forEach((k) => {
-        const n = Number(weights[k]);
-        weights[k] = Number.isFinite(n) ? n : 1;
+      const contextMaxPoints = { ...(policy.contextMaxPoints || {}) };
+      POLICY_CONTEXTS.forEach((k) => {
+        const n = Number(contextMaxPoints[k]);
+        contextMaxPoints[k] = Number.isFinite(n) && n >= 0 ? n : 0;
       });
       const payload = {
         ...policy,
-        weights,
-        approveEligibilityMin: toInt(policy.approveEligibilityMin, 220),
-        referEligibilityMin: toInt(policy.referEligibilityMin, 150),
-        rejectEligibilityBelow: toInt(policy.rejectEligibilityBelow, 120),
-        referRiskMin: toInt(policy.referRiskMin, 80),
-        rejectRiskMin: toInt(policy.rejectRiskMin, 120),
+        contextMaxPoints,
+        approveEligibilityMin: toInt(policy.approveEligibilityMin, 650),
+        referEligibilityMin: toInt(policy.referEligibilityMin, 500),
+        rejectEligibilityBelow: toInt(policy.rejectEligibilityBelow, 380),
+        referRiskMin: toInt(policy.referRiskMin, 60),
+        rejectRiskMin: toInt(policy.rejectRiskMin, 80),
         updatedBy: policy.updatedBy || 'ops',
       };
       const saved = await upsertKycPolicy(context, payload);
@@ -423,6 +422,11 @@ const KycOps = () => {
         key: 'questionContext',
         header: 'Q Context',
         render: (r) => <span className="font-mono text-xs">{r.questionContext || r.context || '-'}</span>,
+      },
+      {
+        key: 'scoreWeightPercent',
+        header: 'Weight %',
+        render: (r) => <span className="font-mono text-xs">{Number(r.scoreWeightPercent || 0)}</span>,
       },
       { key: 'text', header: 'Text', render: (r) => <span className="truncate">{r.text}</span> },
       { key: 'answerType', header: 'Type', sortable: true },
@@ -712,18 +716,17 @@ const KycOps = () => {
             />
           </Card>
 
-          {editing ? (
-            <div className="mt-4 rounded-2xl border border-slate-200/70 bg-white/70 p-4 dark:border-slate-700/60 dark:bg-slate-900/35">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <div className="text-lg font-bold">
-                    {editing.mode === 'new' ? 'New Question' : `Edit ${editing.original?.code}`}
-                  </div>
-                  <div className="text-xs text-slate-600 dark:text-slate-300">
-                    Sessions snapshot the question set at `/kyc/start`. Updates affect new sessions only.
-                  </div>
+          <Modal
+            open={!!editing}
+            onClose={() => (savingQ ? null : setEditing(null))}
+            title={editing?.mode === 'new' ? 'New Question' : `Edit ${editing?.original?.code || ''}`}
+            size="4xl"
+            footer={
+              <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-xs text-slate-600 dark:text-slate-300">
+                  Sessions snapshot the question set at `/kyc/start`. Updates affect new sessions only.
                 </div>
-                <div className="flex gap-2">
+                <div className="flex justify-end gap-2">
                   <Button variant="secondary" onClick={() => setEditing(null)} disabled={savingQ}>
                     Cancel
                   </Button>
@@ -732,72 +735,95 @@ const KycOps = () => {
                   </Button>
                 </div>
               </div>
+            }
+          >
+            {editing ? (
+              <>
+                {qErr ? <p className="mb-3 text-sm text-red-600">{qErr}</p> : null}
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <label className="text-sm">
+                    <div className="mb-1 font-semibold">Code</div>
+                    <input
+                      className="w-full rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900/70"
+                      value={editing.data.code}
+                      onChange={(e) =>
+                        setEditing((s) => ({ ...s, data: { ...s.data, code: e.target.value } }))
+                      }
+                      placeholder="e.g. FULL_NAME"
+                    />
+                  </label>
 
-              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-                <label className="text-sm">
-                  <div className="mb-1 font-semibold">Code</div>
-                  <input
-                    className="w-full rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900/70"
-                    value={editing.data.code}
-                    onChange={(e) =>
-                      setEditing((s) => ({ ...s, data: { ...s.data, code: e.target.value } }))
-                    }
-                    placeholder="e.g. FULL_NAME"
-                  />
-                </label>
+                  <label className="text-sm">
+                    <div className="mb-1 font-semibold">Answer Type</div>
+                    <select
+                      className="w-full rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900/70"
+                      value={editing.data.answerType}
+                      onChange={(e) =>
+                        setEditing((s) => ({ ...s, data: { ...s.data, answerType: e.target.value } }))
+                      }
+                    >
+                      {['STRING', 'PHONE', 'ID', 'DATE', 'NUMBER', 'SELECT'].map((t) => (
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
 
-                <label className="text-sm">
-                  <div className="mb-1 font-semibold">Answer Type</div>
-                  <select
-                    className="w-full rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900/70"
-                    value={editing.data.answerType}
-                    onChange={(e) =>
-                      setEditing((s) => ({ ...s, data: { ...s.data, answerType: e.target.value } }))
-                    }
-                  >
-                    {['STRING', 'PHONE', 'ID', 'DATE', 'NUMBER', 'SELECT'].map((t) => (
-                      <option key={t} value={t}>
-                        {t}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                  <label className="text-sm">
+                    <div className="mb-1 font-semibold">Question Context</div>
+                    <select
+                      className="w-full rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900/70"
+                      value={editing.data.questionContext || context}
+                      onChange={(e) =>
+                        setEditing((s) => ({
+                          ...s,
+                          data: { ...s.data, questionContext: e.target.value },
+                        }))
+                      }
+                    >
+                      {questionContexts.map((qc) => (
+                        <option key={qc} value={qc}>
+                          {qc}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
 
-                <label className="text-sm">
-                  <div className="mb-1 font-semibold">Question Context</div>
-                  <select
-                    className="w-full rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900/70"
-                    value={editing.data.questionContext || context}
-                    onChange={(e) =>
-                      setEditing((s) => ({
-                        ...s,
-                        data: { ...s.data, questionContext: e.target.value },
-                      }))
-                    }
-                  >
-                    {questionContexts.map((qc) => (
-                      <option key={qc} value={qc}>
-                        {qc}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                  <label className="text-sm">
+                    <div className="mb-1 font-semibold">Order</div>
+                    <input
+                      className="w-full rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900/70"
+                      value={String(editing.data.order ?? 0)}
+                      onChange={(e) =>
+                        setEditing((s) => ({ ...s, data: { ...s.data, order: e.target.value } }))
+                      }
+                      placeholder="Lower comes first (e.g. 10, 20, 30...)"
+                      inputMode="numeric"
+                    />
+                    <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                      Controls questionnaire flow order and validation expectations.
+                    </div>
+                  </label>
 
-                <label className="text-sm">
-                  <div className="mb-1 font-semibold">Order</div>
-                  <input
-                    className="w-full rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900/70"
-                    value={String(editing.data.order ?? 0)}
-                    onChange={(e) =>
-                      setEditing((s) => ({ ...s, data: { ...s.data, order: e.target.value } }))
-                    }
-                    placeholder="Lower comes first (e.g. 10, 20, 30...)"
-                    inputMode="numeric"
-                  />
-                  <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                    Controls questionnaire flow order and validation expectations.
-                  </div>
-                </label>
+                  <label className="text-sm">
+                    <div className="mb-1 font-semibold">Score Weight %</div>
+                    <input
+                      className="w-full rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900/70"
+                      value={String(editing.data.scoreWeightPercent ?? 0)}
+                      onChange={(e) =>
+                        setEditing((s) => ({
+                          ...s,
+                          data: { ...s.data, scoreWeightPercent: e.target.value },
+                        }))
+                      }
+                      inputMode="decimal"
+                      placeholder="Relative weight inside this question context"
+                    />
+                    <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                      Questions are normalized inside their context, then capped by the policy context max points.
+                    </div>
+                  </label>
 
                 <label className="text-sm md:col-span-2">
                   <div className="mb-1 font-semibold">Text</div>
@@ -868,51 +894,29 @@ const KycOps = () => {
                   </select>
                 </label>
 
-                <div className="md:col-span-2 flex flex-wrap items-center gap-4">
-                  {[
-                    { k: 'mandatory', label: 'Mandatory' },
-                    { k: 'skippable', label: 'Skippable' },
-                    { k: 'active', label: 'Active' },
-                  ].map((x) => (
-                    <label key={x.k} className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={!!editing.data[x.k]}
-                        onChange={(e) =>
-                          setEditing((s) => ({ ...s, data: { ...s.data, [x.k]: e.target.checked } }))
-                        }
-                      />
-                      <span className="font-semibold">{x.label}</span>
-                    </label>
-                  ))}
+                  <div className="md:col-span-2 flex flex-wrap items-center gap-4">
+                    {[
+                      { k: 'mandatory', label: 'Mandatory' },
+                      { k: 'skippable', label: 'Skippable' },
+                      { k: 'active', label: 'Active' },
+                    ].map((x) => (
+                      <label key={x.k} className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={!!editing.data[x.k]}
+                          onChange={(e) =>
+                            setEditing((s) => ({ ...s, data: { ...s.data, [x.k]: e.target.checked } }))
+                          }
+                        />
+                        <span className="font-semibold">{x.label}</span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              </>
+            ) : null}
 
-              <div className="mt-4">
-                <div className="text-sm font-bold">Score Contributions</div>
-                <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-                  {DIMENSIONS.map((k) => (
-                    <label key={k} className="text-xs">
-                      <div className="mb-1 text-slate-600 dark:text-slate-300">{k}</div>
-                      <input
-                        className="w-full rounded-xl border border-slate-200 bg-white/80 px-2 py-2 text-sm dark:border-slate-700 dark:bg-slate-900/70"
-                        value={String(editing.data?.contributions?.[k] ?? 0)}
-                        onChange={(e) =>
-                          setEditing((s) => ({
-                            ...s,
-                            data: {
-                              ...s.data,
-                              contributions: { ...(s.data.contributions || {}), [k]: e.target.value },
-                            },
-                          }))
-                        }
-                      />
-                    </label>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ) : null}
+          </Modal>
         </div>
       ) : null}
 
@@ -960,18 +964,21 @@ const KycOps = () => {
               </div>
 
               <div className="mt-4">
-                <div className="text-sm font-bold">Weights</div>
-                <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-                  {DIMENSIONS.map((k) => (
+                <div className="text-sm font-bold">Context Max Points</div>
+                <div className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                  The final score is `300 + sum(context points)` and the active context caps should total 550.
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                  {POLICY_CONTEXTS.map((k) => (
                     <label key={k} className="text-xs">
                       <div className="mb-1 text-slate-600 dark:text-slate-300">{k}</div>
                       <input
                         className="w-full rounded-xl border border-slate-200 bg-white/80 px-2 py-2 text-sm dark:border-slate-700 dark:bg-slate-900/70"
-                        value={String(policy?.weights?.[k] ?? 1)}
+                        value={String(policy?.contextMaxPoints?.[k] ?? 0)}
                         onChange={(e) =>
                           setPolicy((p) => ({
                             ...p,
-                            weights: { ...(p.weights || {}), [k]: e.target.value },
+                            contextMaxPoints: { ...(p.contextMaxPoints || {}), [k]: e.target.value },
                           }))
                         }
                       />
@@ -981,14 +988,14 @@ const KycOps = () => {
               </div>
 
               <div className="mt-4">
-                <div className="text-sm font-bold">Thresholds</div>
+                <div className="text-sm font-bold">Decision Thresholds</div>
                 <div className="mt-2 grid grid-cols-2 gap-3 md:grid-cols-3">
                   {[
-                    ['approveEligibilityMin', 'Approve eligibility >='],
-                    ['referEligibilityMin', 'Refer eligibility >='],
-                    ['rejectEligibilityBelow', 'Reject eligibility <'],
-                    ['referRiskMin', 'Refer risk >='],
-                    ['rejectRiskMin', 'Reject risk >='],
+                    ['approveEligibilityMin', 'Approve score >='],
+                    ['referEligibilityMin', 'Refer score >='],
+                    ['rejectEligibilityBelow', 'Reject score <'],
+                    ['referRiskMin', 'Refer risk % >='],
+                    ['rejectRiskMin', 'Reject risk % >='],
                   ].map(([k, label]) => (
                     <label key={k} className="text-sm">
                       <div className="mb-1 text-xs text-slate-600 dark:text-slate-300">{label}</div>
