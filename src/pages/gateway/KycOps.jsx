@@ -503,20 +503,13 @@ const KycOps = () => {
     <div>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Ops KYC</h1>
+          <h1 className="text-2xl font-bold">KYC OPERATION</h1>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-            Manage dynamic Fuel onboarding questions, scoring policy, and verification tasks.
+            Manage dynamic onboarding, scoring questions, scoring policy, and verification tasks.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <select
-            className="rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900/70"
-            value={context}
-            onChange={(e) => setContext(e.target.value)}
-          >
-            <option value="FUEL">FUEL</option>
-          </select>
 
           <div className="flex overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700">
             {[
