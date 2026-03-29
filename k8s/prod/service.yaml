@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mtm-web
+  namespace: epikpay-prod
+  labels:
+    app: mtm-web
+spec:
+  type: ClusterIP
+  selector:
+    app: mtm-web
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+      protocol: TCP

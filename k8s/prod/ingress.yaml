@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mtm-web
+  namespace: epikpay-prod
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - portal.epikx.co.tz
+      secretName: portal-epikx-co-tz-tls
+  rules:
+    - host: portal.epikx.co.tz
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mtm-web
+                port:
+                  number: 80
