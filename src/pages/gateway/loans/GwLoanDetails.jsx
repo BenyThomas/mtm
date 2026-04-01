@@ -13,6 +13,7 @@ import {
   deleteGwLoan,
   disburseGwLoan,
   getGwLoan,
+  repayGwLoanViaSelcomUssdPush,
   replaceGwLoan,
 } from '../../../api/gateway/loans';
 import { listBankNames } from '../../../api/gateway/bankNames';
@@ -91,6 +92,9 @@ const extractCustomerProfile = (customerDoc) => {
     bankName: normalizeText(profile?.bankName),
     bankAccount: normalizeText(profile?.bankAccount),
     walletMsisdn: normalizeText(profile?.walletMsisdn),
+    phone: normalizeText(profile?.phone),
+    email: normalizeText(profile?.email),
+    fullName: normalizeText(`${profile?.firstName || ''} ${profile?.lastName || ''}`),
   };
 };
 
@@ -217,6 +221,14 @@ const GwLoanDetails = () => {
   const [bankNameOptions, setBankNameOptions] = useState([]);
   const [loanAutomationCfg, setLoanAutomationCfg] = useState(null);
   const [customerProfile, setCustomerProfile] = useState({});
+  const [repayOpen, setRepayOpen] = useState(false);
+  const [repayBusy, setRepayBusy] = useState(false);
+  const [repaymentAmount, setRepaymentAmount] = useState('');
+  const [repaymentCurrency, setRepaymentCurrency] = useState('TZS');
+  const [repaymentMsisdn, setRepaymentMsisdn] = useState('');
+  const [repaymentPayerName, setRepaymentPayerName] = useState('');
+  const [repaymentPayerEmail, setRepaymentPayerEmail] = useState('');
+  const [repaymentResult, setRepaymentResult] = useState(null);
 
   const load = async () => {
     setLoading(true);
@@ -380,11 +392,21 @@ const GwLoanDetails = () => {
     statusUpper !== 'DISBURSED' &&
     statusUpper !== 'CLOSED' &&
     (statusUpper === 'APPROVED' || (fxApproved && fxNotDisbursedOrClosed));
+  const outstandingAmount = toNumOrNull(doc?.outstandingAmount);
 
   const customerDestinationByType = useMemo(() => ({
     BANK: normalizeText(customerProfile?.bankAccount),
     MOBILE_MONEY: normalizeText(customerProfile?.walletMsisdn),
   }), [customerProfile]);
+  const customerRepaymentIdentity = useMemo(() => ({
+    msisdn: normalizeText(customerProfile?.walletMsisdn) || normalizeText(customerProfile?.phone) || normalizeText(doc?.customerPhone),
+    payerName: normalizeText(customerProfile?.fullName) || normalizeText(doc?.customerFullName),
+    payerEmail: normalizeText(customerProfile?.email),
+  }), [customerProfile, doc?.customerFullName, doc?.customerPhone]);
+  const canRepayViaSelcom =
+    hasFineractLoanId &&
+    statusUpper !== 'CLOSED' &&
+    (outstandingAmount == null || outstandingAmount > 0);
 
   const filteredBankNameOptions = useMemo(() => {
     const requiredType = BANK_NAME_TYPE_BY_DISBURSEMENT[disbursementType];
@@ -460,6 +482,47 @@ const GwLoanDetails = () => {
       addToast(msg, 'error');
     } finally {
       setDisburseBusy(false);
+    }
+  };
+
+  const openRepayModal = () => {
+    setRepaymentAmount(outstandingAmount != null && outstandingAmount > 0 ? String(outstandingAmount) : '');
+    setRepaymentCurrency('TZS');
+    setRepaymentMsisdn(customerRepaymentIdentity.msisdn || '');
+    setRepaymentPayerName(customerRepaymentIdentity.payerName || '');
+    setRepaymentPayerEmail(customerRepaymentIdentity.payerEmail || '');
+    setRepaymentResult(null);
+    setRepayOpen(true);
+  };
+
+  const submitRepayViaSelcom = async () => {
+    const amount = toNumOrNull(repaymentAmount);
+    if (amount == null || amount <= 0) {
+      addToast('Repayment amount must be greater than zero', 'error');
+      return;
+    }
+    if (!normalizeText(repaymentMsisdn)) {
+      addToast('Customer wallet MSISDN is required', 'error');
+      return;
+    }
+
+    setRepayBusy(true);
+    try {
+      const result = await repayGwLoanViaSelcomUssdPush(platformLoanId, {
+        amount,
+        currency: normalizeText(repaymentCurrency) || 'TZS',
+        msisdn: normalizeText(repaymentMsisdn),
+        payerName: normalizeText(repaymentPayerName) || undefined,
+        payerEmail: normalizeText(repaymentPayerEmail) || undefined,
+      });
+      setRepaymentResult(result || null);
+      addToast('Selcom USSD push initiated', 'success');
+    } catch (e) {
+      const msg = extractGatewayErrorMessage(e, 'Repayment push failed');
+      setErr(msg);
+      addToast(msg, 'error');
+    } finally {
+      setRepayBusy(false);
     }
   };
 
@@ -676,6 +739,21 @@ const GwLoanDetails = () => {
                   >
                     Disburse
                   </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={openRepayModal}
+                    disabled={!canRepayViaSelcom}
+                    title={
+                      canRepayViaSelcom
+                        ? 'Repay loan via Selcom USSD push'
+                        : !hasFineractLoanId
+                          ? 'Missing Fineract loan id'
+                          : 'Loan is already closed or has no outstanding balance'
+                    }
+                  >
+                    Repay via Selcom
+                  </Button>
                 </div>
               </Can>
             </div>
@@ -688,6 +766,7 @@ const GwLoanDetails = () => {
               <Field label="Provider" value={doc?.disbursementProvider} />
               <Field label="Bank Name" value={doc?.disbursementBankName} />
               <Field label="Destination" value={doc?.disbursementAccount} mono />
+              <Field label="Customer Wallet" value={customerRepaymentIdentity.msisdn} mono />
             </div>
           </Card>
 
@@ -926,6 +1005,91 @@ const GwLoanDetails = () => {
           <div className="sm:col-span-2 text-xs text-slate-500 dark:text-slate-400">
             Destination account is sourced from customer profile (bank account/wallet) and is not editable here.
           </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={repayOpen}
+        onClose={() => (repayBusy ? null : setRepayOpen(false))}
+        title="Repay Loan via Selcom USSD Push"
+        size="lg"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setRepayOpen(false)} disabled={repayBusy}>
+              Close
+            </Button>
+            <Button onClick={submitRepayViaSelcom} disabled={repayBusy}>
+              {repayBusy ? (
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="animate-spin" size={16} /> Sending Push...
+                </span>
+              ) : (
+                'Send Push'
+              )}
+            </Button>
+          </>
+        }
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Amount</label>
+            <input
+              inputMode="decimal"
+              value={repaymentAmount}
+              onChange={(e) => setRepaymentAmount(e.target.value)}
+              placeholder={outstandingAmount != null ? String(outstandingAmount) : '0'}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Currency</label>
+            <input
+              value={repaymentCurrency}
+              onChange={(e) => setRepaymentCurrency(e.target.value)}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Customer MSISDN</label>
+            <input
+              value={repaymentMsisdn}
+              onChange={(e) => setRepaymentMsisdn(e.target.value)}
+              placeholder="2557XXXXXXXX"
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Payer Name</label>
+            <input
+              value={repaymentPayerName}
+              onChange={(e) => setRepaymentPayerName(e.target.value)}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Payer Email</label>
+            <input
+              value={repaymentPayerEmail}
+              onChange={(e) => setRepaymentPayerEmail(e.target.value)}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+          <div className="sm:col-span-2 rounded-xl border border-slate-200/70 bg-slate-50 px-3 py-3 text-xs text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/50 dark:text-slate-300">
+            Repayment is posted to Fineract only after Selcom confirms payment completion.
+          </div>
+          {repaymentResult ? (
+            <div className="sm:col-span-2 rounded-xl border border-emerald-200/70 bg-emerald-50 px-3 py-3 dark:border-emerald-900/50 dark:bg-emerald-900/20">
+              <div className="text-sm font-semibold text-emerald-900 dark:text-emerald-100">Push initiated</div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <Field label="Payment Event ID" value={repaymentResult?.paymentEvent?.paymentEventId} mono />
+                <Field label="Payment Status" value={repaymentResult?.paymentEvent?.status} />
+                <Field label="Selcom Order ID" value={repaymentResult?.selcomOrder?.orderId} mono />
+                <Field label="Selcom Trans ID" value={repaymentResult?.selcomOrder?.transid} mono />
+                <Field label="Collection Status" value={repaymentResult?.selcomOrder?.paymentStatus} />
+                <Field label="Gateway Reference" value={repaymentResult?.selcomOrder?.gatewayReference} mono />
+              </div>
+            </div>
+          ) : null}
         </div>
       </Modal>
     </div>

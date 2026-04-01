@@ -19,13 +19,19 @@ These manifests deploy the MTM frontend to the `epikpay-prod` namespace.
 - Health endpoint: `/index.html`
 - Registry: `ghcr.io/<owner>/mtm`
 
-## Required GitHub Secrets
+## Required GitHub Environment Secrets
 
 Infrastructure:
 
 - `KUBE_CONFIG_PROD`
 - `GHCR_USER`
 - `GHCR_TOKEN`
+
+## Recommended GitHub Environment Variables
+
+- `PROD_VITE_API_URL`
+- `PROD_VITE_GATEWAY_API_URL`
+- `PROD_VITE_TENANT`
 
 MTM build configuration:
 

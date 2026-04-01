@@ -32,9 +32,10 @@ RUN npm run build
 
 # ---------- Runtime stage ----------
 FROM nginx:1.27-alpine
+ARG NGINX_CONF=nginx.conf
 # Replace default site
 RUN rm -f /etc/nginx/conf.d/default.conf || true
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY ${NGINX_CONF} /etc/nginx/conf.d/default.conf
 
 # Static SPA
 COPY --from=build /app/dist /usr/share/nginx/html
