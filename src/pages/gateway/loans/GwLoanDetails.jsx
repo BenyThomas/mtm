@@ -472,8 +472,15 @@ const GwLoanDetails = () => {
         setDisburseBusy(false);
         return;
       }
-      await disburseGwLoan(platformLoanId, payload);
-      addToast('Disbursement triggered', 'success');
+      const result = await disburseGwLoan(platformLoanId, payload);
+      const status = normalizeText(result?.status) || 'UNKNOWN';
+      const reference = normalizeText(result?.aggregatorReferenceId);
+      addToast(
+        reference
+          ? `Disbursement ${status}: ref ${reference}`
+          : `Disbursement ${status}`,
+        'success'
+      );
       setDisburseOpen(false);
       await load();
     } catch (e) {
