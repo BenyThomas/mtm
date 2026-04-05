@@ -42,12 +42,21 @@ const toTrimmedOrNull = (v) => {
   return s || null;
 };
 
+const unwrapGatewayBody = (resp) => {
+  const body = resp?.data;
+  if (body && typeof body === 'object' && 'data' in body) {
+    return body.data || {};
+  }
+  return body || {};
+};
+
 const mapConfigFromApi = (d) => ({
   autoApprovalEnabled: !!d?.autoApprovalEnabled,
   autoDisbursementEnabled: !!d?.autoDisbursementEnabled,
+  requireDisbursementRuleMatch: d?.requireDisbursementRuleMatch ?? false,
   paymentAggregatorEnabledProviders: normalizeProviders(d?.paymentAggregatorEnabledProviders),
   paymentAggregatorDefaultProvider: String(d?.paymentAggregatorDefaultProvider || '').trim().toUpperCase() || '',
-  disbursementAggregatorProvider: d?.disbursementAggregatorProvider || '',
+  disbursementAggregatorProvider: String(d?.disbursementAggregatorProvider || '').trim().toUpperCase() || '',
   azamPaySourceAccountEnabled: d?.azamPaySourceAccountEnabled ?? true,
   azamPaySourceCountryCode: d?.azamPaySourceCountryCode || '',
   azamPaySourceFullName: d?.azamPaySourceFullName || '',
@@ -56,6 +65,7 @@ const mapConfigFromApi = (d) => ({
   azamPaySourceCurrency: d?.azamPaySourceCurrency || '',
   requireRuleMatch: d?.requireRuleMatch ?? true,
   approvalRules: Array.isArray(d?.approvalRules) ? d.approvalRules.map(normalizeRule) : [],
+  disbursementRules: Array.isArray(d?.disbursementRules) ? d.disbursementRules.map(normalizeRule) : [],
   updatedAt: d?.updatedAt || '',
 });
 
@@ -70,7 +80,7 @@ const LoanAutomationConfig = () => {
     setErr('');
     try {
       const r = await gatewayApi.get('/ops/config/loan-automation');
-      const d = r?.data || {};
+      const d = unwrapGatewayBody(r);
       setCfg(mapConfigFromApi(d));
     } catch (e) {
       setErr(e?.response?.data?.message || e?.message || 'Failed to load config');
@@ -90,11 +100,12 @@ const LoanAutomationConfig = () => {
     setErr('');
     try {
       const latestResp = await gatewayApi.get('/ops/config/loan-automation');
-      const latest = latestResp?.data || {};
+      const latest = unwrapGatewayBody(latestResp);
       const body = {
         ...latest,
         autoApprovalEnabled: !!cfg?.autoApprovalEnabled,
         autoDisbursementEnabled: !!cfg?.autoDisbursementEnabled,
+        requireDisbursementRuleMatch: cfg?.requireDisbursementRuleMatch ?? false,
         paymentAggregatorEnabledProviders: normalizeProviders(cfg?.paymentAggregatorEnabledProviders),
         paymentAggregatorDefaultProvider: String(cfg?.paymentAggregatorDefaultProvider || '').trim().toUpperCase() || null,
         disbursementAggregatorProvider: String(cfg?.disbursementAggregatorProvider || '').trim() || null,
@@ -113,9 +124,17 @@ const LoanAutomationConfig = () => {
             ? r.productCodes.map((x) => String(x || '').trim()).filter(Boolean)
             : [],
         })),
+        disbursementRules: (cfg?.disbursementRules || []).map((r) => ({
+          enabled: r?.enabled ?? true,
+          maxPrincipal: toNumOrNull(r?.maxPrincipal),
+          minCompletedLoans: toNumOrNull(r?.minCompletedLoans) != null ? Number(r.minCompletedLoans) : null,
+          productCodes: Array.isArray(r?.productCodes)
+            ? r.productCodes.map((x) => String(x || '').trim()).filter(Boolean)
+            : [],
+        })),
       };
       const r = await gatewayApi.put('/ops/config/loan-automation', body);
-      const d = r?.data || {};
+      const d = unwrapGatewayBody(r);
       setCfg(mapConfigFromApi(d));
     } catch (e) {
       setErr(e?.response?.data?.message || e?.message || 'Save failed');
@@ -177,6 +196,20 @@ const LoanAutomationConfig = () => {
                   <div>
                     <div className="text-sm font-semibold">Auto Disbursement Enabled</div>
                     <div className="text-xs text-slate-600 dark:text-slate-300">Attempt to auto-disburse after approval.</div>
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-3 rounded-xl border border-slate-200/70 p-3 dark:border-slate-700/60 md:col-span-2">
+                  <input
+                    type="checkbox"
+                    checked={!!cfg.requireDisbursementRuleMatch}
+                    onChange={(e) => setCfg((p) => ({ ...p, requireDisbursementRuleMatch: e.target.checked }))}
+                  />
+                  <div>
+                    <div className="text-sm font-semibold">Require Disbursement Rule Match</div>
+                    <div className="text-xs text-slate-600 dark:text-slate-300">
+                      If enabled, at least one disbursement rule must match for auto-disbursement.
+                    </div>
                   </div>
                 </label>
 
@@ -501,6 +534,139 @@ const LoanAutomationConfig = () => {
                                     const next = [...(p?.approvalRules || [])];
                                     next[idx] = { ...next[idx], productCodes: nextCodes };
                                     return { ...p, approvalRules: next };
+                                  });
+                                }}
+                                placeholder="e.g. SALARY_ADVANCE, FINERACT_1"
+                                className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                                disabled={saving}
+                              />
+                              <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                                Comma-separated. Leave blank to match any product.
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="text-sm font-semibold">Disbursement Rules</div>
+                    <div className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                      Rules are evaluated in order. First match allows auto-disbursement after approval.
+                    </div>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    onClick={() =>
+                      setCfg((p) => ({
+                        ...p,
+                        disbursementRules: [...(p?.disbursementRules || []), normalizeRule({})],
+                      }))
+                    }
+                    disabled={saving}
+                  >
+                    Add Rule
+                  </Button>
+                </div>
+
+                <div className="mt-3 space-y-3">
+                  {(cfg.disbursementRules || []).length === 0 ? (
+                    <div className="text-sm text-slate-600 dark:text-slate-300">No rules</div>
+                  ) : (
+                    (cfg.disbursementRules || []).map((r, idx) => (
+                      <div key={idx} className="rounded-2xl border border-slate-200/70 p-4 dark:border-slate-700/60">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="text-sm font-semibold">Rule #{idx + 1}</div>
+                          <Button
+                            variant="danger"
+                            size="sm"
+                            onClick={() =>
+                              setCfg((p) => ({
+                                ...p,
+                                disbursementRules: (p?.disbursementRules || []).filter((_, i) => i !== idx),
+                              }))
+                            }
+                            disabled={saving}
+                          >
+                            Remove
+                          </Button>
+                        </div>
+
+                        <div className="mt-3 grid gap-3 md:grid-cols-2">
+                          <label className="flex items-center gap-3">
+                            <input
+                              type="checkbox"
+                              checked={!!r.enabled}
+                              onChange={(e) =>
+                                setCfg((p) => {
+                                  const next = [...(p?.disbursementRules || [])];
+                                  next[idx] = { ...next[idx], enabled: e.target.checked };
+                                  return { ...p, disbursementRules: next };
+                                })
+                              }
+                              disabled={saving}
+                            />
+                            <span className="text-sm">Enabled</span>
+                          </label>
+
+                          <div className="md:col-span-2 grid gap-3 md:grid-cols-3">
+                            <div>
+                              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                Max Principal
+                              </label>
+                              <input
+                                inputMode="decimal"
+                                value={r.maxPrincipal ?? ''}
+                                onChange={(e) =>
+                                  setCfg((p) => {
+                                    const next = [...(p?.disbursementRules || [])];
+                                    next[idx] = { ...next[idx], maxPrincipal: e.target.value };
+                                    return { ...p, disbursementRules: next };
+                                  })
+                                }
+                                placeholder="e.g. 500000"
+                                className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                                disabled={saving}
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                Min Completed Loans
+                              </label>
+                              <input
+                                inputMode="numeric"
+                                value={r.minCompletedLoans ?? ''}
+                                onChange={(e) =>
+                                  setCfg((p) => {
+                                    const next = [...(p?.disbursementRules || [])];
+                                    next[idx] = { ...next[idx], minCompletedLoans: e.target.value };
+                                    return { ...p, disbursementRules: next };
+                                  })
+                                }
+                                placeholder="e.g. 1"
+                                className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                                disabled={saving}
+                              />
+                            </div>
+
+                            <div className="md:col-span-1">
+                              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                Product Codes
+                              </label>
+                              <input
+                                value={(r.productCodes || []).join(', ')}
+                                onChange={(e) => {
+                                  const nextCodes = splitCsv(e.target.value);
+                                  setCfg((p) => {
+                                    const next = [...(p?.disbursementRules || [])];
+                                    next[idx] = { ...next[idx], productCodes: nextCodes };
+                                    return { ...p, disbursementRules: next };
                                   });
                                 }}
                                 placeholder="e.g. SALARY_ADVANCE, FINERACT_1"

@@ -64,6 +64,11 @@ export async function runGwLoanAction(platformLoanId, action, payload) {
   return unwrap(r);
 }
 
+export async function repayGwLoanMobile(platformLoanId, payload) {
+  const r = await gatewayApi.post(`/ops/loans/${encodeURIComponent(platformLoanId)}/repayments/mobile`, payload);
+  return unwrap(r);
+}
+
 export async function repayGwLoanViaSelcomUssdPush(platformLoanId, payload) {
   const r = await gatewayApi.post(`/ops/loans/${encodeURIComponent(platformLoanId)}/repayments/selcom-ussd-push`, payload);
   return unwrap(r);

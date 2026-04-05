@@ -14,7 +14,7 @@ import {
   disburseGwLoan,
   getGwLoan,
   getGwLoanWorkflow,
-  repayGwLoanViaSelcomUssdPush,
+  repayGwLoanMobile,
   replaceGwLoan,
   runGwLoanAction,
 } from '../../../api/gateway/loans';
@@ -26,7 +26,6 @@ import { useToast } from '../../../context/ToastContext';
 
 const pretty = (v) => JSON.stringify(v, null, 2);
 const dateISO = () => new Date().toISOString().slice(0, 10);
-const KNOWN_AGGREGATORS = ['AZAMPAY', 'SELCOM', 'EPIKPAY'];
 const DISBURSEMENT_TYPES = ['BANK', 'MOBILE_MONEY', 'CASH'];
 const BANK_NAME_TYPE_BY_DISBURSEMENT = {
   BANK: 'BANK',
@@ -235,6 +234,7 @@ const GwLoanDetails = () => {
   const [repayBusy, setRepayBusy] = useState(false);
   const [repaymentAmount, setRepaymentAmount] = useState('');
   const [repaymentCurrency, setRepaymentCurrency] = useState('TZS');
+  const [repaymentProvider, setRepaymentProvider] = useState('');
   const [repaymentMsisdn, setRepaymentMsisdn] = useState('');
   const [repaymentPayerName, setRepaymentPayerName] = useState('');
   const [repaymentPayerEmail, setRepaymentPayerEmail] = useState('');
@@ -560,9 +560,20 @@ const GwLoanDetails = () => {
     }
   };
 
-  const openRepayModal = () => {
+  const openRepayModal = async () => {
+    let cfg = loanAutomationCfg;
+    if (!cfg) {
+      try {
+        const r = await gatewayApi.get('/ops/config/loan-automation');
+        cfg = unwrapGatewayBody(r) || null;
+        setLoanAutomationCfg(cfg);
+      } catch (_) {
+        cfg = null;
+      }
+    }
     setRepaymentAmount(outstandingAmount != null && outstandingAmount > 0 ? String(outstandingAmount) : '');
     setRepaymentCurrency('TZS');
+    setRepaymentProvider(resolveRepaymentProvider(cfg));
     setRepaymentMsisdn(customerRepaymentIdentity.msisdn || '');
     setRepaymentPayerName(customerRepaymentIdentity.payerName || '');
     setRepaymentPayerEmail(customerRepaymentIdentity.payerEmail || '');
@@ -606,7 +617,7 @@ const GwLoanDetails = () => {
     }
   };
 
-  const submitRepayViaSelcom = async () => {
+  const submitRepayMobile = async () => {
     const amount = toNumOrNull(repaymentAmount);
     if (amount == null || amount <= 0) {
       addToast('Repayment amount must be greater than zero', 'error');
@@ -619,15 +630,17 @@ const GwLoanDetails = () => {
 
     setRepayBusy(true);
     try {
-      const result = await repayGwLoanViaSelcomUssdPush(platformLoanId, {
+      const provider = normalizeProvider(repaymentProvider) || resolveRepaymentProvider(loanAutomationCfg);
+      const result = await repayGwLoanMobile(platformLoanId, {
         amount,
+        provider: provider || undefined,
         currency: normalizeText(repaymentCurrency) || 'TZS',
         msisdn: normalizeText(repaymentMsisdn),
         payerName: normalizeText(repaymentPayerName) || undefined,
         payerEmail: normalizeText(repaymentPayerEmail) || undefined,
       });
       setRepaymentResult(result || null);
-      addToast('Selcom USSD push initiated', 'success');
+      addToast(`${provider || 'Mobile'} push initiated`, 'success');
     } catch (e) {
       const msg = extractGatewayErrorMessage(e, 'Repayment push failed');
       setErr(msg);
@@ -643,12 +656,27 @@ const GwLoanDetails = () => {
     return normalizeProvider(cfg?.paymentAggregatorDefaultProvider);
   };
 
+  const resolveRepaymentProvider = (cfg) => {
+    const preferred = normalizeProvider(cfg?.paymentAggregatorDefaultProvider);
+    if (preferred) return preferred;
+    const enabled = Array.isArray(cfg?.paymentAggregatorEnabledProviders)
+      ? cfg.paymentAggregatorEnabledProviders.map((x) => normalizeProvider(x)).filter(Boolean)
+      : [];
+    return enabled[0] || '';
+  };
+
   const resolveProviderOptions = (cfg) => {
     const enabled = Array.isArray(cfg?.paymentAggregatorEnabledProviders)
       ? cfg.paymentAggregatorEnabledProviders.map((x) => normalizeProvider(x)).filter(Boolean)
       : [];
-    const uniq = Array.from(new Set([...enabled, ...KNOWN_AGGREGATORS]));
+    const fallback = normalizeProvider(cfg?.paymentAggregatorDefaultProvider);
+    const uniq = Array.from(new Set([...enabled, ...(fallback ? [fallback] : [])]));
     return uniq;
+  };
+
+  const unwrapGatewayBody = (response) => {
+    const body = response?.data;
+    return body && typeof body === 'object' && 'data' in body ? body.data : body;
   };
 
   const openDisburseModal = async () => {
@@ -657,7 +685,7 @@ const GwLoanDetails = () => {
     if (!cfg) {
       try {
         const r = await gatewayApi.get('/ops/config/loan-automation');
-        cfg = r?.data || null;
+        cfg = unwrapGatewayBody(r) || null;
         setLoanAutomationCfg(cfg);
       } catch (_) {
         cfg = null;
@@ -852,7 +880,7 @@ const GwLoanDetails = () => {
                       onClick={openRepayModal}
                       title="Repay loan via Selcom USSD push"
                     >
-                      Repay via Selcom
+                      Repay Loan
                     </Button>
                   ) : null}
                   {nextWorkflowAction === 'refund' ? (
@@ -1196,14 +1224,14 @@ const GwLoanDetails = () => {
       <Modal
         open={repayOpen}
         onClose={() => (repayBusy ? null : setRepayOpen(false))}
-        title="Repay Loan via Selcom USSD Push"
+        title="Repay Loan via Mobile Push"
         size="lg"
         footer={
           <>
             <Button variant="secondary" onClick={() => setRepayOpen(false)} disabled={repayBusy}>
               Close
             </Button>
-            <Button onClick={submitRepayViaSelcom} disabled={repayBusy}>
+            <Button onClick={submitRepayMobile} disabled={repayBusy}>
               {repayBusy ? (
                 <span className="inline-flex items-center gap-2">
                   <Loader2 className="animate-spin" size={16} /> Sending Push...
@@ -1216,6 +1244,21 @@ const GwLoanDetails = () => {
         }
       >
         <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Aggregator</label>
+            <select
+              value={repaymentProvider}
+              onChange={(e) => setRepaymentProvider(e.target.value)}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            >
+              <option value="">Auto (Default Aggregator)</option>
+              {resolveProviderOptions(loanAutomationCfg).map((provider) => (
+                <option key={provider} value={provider}>
+                  {provider}
+                </option>
+              ))}
+            </select>
+          </div>
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Amount</label>
             <input
@@ -1260,12 +1303,13 @@ const GwLoanDetails = () => {
             />
           </div>
           <div className="sm:col-span-2 rounded-xl border border-slate-200/70 bg-slate-50 px-3 py-3 text-xs text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/50 dark:text-slate-300">
-            Repayment is posted to Fineract only after Selcom confirms payment completion.
+            Repayment is posted to Fineract only after the selected aggregator confirms payment completion.
           </div>
           {repaymentResult ? (
             <div className="sm:col-span-2 rounded-xl border border-emerald-200/70 bg-emerald-50 px-3 py-3 dark:border-emerald-900/50 dark:bg-emerald-900/20">
               <div className="text-sm font-semibold text-emerald-900 dark:text-emerald-100">Push initiated</div>
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <Field label="Provider" value={repaymentResult?.provider} />
                 <Field label="Payment Event ID" value={repaymentResult?.paymentEvent?.paymentEventId} mono />
                 <Field label="Payment Status" value={repaymentResult?.paymentEvent?.status} />
                 <Field label="Selcom Order ID" value={repaymentResult?.selcomOrder?.orderId} mono />
