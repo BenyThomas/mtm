@@ -1,13 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Eye, Pencil, Trash2 } from 'lucide-react';
+import { Eye, Pencil, Plus, Trash2 } from 'lucide-react';
 import Card from '../../../components/Card';
 import Button from '../../../components/Button';
 import DataTable from '../../../components/DataTable';
 import Badge from '../../../components/Badge';
 import Can from '../../../components/Can';
+import Modal from '../../../components/Modal';
+import SearchableSelectField from '../../../components/SearchableSelectField';
 import useDebouncedValue from '../../../hooks/useDebouncedValue';
-import { listInvites, deleteInvite } from '../../../api/gateway/invites';
+import useInviteCatalog from '../../../hooks/useInviteCatalog';
+import useStaff from '../../../hooks/useStaff';
+import { createInvite, deleteInvite, patchInvite, listInvites } from '../../../api/gateway/invites';
 import { useToast } from '../../../context/ToastContext';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
@@ -58,9 +62,22 @@ const renderName = (it) => {
   return full || '-';
 };
 
+const inviteFormInit = {
+  referrerId: '',
+  campaignCode: '',
+  channel: '',
+  maxUses: '1',
+  multiUse: false,
+  phoneNumber: '',
+  firstName: '',
+  lastName: '',
+};
+
 const InvitesList = () => {
   const navigate = useNavigate();
   const { addToast } = useToast();
+  const { catalog, loading: catalogLoading } = useInviteCatalog();
+  const { staff, loading: staffLoading } = useStaff({ activeOnly: true });
 
   const [invites, setInvites] = useState([]);
   const [total, setTotal] = useState(0);
@@ -80,6 +97,10 @@ const InvitesList = () => {
 
   const [loading, setLoading] = useState(false);
   const [refreshTick, setRefreshTick] = useState(0);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [savingInvite, setSavingInvite] = useState(false);
+  const [editingInvite, setEditingInvite] = useState(null);
+  const [inviteForm, setInviteForm] = useState(inviteFormInit);
 
   const clearFilters = () => {
     setSearch('');
@@ -142,13 +163,100 @@ const InvitesList = () => {
     }
   };
 
+  const staffOptions = useMemo(
+    () => staff.map((item) => ({ id: String(item.id), label: `${item.displayName}${item.officeName ? ` - ${item.officeName}` : ''} (${item.id})` })),
+    [staff],
+  );
+  const staffNameById = useMemo(() => {
+    const out = {};
+    for (const item of staff) out[String(item.id)] = item.displayName || String(item.id);
+    return out;
+  }, [staff]);
+  const campaignOptions = useMemo(
+    () => (catalog?.campaigns || []).map((item) => ({ id: item.code, label: `${item.name || item.code} (${item.code})` })),
+    [catalog],
+  );
+  const channelOptions = useMemo(
+    () => (catalog?.channels || []).map((item) => ({ id: item.code, label: `${item.name || item.code} (${item.code})` })),
+    [catalog],
+  );
+
+  useEffect(() => {
+    if (!inviteOpen || editingInvite) return;
+    setInviteForm((prev) => ({
+      ...prev,
+      campaignCode: prev.campaignCode || String(campaignOptions[0]?.id || ''),
+      channel: prev.channel || String(channelOptions[0]?.id || ''),
+    }));
+  }, [inviteOpen, editingInvite, campaignOptions, channelOptions]);
+
+  const openCreateModal = () => {
+    setEditingInvite(null);
+    setInviteForm({
+      ...inviteFormInit,
+      campaignCode: String(campaignOptions[0]?.id || ''),
+      channel: String(channelOptions[0]?.id || ''),
+    });
+    setInviteOpen(true);
+  };
+
+  const openEditModal = (invite, e) => {
+    e?.stopPropagation?.();
+    setEditingInvite(invite);
+    setInviteForm({
+      referrerId: String(invite?.referrerId || ''),
+      campaignCode: String(invite?.campaignCode || campaignOptions[0]?.id || ''),
+      channel: String(invite?.channel || channelOptions[0]?.id || ''),
+      maxUses: String(invite?.maxUses ?? 1),
+      multiUse: Number(invite?.maxUses || 0) === 0,
+      phoneNumber: String(invite?.prefill?.phoneNumber || ''),
+      firstName: String(invite?.prefill?.firstName || ''),
+      lastName: String(invite?.prefill?.lastName || ''),
+    });
+    setInviteOpen(true);
+  };
+
+  const submitInvite = async (e) => {
+    e?.preventDefault?.();
+    setSavingInvite(true);
+    try {
+      const payload = {
+        referrerId: inviteForm.referrerId ? String(inviteForm.referrerId) : null,
+        campaignCode: inviteForm.campaignCode.trim(),
+        channel: inviteForm.channel.trim(),
+        maxUses: inviteForm.multiUse ? 0 : (Number(inviteForm.maxUses) || 1),
+        multiUse: !!inviteForm.multiUse,
+        prefill: {
+          phoneNumber: inviteForm.phoneNumber.trim() || null,
+          firstName: inviteForm.firstName.trim() || null,
+          lastName: inviteForm.lastName.trim() || null,
+        },
+      };
+      if (editingInvite?.inviteId) {
+        await patchInvite(editingInvite.inviteId, payload);
+        addToast('Invite updated', 'success');
+      } else {
+        await createInvite(payload);
+        addToast('Invite created', 'success');
+      }
+      setInviteOpen(false);
+      setEditingInvite(null);
+      setInviteForm(inviteFormInit);
+      setRefreshTick((t) => t + 1);
+    } catch (err) {
+      addToast(err?.response?.data?.errors?.[0]?.details || err?.response?.data?.message || err?.message || 'Save failed', 'error');
+    } finally {
+      setSavingInvite(false);
+    }
+  };
+
   const columns = useMemo(
     () => [
       {
         key: 'referrerId',
         header: 'Agent',
         sortable: true,
-        render: (r) => r.referrerId || '-',
+        render: (r) => staffNameById[String(r?.referrerId || '')] || r?.referrerId || '-',
       },
       {
         key: 'campaignCode',
@@ -198,11 +306,9 @@ const InvitesList = () => {
               </Button>
             </Link>
             <Can any={['GW_OPS_WRITE']}>
-              <Link to={`/gateway/invites/${encodeURIComponent(r?.inviteId)}`} title="Edit">
-                <Button size="sm" variant="ghost" className="px-2" aria-label="Edit">
-                  <Pencil size={16} />
-                </Button>
-              </Link>
+              <Button size="sm" variant="ghost" className="px-2" aria-label="Edit" title="Edit" onClick={(e) => openEditModal(r, e)}>
+                <Pencil size={16} />
+              </Button>
               <Button
                 size="sm"
                 variant="ghost"
@@ -219,7 +325,7 @@ const InvitesList = () => {
         ),
       },
     ],
-    [doDelete]
+    [doDelete, staffNameById]
   );
 
   const onRowClick = (row) => {
@@ -243,9 +349,7 @@ const InvitesList = () => {
               <div className="text-base font-semibold">{page + 1}</div>
             </div>
             <Can any={['GW_OPS_WRITE']}>
-              <Link to="/gateway/invites/new">
-                <Button>Create Invite</Button>
-              </Link>
+              <Button onClick={openCreateModal}><Plus size={16} /> Create Invite</Button>
             </Can>
           </div>
         </div>
@@ -327,6 +431,88 @@ const InvitesList = () => {
           emptyMessage="No invites found"
         />
       </Card>
+
+      <Modal
+        open={inviteOpen}
+        onClose={() => (savingInvite ? null : setInviteOpen(false))}
+        title={editingInvite ? 'Update Invite' : 'Create Invite'}
+        size="lg"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setInviteOpen(false)} disabled={savingInvite}>Cancel</Button>
+            <Button onClick={submitInvite} disabled={savingInvite}>{savingInvite ? 'Saving...' : editingInvite ? 'Save Changes' : 'Create Invite'}</Button>
+          </>
+        }
+      >
+        <form className="grid gap-4 sm:grid-cols-2" onSubmit={submitInvite}>
+          <div className="sm:col-span-2">
+            <SearchableSelectField
+              label="Referrer Id"
+              value={inviteForm.referrerId}
+              onChange={(value) => setInviteForm((prev) => ({ ...prev, referrerId: String(value || '') }))}
+              options={staffOptions}
+              placeholder="Search staff"
+              disabled={staffLoading}
+              helperText="Select the staff member acting as the referrer."
+            />
+          </div>
+          <div>
+            <SearchableSelectField
+              label="Campaign"
+              value={inviteForm.campaignCode}
+              onChange={(value) => setInviteForm((prev) => ({ ...prev, campaignCode: String(value || '') }))}
+              options={campaignOptions}
+              placeholder="Search campaign"
+              disabled={catalogLoading}
+              required
+            />
+          </div>
+          <div>
+            <SearchableSelectField
+              label="Channel"
+              value={inviteForm.channel}
+              onChange={(value) => setInviteForm((prev) => ({ ...prev, channel: String(value || '') }))}
+              options={channelOptions}
+              placeholder="Search channel"
+              disabled={catalogLoading}
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium">Max Uses</label>
+            <input
+              type="number"
+              min={1}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+              value={inviteForm.maxUses}
+              onChange={(e) => setInviteForm((prev) => ({ ...prev, maxUses: e.target.value }))}
+              disabled={inviteForm.multiUse}
+            />
+          </div>
+          <div className="flex items-end">
+            <label className="inline-flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={inviteForm.multiUse}
+                onChange={(e) => setInviteForm((prev) => ({ ...prev, multiUse: e.target.checked }))}
+              />
+              Multi-use
+            </label>
+          </div>
+          <div>
+            <label className="block text-sm font-medium">Phone</label>
+            <input className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={inviteForm.phoneNumber} onChange={(e) => setInviteForm((prev) => ({ ...prev, phoneNumber: e.target.value }))} placeholder="2557..." />
+          </div>
+          <div>
+            <label className="block text-sm font-medium">First Name</label>
+            <input className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={inviteForm.firstName} onChange={(e) => setInviteForm((prev) => ({ ...prev, firstName: e.target.value }))} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium">Last Name</label>
+            <input className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={inviteForm.lastName} onChange={(e) => setInviteForm((prev) => ({ ...prev, lastName: e.target.value }))} />
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 };

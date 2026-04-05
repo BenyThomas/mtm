@@ -2,16 +2,19 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Button from '../../../components/Button';
 import Card from '../../../components/Card';
+import SearchableSelectField from '../../../components/SearchableSelectField';
 import { createInvite } from '../../../api/gateway/invites';
+import useInviteCatalog from '../../../hooks/useInviteCatalog';
 import { useToast } from '../../../context/ToastContext';
 
 const InviteNew = () => {
   const navigate = useNavigate();
   const { addToast } = useToast();
+  const { catalog, loading: catalogLoading } = useInviteCatalog();
 
   const [campaignCode, setCampaignCode] = useState('');
   const [referrerId, setReferrerId] = useState('');
-  const [channel, setChannel] = useState('AGENT');
+  const [channel, setChannel] = useState('');
   const [maxUses, setMaxUses] = useState(1);
   const [multiUse, setMultiUse] = useState(false);
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -19,6 +22,18 @@ const InviteNew = () => {
   const [lastName, setLastName] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState('');
+
+  const campaignOptions = (catalog?.campaigns || []).map((item) => ({ id: item.code, label: `${item.name || item.code} (${item.code})` }));
+  const channelOptions = (catalog?.channels || []).map((item) => ({ id: item.code, label: `${item.name || item.code} (${item.code})` }));
+
+  React.useEffect(() => {
+    if (!campaignCode && campaignOptions.length) {
+      setCampaignCode(String(campaignOptions[0].id));
+    }
+    if (!channel && channelOptions.length) {
+      setChannel(String(channelOptions[0].id));
+    }
+  }, [campaignCode, channel, campaignOptions, channelOptions]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -61,20 +76,25 @@ const InviteNew = () => {
           <form onSubmit={submit} className="space-y-4">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
-                <label className="block text-sm font-medium">Campaign Code</label>
-                <input
-                  className="mt-1 w-full rounded-xl border border-slate-200 bg-white/80 p-2 text-sm dark:border-slate-700 dark:bg-slate-900/70"
+                <SearchableSelectField
+                  label="Campaign Code"
                   value={campaignCode}
-                  onChange={(e) => setCampaignCode(e.target.value)}
+                  onChange={(value) => setCampaignCode(String(value || ''))}
+                  options={campaignOptions}
+                  placeholder="Search campaign"
+                  disabled={catalogLoading}
                   required
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium">Channel</label>
-                <input
-                  className="mt-1 w-full rounded-xl border border-slate-200 bg-white/80 p-2 text-sm dark:border-slate-700 dark:bg-slate-900/70"
+                <SearchableSelectField
+                  label="Channel"
                   value={channel}
-                  onChange={(e) => setChannel(e.target.value)}
+                  onChange={(value) => setChannel(String(value || ''))}
+                  options={channelOptions}
+                  placeholder="Search channel"
+                  disabled={catalogLoading}
+                  required
                 />
               </div>
               <div>
@@ -155,4 +175,3 @@ const InviteNew = () => {
 };
 
 export default InviteNew;
-

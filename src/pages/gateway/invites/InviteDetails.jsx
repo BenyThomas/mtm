@@ -295,6 +295,10 @@ const InviteDetails = () => {
               <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Phone" value={doc?.prefill?.phoneNumber} mono />
                 <Field label="Name" value={`${(doc?.prefill?.firstName || '').trim()} ${(doc?.prefill?.lastName || '').trim()}`.trim()} />
+                <Field label="Center Id" value={doc?.centerId} mono />
+                <Field label="Group Id" value={doc?.groupId} mono />
+                <Field label="Membership Role" value={doc?.membershipRole} />
+                <Field label="Invited By Staff" value={doc?.invitedByStaffId} />
               </div>
 
               <div className="mt-4">

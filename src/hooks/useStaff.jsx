@@ -7,6 +7,7 @@ const normalizeStaff = (s) => ({
     officeName: s.officeName || s.office?.name || '',
     isLoanOfficer: s.isLoanOfficer ?? s.isLoanOfficerActive ?? false,
     mobileNo: s.mobileNo || '',
+    email: s.email || '',
     active: s.isActive ?? s.active ?? true,
 });
 
