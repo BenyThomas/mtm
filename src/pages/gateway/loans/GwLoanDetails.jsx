@@ -13,8 +13,10 @@ import {
   deleteGwLoan,
   disburseGwLoan,
   getGwLoan,
-  repayGwLoanViaSelcomUssdPush,
+  getGwLoanWorkflow,
+  repayGwLoanMobile,
   replaceGwLoan,
+  runGwLoanAction,
 } from '../../../api/gateway/loans';
 import { listBankNames } from '../../../api/gateway/bankNames';
 import { getOpsResource } from '../../../api/gateway/opsResources';
@@ -24,7 +26,6 @@ import { useToast } from '../../../context/ToastContext';
 
 const pretty = (v) => JSON.stringify(v, null, 2);
 const dateISO = () => new Date().toISOString().slice(0, 10);
-const KNOWN_AGGREGATORS = ['AZAMPAY', 'SELCOM', 'EPIKPAY'];
 const DISBURSEMENT_TYPES = ['BANK', 'MOBILE_MONEY', 'CASH'];
 const BANK_NAME_TYPE_BY_DISBURSEMENT = {
   BANK: 'BANK',
@@ -133,6 +134,14 @@ const formatMoney = (v) => {
   }
 };
 
+const firstNumeric = (...values) => {
+  for (const value of values) {
+    const n = toNumOrNull(value);
+    if (n != null) return n;
+  }
+  return null;
+};
+
 const isPenaltyCharge = (c) => {
   if (!c || typeof c !== 'object') return false;
   if (c?.isPenalty === true) return true;
@@ -225,10 +234,20 @@ const GwLoanDetails = () => {
   const [repayBusy, setRepayBusy] = useState(false);
   const [repaymentAmount, setRepaymentAmount] = useState('');
   const [repaymentCurrency, setRepaymentCurrency] = useState('TZS');
+  const [repaymentProvider, setRepaymentProvider] = useState('');
   const [repaymentMsisdn, setRepaymentMsisdn] = useState('');
   const [repaymentPayerName, setRepaymentPayerName] = useState('');
   const [repaymentPayerEmail, setRepaymentPayerEmail] = useState('');
   const [repaymentResult, setRepaymentResult] = useState(null);
+  const [refundOpen, setRefundOpen] = useState(false);
+  const [refundBusy, setRefundBusy] = useState(false);
+  const [refundAmount, setRefundAmount] = useState('');
+  const [refundDate, setRefundDate] = useState(dateISO());
+  const [refundExternalId, setRefundExternalId] = useState('');
+  const [refundNote, setRefundNote] = useState('');
+  const [workflow, setWorkflow] = useState(null);
+  const [workflowLoading, setWorkflowLoading] = useState(false);
+  const [workflowErr, setWorkflowErr] = useState('');
 
   const load = async () => {
     setLoading(true);
@@ -247,6 +266,28 @@ const GwLoanDetails = () => {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [platformLoanId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setWorkflowLoading(true);
+      setWorkflowErr('');
+      try {
+        const data = await getGwLoanWorkflow(platformLoanId);
+        if (cancelled) return;
+        setWorkflow(data || null);
+      } catch (e) {
+        if (cancelled) return;
+        setWorkflow(null);
+        setWorkflowErr(e?.response?.data?.message || e?.message || 'Failed to load workflow');
+      } finally {
+        if (!cancelled) setWorkflowLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [platformLoanId]);
 
   useEffect(() => {
@@ -393,6 +434,24 @@ const GwLoanDetails = () => {
     statusUpper !== 'CLOSED' &&
     (statusUpper === 'APPROVED' || (fxApproved && fxNotDisbursedOrClosed));
   const outstandingAmount = toNumOrNull(doc?.outstandingAmount);
+  const workflowActions = Array.isArray(workflow?.availableActions) ? workflow.availableActions : [];
+  const fineractOverpaid = fxLoan?.status?.overpaid === true || /overpaid/i.test(String(fxStatusText || ''));
+  const localOverpaid = statusUpper === 'OVERPAID';
+  const overpaidAmount = firstNumeric(
+    workflow?.refundAmount,
+    fxLoan?.summary?.totalOverpaid,
+    fxLoan?.summary?.overpaid,
+    fxLoan?.summary?.totalOverpaidAmount,
+    fxLoan?.summary?.overpaymentAmount,
+    fxLoan?.summary?.overpaymentPortionDerived
+  );
+  const refundAction = workflow?.refundAction || '';
+  const canRefund =
+    hasFineractLoanId &&
+    (Boolean(refundAction) || fineractOverpaid || localOverpaid) &&
+    (!refundAction || workflowActions.includes(refundAction)) &&
+    overpaidAmount != null &&
+    overpaidAmount > 0;
 
   const customerDestinationByType = useMemo(() => ({
     BANK: normalizeText(customerProfile?.bankAccount),
@@ -407,6 +466,15 @@ const GwLoanDetails = () => {
     hasFineractLoanId &&
     statusUpper !== 'CLOSED' &&
     (outstandingAmount == null || outstandingAmount > 0);
+  const nextWorkflowAction = canRefund
+    ? 'refund'
+    : canDisburse
+      ? 'disburse'
+      : canApprove
+        ? 'approve'
+        : canRepayViaSelcom
+          ? 'repay'
+          : '';
 
   const filteredBankNameOptions = useMemo(() => {
     const requiredType = BANK_NAME_TYPE_BY_DISBURSEMENT[disbursementType];
@@ -492,9 +560,20 @@ const GwLoanDetails = () => {
     }
   };
 
-  const openRepayModal = () => {
+  const openRepayModal = async () => {
+    let cfg = loanAutomationCfg;
+    if (!cfg) {
+      try {
+        const r = await gatewayApi.get('/ops/config/loan-automation');
+        cfg = unwrapGatewayBody(r) || null;
+        setLoanAutomationCfg(cfg);
+      } catch (_) {
+        cfg = null;
+      }
+    }
     setRepaymentAmount(outstandingAmount != null && outstandingAmount > 0 ? String(outstandingAmount) : '');
     setRepaymentCurrency('TZS');
+    setRepaymentProvider(resolveRepaymentProvider(cfg));
     setRepaymentMsisdn(customerRepaymentIdentity.msisdn || '');
     setRepaymentPayerName(customerRepaymentIdentity.payerName || '');
     setRepaymentPayerEmail(customerRepaymentIdentity.payerEmail || '');
@@ -502,7 +581,43 @@ const GwLoanDetails = () => {
     setRepayOpen(true);
   };
 
-  const submitRepayViaSelcom = async () => {
+  const openRefundModal = () => {
+    setRefundAmount(overpaidAmount != null && overpaidAmount > 0 ? String(overpaidAmount) : '');
+    setRefundDate(dateISO());
+    setRefundExternalId('');
+    setRefundNote('');
+    setRefundOpen(true);
+  };
+
+  const submitRefund = async () => {
+    const amount = overpaidAmount;
+    if (amount == null || amount <= 0) {
+      addToast('Fineract overpaid amount is missing', 'error');
+      return;
+    }
+    setRefundBusy(true);
+    try {
+      await runGwLoanAction(platformLoanId, refundAction, {
+        date: refundDate || undefined,
+        amount,
+        externalId: normalizeText(refundExternalId) || undefined,
+        note: normalizeText(refundNote) || undefined,
+      });
+      addToast('Refund submitted', 'success');
+      setRefundOpen(false);
+      await load();
+      const wf = await getGwLoanWorkflow(platformLoanId);
+      setWorkflow(wf || null);
+    } catch (e) {
+      const msg = extractGatewayErrorMessage(e, 'Refund failed');
+      setErr(msg);
+      addToast(msg, 'error');
+    } finally {
+      setRefundBusy(false);
+    }
+  };
+
+  const submitRepayMobile = async () => {
     const amount = toNumOrNull(repaymentAmount);
     if (amount == null || amount <= 0) {
       addToast('Repayment amount must be greater than zero', 'error');
@@ -515,15 +630,17 @@ const GwLoanDetails = () => {
 
     setRepayBusy(true);
     try {
-      const result = await repayGwLoanViaSelcomUssdPush(platformLoanId, {
+      const provider = normalizeProvider(repaymentProvider) || resolveRepaymentProvider(loanAutomationCfg);
+      const result = await repayGwLoanMobile(platformLoanId, {
         amount,
+        provider: provider || undefined,
         currency: normalizeText(repaymentCurrency) || 'TZS',
         msisdn: normalizeText(repaymentMsisdn),
         payerName: normalizeText(repaymentPayerName) || undefined,
         payerEmail: normalizeText(repaymentPayerEmail) || undefined,
       });
       setRepaymentResult(result || null);
-      addToast('Selcom USSD push initiated', 'success');
+      addToast(`${provider || 'Mobile'} push initiated`, 'success');
     } catch (e) {
       const msg = extractGatewayErrorMessage(e, 'Repayment push failed');
       setErr(msg);
@@ -539,12 +656,27 @@ const GwLoanDetails = () => {
     return normalizeProvider(cfg?.paymentAggregatorDefaultProvider);
   };
 
+  const resolveRepaymentProvider = (cfg) => {
+    const preferred = normalizeProvider(cfg?.paymentAggregatorDefaultProvider);
+    if (preferred) return preferred;
+    const enabled = Array.isArray(cfg?.paymentAggregatorEnabledProviders)
+      ? cfg.paymentAggregatorEnabledProviders.map((x) => normalizeProvider(x)).filter(Boolean)
+      : [];
+    return enabled[0] || '';
+  };
+
   const resolveProviderOptions = (cfg) => {
     const enabled = Array.isArray(cfg?.paymentAggregatorEnabledProviders)
       ? cfg.paymentAggregatorEnabledProviders.map((x) => normalizeProvider(x)).filter(Boolean)
       : [];
-    const uniq = Array.from(new Set([...enabled, ...KNOWN_AGGREGATORS]));
+    const fallback = normalizeProvider(cfg?.paymentAggregatorDefaultProvider);
+    const uniq = Array.from(new Set([...enabled, ...(fallback ? [fallback] : [])]));
     return uniq;
+  };
+
+  const unwrapGatewayBody = (response) => {
+    const body = response?.data;
+    return body && typeof body === 'object' && 'data' in body ? body.data : body;
   };
 
   const openDisburseModal = async () => {
@@ -553,7 +685,7 @@ const GwLoanDetails = () => {
     if (!cfg) {
       try {
         const r = await gatewayApi.get('/ops/config/loan-automation');
-        cfg = r?.data || null;
+        cfg = unwrapGatewayBody(r) || null;
         setLoanAutomationCfg(cfg);
       } catch (_) {
         cfg = null;
@@ -724,46 +856,55 @@ const GwLoanDetails = () => {
               <div className="text-sm font-semibold">Workflow</div>
               <Can any={['GW_OPS_WRITE']}>
                 <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    size="sm"
-                    onClick={() => setApproveOpen(true)}
-                    disabled={!canApprove}
-                    title={canApprove ? 'Approve loan' : 'Loan is not SUBMITTED'}
-                  >
-                    Approve
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={openDisburseModal}
-                    disabled={!canDisburse}
-                    title={
-                      canDisburse
-                        ? 'Disburse loan'
-                        : !hasFineractLoanId
-                          ? 'Missing Fineract loan id'
-                          : 'Loan must be APPROVED in Platform or Fineract'
-                    }
-                  >
-                    Disburse
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={openRepayModal}
-                    disabled={!canRepayViaSelcom}
-                    title={
-                      canRepayViaSelcom
-                        ? 'Repay loan via Selcom USSD push'
-                        : !hasFineractLoanId
-                          ? 'Missing Fineract loan id'
-                          : 'Loan is already closed or has no outstanding balance'
-                    }
-                  >
-                    Repay via Selcom
-                  </Button>
+                  {nextWorkflowAction === 'approve' ? (
+                    <Button
+                      size="sm"
+                      onClick={() => setApproveOpen(true)}
+                      title="Approve loan"
+                    >
+                      Approve
+                    </Button>
+                  ) : null}
+                  {nextWorkflowAction === 'disburse' ? (
+                    <Button
+                      size="sm"
+                      onClick={openDisburseModal}
+                      title="Disburse loan"
+                    >
+                      Disburse
+                    </Button>
+                  ) : null}
+                  {nextWorkflowAction === 'repay' ? (
+                    <Button
+                      size="sm"
+                      onClick={openRepayModal}
+                      title="Repay loan via Selcom USSD push"
+                    >
+                      Repay Loan
+                    </Button>
+                  ) : null}
+                  {nextWorkflowAction === 'refund' ? (
+                    <Button
+                      size="sm"
+                      onClick={openRefundModal}
+                      title="Refund overpaid amount"
+                    >
+                      Refund
+                    </Button>
+                  ) : null}
+                  {!nextWorkflowAction && !workflowLoading ? (
+                    <span className="text-sm text-slate-600 dark:text-slate-300">No workflow action available</span>
+                  ) : null}
                 </div>
               </Can>
             </div>
+
+            {workflowErr ? (
+              <div className="mt-3 text-sm text-rose-700 dark:text-rose-300">{workflowErr}</div>
+            ) : null}
+            {workflowLoading ? (
+              <div className="mt-3 text-sm text-slate-600 dark:text-slate-300">Refreshing workflow...</div>
+            ) : null}
 
             <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Status" value={doc?.status} />
@@ -774,6 +915,7 @@ const GwLoanDetails = () => {
               <Field label="Bank Name" value={doc?.disbursementBankName} />
               <Field label="Destination" value={doc?.disbursementAccount} mono />
               <Field label="Customer Wallet" value={customerRepaymentIdentity.msisdn} mono />
+              <Field label="Overpaid Amount" value={overpaidAmount != null ? formatMoney(overpaidAmount) : ''} />
             </div>
           </Card>
 
@@ -1016,16 +1158,80 @@ const GwLoanDetails = () => {
       </Modal>
 
       <Modal
+        open={refundOpen}
+        onClose={() => (refundBusy ? null : setRefundOpen(false))}
+        title="Refund Overpayment"
+        size="lg"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setRefundOpen(false)} disabled={refundBusy}>
+              Cancel
+            </Button>
+            <Button onClick={submitRefund} disabled={refundBusy}>
+              {refundBusy ? (
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="animate-spin" size={16} /> Refunding...
+                </span>
+              ) : (
+                'Refund'
+              )}
+            </Button>
+          </>
+        }
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="sm:col-span-2 text-xs text-slate-500 dark:text-slate-400">
+            Refund is available only when Fineract reports the loan as overpaid.
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Refund Date</label>
+            <input
+              type="date"
+              value={refundDate}
+              onChange={(e) => setRefundDate(e.target.value)}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Refund Amount</label>
+            <input
+              value={refundAmount}
+              readOnly
+              disabled
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">External ID (optional)</label>
+            <input
+              value={refundExternalId}
+              onChange={(e) => setRefundExternalId(e.target.value)}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Note (optional)</label>
+            <textarea
+              rows={3}
+              value={refundNote}
+              onChange={(e) => setRefundNote(e.target.value)}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
         open={repayOpen}
         onClose={() => (repayBusy ? null : setRepayOpen(false))}
-        title="Repay Loan via Selcom USSD Push"
+        title="Repay Loan via Mobile Push"
         size="lg"
         footer={
           <>
             <Button variant="secondary" onClick={() => setRepayOpen(false)} disabled={repayBusy}>
               Close
             </Button>
-            <Button onClick={submitRepayViaSelcom} disabled={repayBusy}>
+            <Button onClick={submitRepayMobile} disabled={repayBusy}>
               {repayBusy ? (
                 <span className="inline-flex items-center gap-2">
                   <Loader2 className="animate-spin" size={16} /> Sending Push...
@@ -1038,6 +1244,21 @@ const GwLoanDetails = () => {
         }
       >
         <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Aggregator</label>
+            <select
+              value={repaymentProvider}
+              onChange={(e) => setRepaymentProvider(e.target.value)}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            >
+              <option value="">Auto (Default Aggregator)</option>
+              {resolveProviderOptions(loanAutomationCfg).map((provider) => (
+                <option key={provider} value={provider}>
+                  {provider}
+                </option>
+              ))}
+            </select>
+          </div>
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Amount</label>
             <input
@@ -1082,12 +1303,13 @@ const GwLoanDetails = () => {
             />
           </div>
           <div className="sm:col-span-2 rounded-xl border border-slate-200/70 bg-slate-50 px-3 py-3 text-xs text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/50 dark:text-slate-300">
-            Repayment is posted to Fineract only after Selcom confirms payment completion.
+            Repayment is posted to Fineract only after the selected aggregator confirms payment completion.
           </div>
           {repaymentResult ? (
             <div className="sm:col-span-2 rounded-xl border border-emerald-200/70 bg-emerald-50 px-3 py-3 dark:border-emerald-900/50 dark:bg-emerald-900/20">
               <div className="text-sm font-semibold text-emerald-900 dark:text-emerald-100">Push initiated</div>
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <Field label="Provider" value={repaymentResult?.provider} />
                 <Field label="Payment Event ID" value={repaymentResult?.paymentEvent?.paymentEventId} mono />
                 <Field label="Payment Status" value={repaymentResult?.paymentEvent?.status} />
                 <Field label="Selcom Order ID" value={repaymentResult?.selcomOrder?.orderId} mono />

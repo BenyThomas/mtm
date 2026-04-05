@@ -111,6 +111,12 @@ import DisbursementOrders from "./pages/gateway/DisbursementOrders";
 import InvitesList from "./pages/gateway/invites/InvitesList";
 import InviteNew from "./pages/gateway/invites/InviteNew";
 import InviteDetails from "./pages/gateway/invites/InviteDetails";
+import InviteCampaigns from "./pages/gateway/invites/InviteCampaigns";
+import InviteChannels from "./pages/gateway/invites/InviteChannels";
+import GroupLifecycleConfig from "./pages/gateway/community/GroupLifecycleConfig";
+import CommunityCenters from "./pages/gateway/community/CommunityCenters";
+import CommunityCenterDetails from "./pages/gateway/community/CommunityCenterDetails";
+import GroupDetails from "./pages/gateway/community/GroupDetails";
 import GwLoansList from "./pages/gateway/loans/GwLoansList";
 import GwLoanDetails from "./pages/gateway/loans/GwLoanDetails";
 import GatewayDataList from "./pages/gateway/data/DataList";
@@ -286,11 +292,17 @@ const App = () => {
                             <Route path="/gateway/queues" element={<GatewayQueues />} />
                             <Route path="/gateway/product-catalog" element={<GatewayProductCatalog />} />
                             <Route path="/gateway/loan-automation" element={<GatewayLoanAutomationConfig />} />
+                            <Route path="/gateway/group-lifecycle" element={<GroupLifecycleConfig />} />
                             <Route path="/gateway/bank-names" element={<GatewayBankNamesConfig />} />
                             <Route path="/gateway/kyc" element={<GatewayKycOps />} />
                             <Route path="/gateway/disbursements" element={<DisbursementOrders />} />
+                            <Route path="/gateway/centers" element={<CommunityCenters />} />
+                            <Route path="/gateway/centers/:centerId" element={<CommunityCenterDetails />} />
+                            <Route path="/gateway/groups/:groupId" element={<GroupDetails />} />
                             <Route path="/gateway/invites" element={<InvitesList />} />
                             <Route path="/gateway/invites/new" element={<InviteNew />} />
+                            <Route path="/gateway/invite-campaigns" element={<InviteCampaigns />} />
+                            <Route path="/gateway/invite-channels" element={<InviteChannels />} />
                             <Route path="/gateway/invites/:inviteId" element={<InviteDetails />} />
                             <Route path="/gateway/loans" element={<GwLoansList />} />
                             <Route path="/gateway/loans/:platformLoanId" element={<GwLoanDetails />} />

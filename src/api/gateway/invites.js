@@ -21,6 +21,54 @@ export async function createInvite(payload) {
   return unwrap(r);
 }
 
+export async function getInviteCatalogConfig() {
+  const r = await gatewayApi.get('/ops/config/invite-catalog');
+  return unwrap(r);
+}
+
+export async function updateInviteCatalogConfig(payload) {
+  const r = await gatewayApi.put('/ops/config/invite-catalog', payload);
+  return unwrap(r);
+}
+
+export async function listInviteCampaigns(params) {
+  const r = await gatewayApi.get('/ops/invite-campaigns', { params });
+  return unwrap(r);
+}
+
+export async function createInviteCampaign(payload) {
+  const r = await gatewayApi.post('/ops/invite-campaigns', payload);
+  return unwrap(r);
+}
+
+export async function updateInviteCampaign(inviteCampaignId, payload) {
+  const r = await gatewayApi.put(`/ops/invite-campaigns/${encodeURIComponent(inviteCampaignId)}`, payload);
+  return unwrap(r);
+}
+
+export async function deleteInviteCampaign(inviteCampaignId) {
+  await gatewayApi.delete(`/ops/invite-campaigns/${encodeURIComponent(inviteCampaignId)}`);
+}
+
+export async function listInviteChannels(params) {
+  const r = await gatewayApi.get('/ops/invite-channels', { params });
+  return unwrap(r);
+}
+
+export async function createInviteChannel(payload) {
+  const r = await gatewayApi.post('/ops/invite-channels', payload);
+  return unwrap(r);
+}
+
+export async function updateInviteChannel(inviteChannelId, payload) {
+  const r = await gatewayApi.put(`/ops/invite-channels/${encodeURIComponent(inviteChannelId)}`, payload);
+  return unwrap(r);
+}
+
+export async function deleteInviteChannel(inviteChannelId) {
+  await gatewayApi.delete(`/ops/invite-channels/${encodeURIComponent(inviteChannelId)}`);
+}
+
 export async function replaceInvite(inviteId, payload) {
   const r = await gatewayApi.put(`/ops/invites/${encodeURIComponent(inviteId)}`, payload);
   return unwrap(r);
