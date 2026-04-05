@@ -13,8 +13,10 @@ import {
   deleteGwLoan,
   disburseGwLoan,
   getGwLoan,
+  getGwLoanWorkflow,
   repayGwLoanViaSelcomUssdPush,
   replaceGwLoan,
+  runGwLoanAction,
 } from '../../../api/gateway/loans';
 import { listBankNames } from '../../../api/gateway/bankNames';
 import { getOpsResource } from '../../../api/gateway/opsResources';
@@ -133,6 +135,14 @@ const formatMoney = (v) => {
   }
 };
 
+const firstNumeric = (...values) => {
+  for (const value of values) {
+    const n = toNumOrNull(value);
+    if (n != null) return n;
+  }
+  return null;
+};
+
 const isPenaltyCharge = (c) => {
   if (!c || typeof c !== 'object') return false;
   if (c?.isPenalty === true) return true;
@@ -229,6 +239,15 @@ const GwLoanDetails = () => {
   const [repaymentPayerName, setRepaymentPayerName] = useState('');
   const [repaymentPayerEmail, setRepaymentPayerEmail] = useState('');
   const [repaymentResult, setRepaymentResult] = useState(null);
+  const [refundOpen, setRefundOpen] = useState(false);
+  const [refundBusy, setRefundBusy] = useState(false);
+  const [refundAmount, setRefundAmount] = useState('');
+  const [refundDate, setRefundDate] = useState(dateISO());
+  const [refundExternalId, setRefundExternalId] = useState('');
+  const [refundNote, setRefundNote] = useState('');
+  const [workflow, setWorkflow] = useState(null);
+  const [workflowLoading, setWorkflowLoading] = useState(false);
+  const [workflowErr, setWorkflowErr] = useState('');
 
   const load = async () => {
     setLoading(true);
@@ -247,6 +266,28 @@ const GwLoanDetails = () => {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [platformLoanId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setWorkflowLoading(true);
+      setWorkflowErr('');
+      try {
+        const data = await getGwLoanWorkflow(platformLoanId);
+        if (cancelled) return;
+        setWorkflow(data || null);
+      } catch (e) {
+        if (cancelled) return;
+        setWorkflow(null);
+        setWorkflowErr(e?.response?.data?.message || e?.message || 'Failed to load workflow');
+      } finally {
+        if (!cancelled) setWorkflowLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [platformLoanId]);
 
   useEffect(() => {
@@ -393,6 +434,24 @@ const GwLoanDetails = () => {
     statusUpper !== 'CLOSED' &&
     (statusUpper === 'APPROVED' || (fxApproved && fxNotDisbursedOrClosed));
   const outstandingAmount = toNumOrNull(doc?.outstandingAmount);
+  const workflowActions = Array.isArray(workflow?.availableActions) ? workflow.availableActions : [];
+  const fineractOverpaid = fxLoan?.status?.overpaid === true || /overpaid/i.test(String(fxStatusText || ''));
+  const localOverpaid = statusUpper === 'OVERPAID';
+  const overpaidAmount = firstNumeric(
+    workflow?.refundAmount,
+    fxLoan?.summary?.totalOverpaid,
+    fxLoan?.summary?.overpaid,
+    fxLoan?.summary?.totalOverpaidAmount,
+    fxLoan?.summary?.overpaymentAmount,
+    fxLoan?.summary?.overpaymentPortionDerived
+  );
+  const refundAction = workflow?.refundAction || '';
+  const canRefund =
+    hasFineractLoanId &&
+    (Boolean(refundAction) || fineractOverpaid || localOverpaid) &&
+    (!refundAction || workflowActions.includes(refundAction)) &&
+    overpaidAmount != null &&
+    overpaidAmount > 0;
 
   const customerDestinationByType = useMemo(() => ({
     BANK: normalizeText(customerProfile?.bankAccount),
@@ -407,6 +466,15 @@ const GwLoanDetails = () => {
     hasFineractLoanId &&
     statusUpper !== 'CLOSED' &&
     (outstandingAmount == null || outstandingAmount > 0);
+  const nextWorkflowAction = canRefund
+    ? 'refund'
+    : canDisburse
+      ? 'disburse'
+      : canApprove
+        ? 'approve'
+        : canRepayViaSelcom
+          ? 'repay'
+          : '';
 
   const filteredBankNameOptions = useMemo(() => {
     const requiredType = BANK_NAME_TYPE_BY_DISBURSEMENT[disbursementType];
@@ -500,6 +568,42 @@ const GwLoanDetails = () => {
     setRepaymentPayerEmail(customerRepaymentIdentity.payerEmail || '');
     setRepaymentResult(null);
     setRepayOpen(true);
+  };
+
+  const openRefundModal = () => {
+    setRefundAmount(overpaidAmount != null && overpaidAmount > 0 ? String(overpaidAmount) : '');
+    setRefundDate(dateISO());
+    setRefundExternalId('');
+    setRefundNote('');
+    setRefundOpen(true);
+  };
+
+  const submitRefund = async () => {
+    const amount = overpaidAmount;
+    if (amount == null || amount <= 0) {
+      addToast('Fineract overpaid amount is missing', 'error');
+      return;
+    }
+    setRefundBusy(true);
+    try {
+      await runGwLoanAction(platformLoanId, refundAction, {
+        date: refundDate || undefined,
+        amount,
+        externalId: normalizeText(refundExternalId) || undefined,
+        note: normalizeText(refundNote) || undefined,
+      });
+      addToast('Refund submitted', 'success');
+      setRefundOpen(false);
+      await load();
+      const wf = await getGwLoanWorkflow(platformLoanId);
+      setWorkflow(wf || null);
+    } catch (e) {
+      const msg = extractGatewayErrorMessage(e, 'Refund failed');
+      setErr(msg);
+      addToast(msg, 'error');
+    } finally {
+      setRefundBusy(false);
+    }
   };
 
   const submitRepayViaSelcom = async () => {
@@ -724,46 +828,55 @@ const GwLoanDetails = () => {
               <div className="text-sm font-semibold">Workflow</div>
               <Can any={['GW_OPS_WRITE']}>
                 <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    size="sm"
-                    onClick={() => setApproveOpen(true)}
-                    disabled={!canApprove}
-                    title={canApprove ? 'Approve loan' : 'Loan is not SUBMITTED'}
-                  >
-                    Approve
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={openDisburseModal}
-                    disabled={!canDisburse}
-                    title={
-                      canDisburse
-                        ? 'Disburse loan'
-                        : !hasFineractLoanId
-                          ? 'Missing Fineract loan id'
-                          : 'Loan must be APPROVED in Platform or Fineract'
-                    }
-                  >
-                    Disburse
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={openRepayModal}
-                    disabled={!canRepayViaSelcom}
-                    title={
-                      canRepayViaSelcom
-                        ? 'Repay loan via Selcom USSD push'
-                        : !hasFineractLoanId
-                          ? 'Missing Fineract loan id'
-                          : 'Loan is already closed or has no outstanding balance'
-                    }
-                  >
-                    Repay via Selcom
-                  </Button>
+                  {nextWorkflowAction === 'approve' ? (
+                    <Button
+                      size="sm"
+                      onClick={() => setApproveOpen(true)}
+                      title="Approve loan"
+                    >
+                      Approve
+                    </Button>
+                  ) : null}
+                  {nextWorkflowAction === 'disburse' ? (
+                    <Button
+                      size="sm"
+                      onClick={openDisburseModal}
+                      title="Disburse loan"
+                    >
+                      Disburse
+                    </Button>
+                  ) : null}
+                  {nextWorkflowAction === 'repay' ? (
+                    <Button
+                      size="sm"
+                      onClick={openRepayModal}
+                      title="Repay loan via Selcom USSD push"
+                    >
+                      Repay via Selcom
+                    </Button>
+                  ) : null}
+                  {nextWorkflowAction === 'refund' ? (
+                    <Button
+                      size="sm"
+                      onClick={openRefundModal}
+                      title="Refund overpaid amount"
+                    >
+                      Refund
+                    </Button>
+                  ) : null}
+                  {!nextWorkflowAction && !workflowLoading ? (
+                    <span className="text-sm text-slate-600 dark:text-slate-300">No workflow action available</span>
+                  ) : null}
                 </div>
               </Can>
             </div>
+
+            {workflowErr ? (
+              <div className="mt-3 text-sm text-rose-700 dark:text-rose-300">{workflowErr}</div>
+            ) : null}
+            {workflowLoading ? (
+              <div className="mt-3 text-sm text-slate-600 dark:text-slate-300">Refreshing workflow...</div>
+            ) : null}
 
             <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Status" value={doc?.status} />
@@ -774,6 +887,7 @@ const GwLoanDetails = () => {
               <Field label="Bank Name" value={doc?.disbursementBankName} />
               <Field label="Destination" value={doc?.disbursementAccount} mono />
               <Field label="Customer Wallet" value={customerRepaymentIdentity.msisdn} mono />
+              <Field label="Overpaid Amount" value={overpaidAmount != null ? formatMoney(overpaidAmount) : ''} />
             </div>
           </Card>
 
@@ -1011,6 +1125,70 @@ const GwLoanDetails = () => {
           </div>
           <div className="sm:col-span-2 text-xs text-slate-500 dark:text-slate-400">
             Destination account is sourced from customer profile (bank account/wallet) and is not editable here.
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={refundOpen}
+        onClose={() => (refundBusy ? null : setRefundOpen(false))}
+        title="Refund Overpayment"
+        size="lg"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setRefundOpen(false)} disabled={refundBusy}>
+              Cancel
+            </Button>
+            <Button onClick={submitRefund} disabled={refundBusy}>
+              {refundBusy ? (
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="animate-spin" size={16} /> Refunding...
+                </span>
+              ) : (
+                'Refund'
+              )}
+            </Button>
+          </>
+        }
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="sm:col-span-2 text-xs text-slate-500 dark:text-slate-400">
+            Refund is available only when Fineract reports the loan as overpaid.
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Refund Date</label>
+            <input
+              type="date"
+              value={refundDate}
+              onChange={(e) => setRefundDate(e.target.value)}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Refund Amount</label>
+            <input
+              value={refundAmount}
+              readOnly
+              disabled
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">External ID (optional)</label>
+            <input
+              value={refundExternalId}
+              onChange={(e) => setRefundExternalId(e.target.value)}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Note (optional)</label>
+            <textarea
+              rows={3}
+              value={refundNote}
+              onChange={(e) => setRefundNote(e.target.value)}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
           </div>
         </div>
       </Modal>

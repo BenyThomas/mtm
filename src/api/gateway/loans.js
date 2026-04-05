@@ -44,6 +44,26 @@ export async function disburseGwLoan(platformLoanId, payload) {
   return unwrap(r);
 }
 
+export async function getGwLoanWorkflow(platformLoanId) {
+  const r = await gatewayApi.get(`/ops/loans/${encodeURIComponent(platformLoanId)}/workflow`);
+  return unwrap(r);
+}
+
+export async function getGwLoanSchedule(platformLoanId) {
+  const r = await gatewayApi.get(`/ops/loans/${encodeURIComponent(platformLoanId)}/schedule`);
+  return unwrap(r);
+}
+
+export async function getGwLoanTransactions(platformLoanId) {
+  const r = await gatewayApi.get(`/ops/loans/${encodeURIComponent(platformLoanId)}/transactions`);
+  return unwrap(r);
+}
+
+export async function runGwLoanAction(platformLoanId, action, payload) {
+  const r = await gatewayApi.post(`/ops/loans/${encodeURIComponent(platformLoanId)}/actions/${encodeURIComponent(action)}`, payload || {});
+  return unwrap(r);
+}
+
 export async function repayGwLoanViaSelcomUssdPush(platformLoanId, payload) {
   const r = await gatewayApi.post(`/ops/loans/${encodeURIComponent(platformLoanId)}/repayments/selcom-ussd-push`, payload);
   return unwrap(r);
