@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import Card from '../../../components/Card';
 import Button from '../../../components/Button';
 import DataTable from '../../../components/DataTable';
@@ -48,7 +48,7 @@ const CREATE_FORM_SCHEMAS = {
   'borrower-scores': {
     title: 'Borrower Score',
     fields: [
-      { key: 'customerId', label: 'Customer ID', type: 'text', required: true, placeholder: 'customer-123' },
+      { key: 'customerId', label: 'Customer', type: 'text', required: true, placeholder: 'Select a customer' },
       { key: 'score', label: 'Score', type: 'number', required: true, placeholder: '640' },
       { key: 'scoreBand', label: 'Score Band', type: 'text', placeholder: 'B3' },
       { key: 'eligibilityStatus', label: 'Eligibility Status', type: 'text', placeholder: 'Eligible' },
@@ -61,7 +61,7 @@ const CREATE_FORM_SCHEMAS = {
   'borrower-eligibility-results': {
     title: 'Borrower Eligibility Result',
     fields: [
-      { key: 'customerId', label: 'Customer ID', type: 'text', required: true, placeholder: 'customer-123' },
+      { key: 'customerId', label: 'Customer', type: 'text', required: true, placeholder: 'Select a customer' },
       { key: 'score', label: 'Score', type: 'number', required: true, placeholder: '380' },
       { key: 'scoreBand', label: 'Score Band', type: 'text', placeholder: 'D' },
       { key: 'maxEligibleAmount', label: 'Max Eligible Amount', type: 'decimal', required: true, placeholder: '12000' },
@@ -143,6 +143,32 @@ const timeAgo = (iso) => {
   return 'now';
 };
 
+const customerLabel = (customer) => {
+  const fullName = [customer?.profile?.firstName, customer?.profile?.lastName].filter(Boolean).join(' ').trim();
+  const username = String(customer?.username || '').trim();
+  const phone = String(customer?.profile?.phone || customer?.phone || customer?.mobileNo || '').trim();
+  const name = fullName || username || 'Customer';
+  return [name, phone].filter(Boolean).join(' | ') || name;
+};
+
+const referenceLabel = (cfg, row) => {
+  if (!cfg || !row) return '-';
+  if (cfg.apiType === 'customers') return customerLabel(row);
+  if (cfg.apiType === 'auth-accounts') return String(row?.username || row?.msisdn || '-');
+  if (cfg.apiType === 'prospects') return String(row?.fullName || row?.phone || row?.mobileNo || '-');
+  if (cfg.apiType === 'loans') return String(row?.customerFullName || row?.customerName || row?.loanName || row?.productCode || 'Loan');
+  if (cfg.apiType === 'onboarding-records') return String(row?.username || row?.mobileNo || '-');
+  if (cfg.apiType === 'product-snapshots') return String(row?.name || row?.code || '-');
+  if (cfg.apiType === 'products') return String(row?.name || row?.productCode || '-');
+  if (cfg.apiType === 'score-band-policies') return String(row?.bandCode || row?.eligibilityStatus || '-');
+  if (cfg.apiType === 'loan-product-policies') return String(row?.productName || row?.productCode || '-');
+  if (cfg.apiType === 'borrower-scores') return String(row?.customerName || row?.username || row?.scoreBand || 'Borrower score');
+  if (cfg.apiType === 'borrower-eligibility-results') return String(row?.customerName || row?.username || row?.eligibilityStatus || 'Eligibility result');
+  if (cfg.apiType === 'audit-events') return String(row?.action || row?.eventType || 'Audit event');
+  if (cfg.apiType === 'schedule-preview-cache') return String(row?.productCode || row?.customerName || 'Schedule preview');
+  return String(row?.name || row?.title || row?.code || row?.status || '-');
+};
+
 const RESOURCES = {
   audit_events: { title: 'Audit Events', apiType: 'audit-events', defaultSortBy: 'occurredAt' },
   auth_accounts: { title: 'Auth Accounts', apiType: 'auth-accounts', defaultSortBy: 'updatedAt' },
@@ -167,7 +193,6 @@ const RESOURCES = {
 const DataList = () => {
   const { resource } = useParams();
   const cfg = RESOURCES[resource];
-  const navigate = useNavigate();
   const { addToast } = useToast();
 
   const [rows, setRows] = useState([]);
@@ -464,10 +489,6 @@ const DataList = () => {
       addToast('Created', 'success');
       setCreateOpen(false);
       setRefreshTick((t) => t + 1);
-      const id = resolveDocId(created);
-      if (id !== undefined && id !== null && String(id).trim() !== '') {
-        navigate(`/gateway/resources/${encodeURIComponent(cfg.apiType)}/${encodeURIComponent(String(id))}`);
-      }
     } catch (err) {
       addToast(err?.response?.data?.message || err?.message || 'Create failed', 'error');
     } finally {
@@ -532,15 +553,15 @@ const DataList = () => {
     const base = [];
     base.push({
       key: 'id',
-      header: 'ID',
+      header: 'Reference',
       sortable: true,
-      render: (r) => r?.auditEventId || r?.userId || r?.otpRef || r?.tokenId || r?.sessionId || r?.documentId || r?.orderId || r?.platformCustomerId || r?.platformLoanId || r?.onboardingId || r?.prospectId || r?.cacheKey || r?.id || r?.productCode || '-',
+      render: (r) => referenceLabel(cfg, r),
     });
 
     // A couple of type-specific "headline" columns
     if (cfg.apiType === 'customers') {
       base.push({ key: 'username', header: 'Username', sortable: true, render: (r) => r?.username || '-' });
-      base.push({ key: 'fineractClientId', header: 'Fineract Client', sortable: true, render: (r) => r?.fineractClientId || '-' });
+      base.push({ key: 'phone', header: 'Phone', sortable: false, render: (r) => r?.profile?.phone || r?.phone || r?.mobileNo || '-' });
     }
     if (cfg.apiType === 'auth-accounts') {
       base.push({ key: 'msisdn', header: 'MSISDN', sortable: true, render: (r) => r?.msisdn || '-' });
@@ -551,7 +572,7 @@ const DataList = () => {
       base.push({ key: 'kycStatus', header: 'KYC', sortable: false, render: (r) => r?.kycStatus || '-' });
     }
     if (cfg.apiType === 'loans') {
-      base.push({ key: 'customerId', header: 'Customer', sortable: true, render: (r) => r?.customerId || '-' });
+      base.push({ key: 'customerId', header: 'Customer', sortable: true, render: (r) => r?.customerFullName || r?.customerName || r?.customerId || '-' });
       base.push({ key: 'productCode', header: 'Product', sortable: true, render: (r) => r?.productCode || '-' });
       base.push({ key: 'principal', header: 'Principal', sortable: true, render: (r) => r?.principal ?? '-' });
     }
@@ -568,7 +589,6 @@ const DataList = () => {
     if (cfg.apiType === 'products') {
       base.push({ key: 'productCode', header: 'Code', sortable: true, render: (r) => r?.productCode || '-' });
       base.push({ key: 'name', header: 'Name', sortable: true, render: (r) => r?.name || '-' });
-      base.push({ key: 'fineractProductId', header: 'Fineract ID', sortable: true, render: (r) => r?.fineractProductId ?? '-' });
       base.push({ key: 'isDefault', header: 'Default', sortable: false, render: (r) => (r?.default || r?.isDefault ? 'Yes' : 'No') });
     }
     if (cfg.apiType === 'score-band-policies') {
@@ -589,14 +609,14 @@ const DataList = () => {
       base.push({ key: 'maxRepayments', header: 'Max Repayments', sortable: true, render: (r) => r?.maxRepayments ?? '-' });
     }
     if (cfg.apiType === 'borrower-scores') {
-      base.push({ key: 'customerId', header: 'Customer', sortable: true, render: (r) => r?.customerId || '-' });
+      base.push({ key: 'customerId', header: 'Customer', sortable: true, render: (r) => r?.customerName || r?.username || r?.customerId || '-' });
       base.push({ key: 'score', header: 'Score', sortable: true, render: (r) => r?.score ?? '-' });
       base.push({ key: 'scoreBand', header: 'Band', sortable: true, render: (r) => r?.scoreBand || '-' });
       base.push({ key: 'eligibilityStatus', header: 'Eligibility', sortable: true, render: (r) => r?.eligibilityStatus || '-' });
       base.push({ key: 'computedAt', header: 'Computed', sortable: true, render: (r) => r?.computedAt || '-' });
     }
     if (cfg.apiType === 'borrower-eligibility-results') {
-      base.push({ key: 'customerId', header: 'Customer', sortable: true, render: (r) => r?.customerId || '-' });
+      base.push({ key: 'customerId', header: 'Customer', sortable: true, render: (r) => r?.customerName || r?.username || r?.customerId || '-' });
       base.push({ key: 'score', header: 'Score', sortable: true, render: (r) => r?.score ?? '-' });
       base.push({ key: 'scoreBand', header: 'Band', sortable: true, render: (r) => r?.scoreBand || '-' });
       base.push({ key: 'maxEligibleAmount', header: 'Max Eligible', sortable: true, render: (r) => r?.maxEligibleAmount ?? '-' });
@@ -605,11 +625,11 @@ const DataList = () => {
     }
     if (cfg.apiType === 'audit-events') {
       base.push({ key: 'action', header: 'Action', sortable: true, render: (r) => r?.action || '-' });
-      base.push({ key: 'actorId', header: 'Actor', sortable: true, render: (r) => r?.actorId || '-' });
+      base.push({ key: 'actorId', header: 'Performed By', sortable: true, render: (r) => r?.actorName || r?.actorUsername || r?.actorId || '-' });
       base.push({ key: 'occurredAt', header: 'Occurred', sortable: true, render: (r) => r?.occurredAt || '-' });
     }
     if (cfg.apiType === 'schedule-preview-cache') {
-      base.push({ key: 'customerId', header: 'Customer', sortable: true, render: (r) => r?.customerId || '-' });
+      base.push({ key: 'customerId', header: 'Customer', sortable: true, render: (r) => r?.customerName || r?.username || r?.customerId || '-' });
       base.push({ key: 'productCode', header: 'Product', sortable: true, render: (r) => r?.productCode || '-' });
       base.push({ key: 'createdAt', header: 'Created', sortable: true, render: (r) => (r?.createdAt ? timeAgo(r.createdAt) : '-') });
       base.push({ key: 'expiresAt', header: 'Expires', sortable: true, render: (r) => (r?.expiresAt ? String(r.expiresAt) : '-') });
@@ -677,14 +697,7 @@ const DataList = () => {
     if (!cfg) return;
     if (cfg.apiType === 'score-band-policies') {
       openEdit(row);
-      return;
     }
-    const id = resolveDocId(row);
-    if (id === undefined || id === null || String(id).trim() === '') {
-      addToast('Resource not found', 'error');
-      return;
-    }
-    navigate(`/gateway/resources/${encodeURIComponent(cfg.apiType)}/${encodeURIComponent(String(id))}`);
   };
 
   if (!cfg) {
@@ -935,13 +948,13 @@ const DataList = () => {
                       <input
                         value={customerSearch}
                         onChange={(e) => setCustomerSearch(e.target.value)}
-                        placeholder={lookupLoading ? 'Loading customers...' : 'Search by ID, username, phone'}
+                        placeholder={lookupLoading ? 'Loading customers...' : 'Search by name, username, phone'}
                         className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
                       />
                       <div className="mt-2 max-h-28 overflow-auto rounded-lg border border-cyan-200/70 bg-white/70 dark:border-cyan-900/50 dark:bg-slate-900/60">
                         {filteredCustomers.map((c) => {
                           const id = c?.platformCustomerId || c?.customerId || c?.id;
-                          const label = `${c?.username || 'Customer'} (${id || '-'})`;
+                          const label = customerLabel(c);
                           return (
                             <button
                               key={`c_${id || label}`}

@@ -100,9 +100,6 @@ import Permissions from "./pages/admin/Permissions";
 import CollectionSheet from "./pages/funds/CollectionSheet";
 import Search from "./pages/search/Search";
 import GatewayDashboard from "./pages/gateway/GatewayDashboard";
-import GatewayResources from "./pages/gateway/Resources";
-import GatewayResourceDetails from "./pages/gateway/ResourceDetails";
-import GatewayQueues from "./pages/gateway/Queues";
 import GatewayProductCatalog from "./pages/gateway/ProductCatalog";
 import GatewayLoanAutomationConfig from "./pages/gateway/LoanAutomationConfig";
 import GatewayBankNamesConfig from "./pages/gateway/BankNamesConfig";
@@ -287,9 +284,6 @@ const App = () => {
 
                             {/* Gateway back-office */}
                             <Route path="/gateway" element={<GatewayDashboard />} />
-                            <Route path="/gateway/resources" element={<GatewayResources />} />
-                            <Route path="/gateway/resources/:type/:id" element={<GatewayResourceDetails />} />
-                            <Route path="/gateway/queues" element={<GatewayQueues />} />
                             <Route path="/gateway/product-catalog" element={<GatewayProductCatalog />} />
                             <Route path="/gateway/loan-automation" element={<GatewayLoanAutomationConfig />} />
                             <Route path="/gateway/group-lifecycle" element={<GroupLifecycleConfig />} />

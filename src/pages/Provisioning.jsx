@@ -26,15 +26,14 @@ const Provisioning = () => {
         setBusy(true);
         setResult(null);
         try {
-            // Fineract expects: date (or provisioningEntryDate), dateFormat, locale, createjournalentries
             const payload = {
                 date,
                 dateFormat: 'yyyy-MM-dd',
                 locale: 'en',
                 createjournalentries: Boolean(createJournals),
             };
-            const res = await api.post('/provisioningentries', payload);
-            setResult(res?.data || { status: 'OK' });
+            await api.post('/provisioningentries', payload);
+            setResult({ success: true });
             addToast('Provisioning entries generated', 'success');
         } catch (err) {
             const msg =
@@ -42,7 +41,7 @@ const Provisioning = () => {
                 err?.response?.data?.defaultUserMessage ||
                 err?.message ||
                 'Failed to generate provisioning entries';
-            setResult({ error: msg, raw: err?.response?.data });
+            setResult({ success: false, error: msg });
             addToast(msg, 'error');
         } finally {
             setBusy(false);
@@ -86,7 +85,7 @@ const Provisioning = () => {
 
                     <div className="flex items-center gap-2">
                         <Button onClick={run} disabled={busy || !valid}>
-                            {busy ? 'Running…' : 'Generate'}
+                            {busy ? 'Running...' : 'Generate'}
                         </Button>
                         <span className="text-xs text-gray-500">
               Depending on portfolio size, this can take a moment.
@@ -99,19 +98,17 @@ const Provisioning = () => {
                 <div className="font-semibold mb-2">Last Result</div>
                 {!result ? (
                     <div className="text-sm text-gray-600 dark:text-gray-400">No run yet.</div>
-                ) : result?.error ? (
-                    <div className="space-y-2">
-                        <div className="text-sm text-red-500">Error: {result.error}</div>
-                        {result.raw ? (
-                            <pre className="text-xs overflow-auto p-2 rounded bg-gray-100 dark:bg-gray-800">
-                {JSON.stringify(result.raw, null, 2)}
-              </pre>
-                        ) : null}
+                ) : result?.success ? (
+                    <div className="space-y-2 text-sm text-gray-700 dark:text-gray-200">
+                        <div className="font-medium text-emerald-600 dark:text-emerald-400">Provisioning entries generated successfully.</div>
+                        <div>Provisioning date: {date}</div>
+                        <div>Journal entries: {createJournals ? 'Created' : 'Not created'}</div>
                     </div>
                 ) : (
-                    <pre className="text-xs overflow-auto p-2 rounded bg-gray-100 dark:bg-gray-800">
-            {JSON.stringify(result, null, 2)}
-          </pre>
+                    <div className="space-y-2">
+                        <div className="text-sm text-red-500">Provisioning could not be generated.</div>
+                        <div className="text-sm text-gray-600 dark:text-gray-300">{result.error}</div>
+                    </div>
                 )}
             </Card>
         </div>

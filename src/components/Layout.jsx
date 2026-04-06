@@ -40,8 +40,6 @@ const NAV_GROUPS = [
       { to: '/gateway/invite-campaigns', label: 'Invite Campaigns', icon: 'IC', perm: 'GW_OPS_WRITE' },
       { to: '/gateway/invite-channels', label: 'Invite Channels', icon: 'CH', perm: 'GW_OPS_WRITE' },
       { to: '/gateway/loans', label: 'Gw Loans', icon: 'L', perm: 'GW_OPS_READ' },
-      { to: '/gateway/queues', label: 'Queues', icon: 'Q', perm: 'GW_OPS_READ' },
-      { to: '/gateway/resources', label: 'Resources', icon: 'R', perm: 'GW_OPS_READ' },
       { to: '/gateway/product-catalog', label: 'Product Catalog', icon: 'P', perm: 'GW_OPS_READ' },
       { to: '/gateway/loan-automation', label: 'Loan Automation', icon: 'A', perm: 'GW_OPS_WRITE' },
       { to: '/gateway/group-lifecycle', label: 'Group Lifecycle', icon: 'GL', perm: 'GW_OPS_WRITE' },
