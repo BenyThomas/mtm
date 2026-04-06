@@ -6,7 +6,6 @@ import { useToast } from '../context/ToastContext';
 
 const todayISO = () => {
     const d = new Date();
-    // normalize to local YYYY-MM-DD
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
@@ -34,16 +33,13 @@ const RunAccruals = () => {
         setBusy(true);
         setResult(null);
         try {
-            // Fineract: POST /runaccruals with date payload
-            // Many tenants accept: { tillDate, dateFormat, locale }
             const payload = {
                 tillDate,
                 dateFormat: 'yyyy-MM-dd',
                 locale: 'en',
             };
-            const res = await api.post('/runaccruals', payload);
-
-            setResult(res?.data || { status: 'OK' });
+            await api.post('/runaccruals', payload);
+            setResult({ success: true });
             addToast('Periodic accruals executed', 'success');
         } catch (err) {
             const msg =
@@ -51,7 +47,7 @@ const RunAccruals = () => {
                 err?.response?.data?.defaultUserMessage ||
                 err?.message ||
                 'Accrual run failed';
-            setResult({ error: msg, raw: err?.response?.data });
+            setResult({ success: false, error: msg });
             addToast(msg, 'error');
         } finally {
             setBusy(false);
@@ -68,7 +64,7 @@ const RunAccruals = () => {
                 <div className="space-y-4">
                     <p className="text-sm text-gray-600 dark:text-gray-300">
                         Accrue loan income up to the specified date. If you leave this as today,
-                        accruals are posted through end of today. Your tenant’s batch job schedule
+                        accruals are posted through end of today. Your tenant's batch job schedule
                         may also run accruals automatically; this manual action is for on-demand runs.
                     </p>
 
@@ -86,7 +82,7 @@ const RunAccruals = () => {
 
                     <div className="flex items-center gap-2">
                         <Button onClick={run} disabled={busy || !isDateValid}>
-                            {busy ? 'Running…' : 'Run Accruals'}
+                            {busy ? 'Running...' : 'Run Accruals'}
                         </Button>
                         <span className="text-xs text-gray-500">
               This can take time depending on portfolio size.
@@ -101,19 +97,16 @@ const RunAccruals = () => {
                     <div className="text-sm text-gray-600 dark:text-gray-400">
                         No run yet. Submit the form above to execute accruals.
                     </div>
-                ) : result?.error ? (
-                    <div className="space-y-2">
-                        <div className="text-sm text-red-500">Error: {result.error}</div>
-                        {result.raw ? (
-                            <pre className="text-xs overflow-auto p-2 rounded bg-gray-100 dark:bg-gray-800">
-                {JSON.stringify(result.raw, null, 2)}
-              </pre>
-                        ) : null}
+                ) : result?.success ? (
+                    <div className="space-y-2 text-sm text-gray-700 dark:text-gray-200">
+                        <div className="font-medium text-emerald-600 dark:text-emerald-400">Periodic accruals executed successfully.</div>
+                        <div>Accrued until: {tillDate}</div>
                     </div>
                 ) : (
-                    <pre className="text-xs overflow-auto p-2 rounded bg-gray-100 dark:bg-gray-800">
-            {JSON.stringify(result, null, 2)}
-          </pre>
+                    <div className="space-y-2">
+                        <div className="text-sm text-red-500">Accrual run could not be completed.</div>
+                        <div className="text-sm text-gray-600 dark:text-gray-300">{result.error}</div>
+                    </div>
                 )}
             </Card>
         </div>

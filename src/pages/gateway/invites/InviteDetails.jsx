@@ -4,11 +4,11 @@ import { Copy } from 'lucide-react';
 import Button from '../../../components/Button';
 import Card from '../../../components/Card';
 import Skeleton from '../../../components/Skeleton';
-import { cancelInvite, deleteInvite, getInvite, replaceInvite } from '../../../api/gateway/invites';
+import { cancelInvite, deleteInvite, getInvite } from '../../../api/gateway/invites';
 import { useToast } from '../../../context/ToastContext';
 import Can from '../../../components/Can';
-
-const pretty = (v) => JSON.stringify(v, null, 2);
+import { getCenter, getGroup } from '../../../api/gateway/community';
+import useStaff from '../../../hooks/useStaff';
 
 const copyToClipboard = async (text) => {
   const t = String(text || '');
@@ -21,7 +21,6 @@ const copyToClipboard = async (text) => {
   } catch (_) {
     // fall through
   }
-  // Fallback for older browsers / restrictive contexts
   try {
     const ta = document.createElement('textarea');
     ta.value = t;
@@ -75,13 +74,14 @@ const InviteDetails = () => {
   const { inviteId } = useParams();
   const navigate = useNavigate();
   const { addToast } = useToast();
+  const { staff } = useStaff({ activeOnly: false });
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const [doc, setDoc] = useState(null);
-  const [editor, setEditor] = useState('');
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [centerName, setCenterName] = useState('');
+  const [groupName, setGroupName] = useState('');
 
   const load = async () => {
     setLoading(true);
@@ -89,7 +89,6 @@ const InviteDetails = () => {
     try {
       const data = await getInvite(inviteId);
       setDoc(data);
-      setEditor(pretty(data));
     } catch (e) {
       setErr(e?.response?.data?.message || e?.message || 'Failed to load invite');
     } finally {
@@ -102,31 +101,53 @@ const InviteDetails = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inviteId]);
 
-  const dirty = useMemo(() => {
-    try {
-      return pretty(doc) !== editor;
-    } catch {
-      return true;
-    }
-  }, [doc, editor]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (doc?.centerId) {
+        try {
+          const center = await getCenter(doc.centerId);
+          if (!cancelled) setCenterName(center?.name || '');
+        } catch {
+          if (!cancelled) setCenterName('');
+        }
+      } else {
+        setCenterName('');
+      }
 
-  const save = async () => {
-    setSaving(true);
-    setErr('');
-    try {
-      const body = JSON.parse(editor);
-      const updated = await replaceInvite(inviteId, body);
-      setDoc(updated);
-      setEditor(pretty(updated));
-      addToast('Invite saved', 'success');
-    } catch (e) {
-      const msg = e?.response?.data?.message || e?.message || 'Save failed';
-      setErr(msg);
-      addToast(msg, 'error');
-    } finally {
-      setSaving(false);
+      if (doc?.groupId) {
+        try {
+          const group = await getGroup(doc.groupId);
+          if (!cancelled) setGroupName(group?.name || '');
+        } catch {
+          if (!cancelled) setGroupName('');
+        }
+      } else {
+        setGroupName('');
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [doc?.centerId, doc?.groupId]);
+
+  const staffNameById = useMemo(() => {
+    const map = {};
+    for (const member of staff || []) {
+      map[String(member.id)] = member.displayName || [member.firstname, member.lastname].filter(Boolean).join(' ');
     }
-  };
+    return map;
+  }, [staff]);
+
+  const staffContactById = useMemo(() => {
+    const map = {};
+    for (const member of staff || []) {
+      const contact = [member.mobileNo, member.email].filter(Boolean).join(' | ');
+      map[String(member.id)] = contact;
+    }
+    return map;
+  }, [staff]);
 
   const doCancel = async () => {
     setSaving(true);
@@ -134,7 +155,6 @@ const InviteDetails = () => {
     try {
       const updated = await cancelInvite(inviteId);
       setDoc(updated);
-      setEditor(pretty(updated));
       addToast('Invite cancelled', 'success');
     } catch (e) {
       const msg = e?.response?.data?.message || e?.message || 'Cancel failed';
@@ -146,8 +166,7 @@ const InviteDetails = () => {
   };
 
   const doDelete = async () => {
-    // eslint-disable-next-line no-alert
-    if (!window.confirm(`Delete invite ${inviteId}? This cannot be undone.`)) return;
+    if (!window.confirm('Delete this invite? This cannot be undone.')) return;
     setSaving(true);
     setErr('');
     try {
@@ -169,13 +188,19 @@ const InviteDetails = () => {
     else addToast(`Failed to copy ${label}`, 'error');
   };
 
+  const referrerName = doc?.referrerId ? (staffNameById[String(doc.referrerId)] || '') : '';
+  const referrerContact = doc?.referrerId ? (staffContactById[String(doc.referrerId)] || '') : '';
+  const invitedByStaffName = doc?.invitedByStaffId ? (staffNameById[String(doc.invitedByStaffId)] || '') : '';
+  const invitedByStaffContact = doc?.invitedByStaffId ? (staffContactById[String(doc.invitedByStaffId)] || '') : '';
+  const inviteLabel = doc?.campaignCode || doc?.channel || 'Invite';
+
   return (
     <div>
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
           <h1 className="text-2xl font-bold">Invite</h1>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-            {doc?.inviteCode ? `Code: ${doc.inviteCode}` : inviteId}
+            {doc?.inviteCode ? `Code: ${doc.inviteCode}` : inviteLabel}
           </p>
         </div>
         <div className="flex gap-2">
@@ -183,18 +208,6 @@ const InviteDetails = () => {
             Refresh
           </Button>
           <Can any={['GW_OPS_WRITE']}>
-            <Button
-              variant="ghost"
-              onClick={() => setShowAdvanced((v) => !v)}
-              disabled={loading || saving}
-            >
-              {showAdvanced ? 'Hide Advanced' : 'Advanced'}
-            </Button>
-            {showAdvanced ? (
-              <Button onClick={save} disabled={loading || saving || !dirty}>
-                {saving ? 'Saving...' : 'Save'}
-              </Button>
-            ) : null}
             <Button variant="secondary" onClick={doCancel} disabled={loading || saving}>
               Cancel Invite
             </Button>
@@ -221,11 +234,10 @@ const InviteDetails = () => {
                     Summary
                   </div>
                   <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-50">
-                    {doc?.campaignCode || '-'}
+                    {inviteLabel}
                   </div>
                   <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-                    Agent: <strong>{doc?.referrerId || '-'}</strong> | Status:{' '}
-                    <strong>{doc?.status || '-'}</strong>
+                    Agent: <strong>{referrerName || 'Unassigned'}</strong> | Status: <strong>{doc?.status || '-'}</strong>
                   </div>
                 </div>
                 <div className="text-right text-xs text-slate-500 dark:text-slate-400">
@@ -235,7 +247,6 @@ const InviteDetails = () => {
               </div>
 
               <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field label="Invite Id" value={doc?.inviteId} mono />
                 <div>
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                     Invite Code
@@ -259,17 +270,18 @@ const InviteDetails = () => {
                 </div>
                 <Field label="Channel" value={doc?.channel} />
                 <Field label="Campaign" value={doc?.campaignCode} />
-                <Field label="Uses" value={`${Number(doc?.uses || 0)} / ${Number(doc?.maxUses || 0) === 0 ? '∞' : Number(doc?.maxUses || 0)}`} />
-                <Field label="Expires At" value={doc?.expiresAt} mono />
+                <Field label="Uses" value={`${Number(doc?.uses || 0)} / ${Number(doc?.maxUses || 0) === 0 ? 'Unlimited' : Number(doc?.maxUses || 0)}`} />
+                <Field label="Expires At" value={doc?.expiresAt} />
+                <Field label="Agent Contact" value={referrerContact} />
               </div>
 
               <div className="mt-4">
                 <div>
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Invite URL
+                    Invite Link
                   </div>
                   <div className="mt-1 flex items-start gap-2">
-                    <div className="text-sm font-mono break-all text-slate-900 dark:text-slate-50">
+                    <div className="text-sm break-all text-slate-900 dark:text-slate-50">
                       {doc?.inviteUrl || '-'}
                     </div>
                     <Button
@@ -290,62 +302,23 @@ const InviteDetails = () => {
 
             <Card>
               <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                Prefill
+                Recipient
               </div>
               <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field label="Phone" value={doc?.prefill?.phoneNumber} mono />
+                <Field label="Phone" value={doc?.prefill?.phoneNumber} />
                 <Field label="Name" value={`${(doc?.prefill?.firstName || '').trim()} ${(doc?.prefill?.lastName || '').trim()}`.trim()} />
-                <Field label="Center Id" value={doc?.centerId} mono />
-                <Field label="Group Id" value={doc?.groupId} mono />
+                <Field label="Center" value={centerName || (doc?.centerId ? 'Assigned center' : '-')} />
+                <Field label="Group" value={groupName || (doc?.groupId ? 'Assigned group' : '-')} />
                 <Field label="Membership Role" value={doc?.membershipRole} />
-                <Field label="Invited By Staff" value={doc?.invitedByStaffId} />
-              </div>
-
-              <div className="mt-4">
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Invite Token
-                  </div>
-                  <div className="mt-1 flex items-start gap-2">
-                    <div className="text-sm font-mono break-all text-slate-900 dark:text-slate-50">
-                      {doc?.inviteToken || '-'}
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="px-2"
-                      onClick={() => copy('Invite token', doc?.inviteToken)}
-                      disabled={!doc?.inviteToken}
-                      aria-label="Copy invite token"
-                      title="Copy invite token"
-                    >
-                      <Copy size={16} />
-                    </Button>
-                  </div>
-                </div>
+                <Field label="Invited By Staff" value={invitedByStaffName} />
+                <Field label="Staff Contact" value={invitedByStaffContact} />
               </div>
 
               <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field label="Opened At" value={doc?.openedAt} mono />
-                <Field label="Accepted At" value={doc?.acceptedAt} mono />
+                <Field label="Opened At" value={doc?.openedAt} />
+                <Field label="Accepted At" value={doc?.acceptedAt} />
               </div>
             </Card>
-
-            <Can any={['GW_OPS_WRITE']}>
-              {showAdvanced ? (
-                <Card className="lg:col-span-2 p-0 overflow-hidden">
-                  <div className="border-b border-slate-200/70 px-4 py-3 text-sm font-semibold dark:border-slate-700/60">
-                    Advanced JSON Editor (PUT replace)
-                  </div>
-                  <textarea
-                    className="h-[60vh] w-full resize-none bg-slate-950 text-slate-100 p-4 font-mono text-xs leading-relaxed"
-                    value={editor}
-                    onChange={(e) => setEditor(e.target.value)}
-                    spellCheck={false}
-                  />
-                </Card>
-              ) : null}
-            </Can>
           </div>
         )}
       </div>

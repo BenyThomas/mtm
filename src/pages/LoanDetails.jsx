@@ -110,8 +110,6 @@ const LoanDetails = () => {
     const [assignBusy, setAssignBusy] = useState(false);
     const [loanOfficerId, setLoanOfficerId] = useState('');
     const [assignmentDate, setAssignmentDate] = useState(dateISO());
-    const [assignReqPreview, setAssignReqPreview] = useState(null);
-    const [assignRespPreview, setAssignRespPreview] = useState(null);
     const [availableOfficers, setAvailableOfficers] = useState([]); // optional: populate from template if present
 
     const [unassignOpen, setUnassignOpen] = useState(false);
@@ -477,7 +475,7 @@ const LoanDetails = () => {
         }
     };
 
-    // Assign a Loan Officer (with request/response preview)
+    // Assign a Loan Officer
     const assignOfficer = async () => {
         if (!loanOfficerId) {
             addToast('Select a loan officer', 'error');
@@ -490,16 +488,12 @@ const LoanDetails = () => {
             dateFormat: 'yyyy-MM-dd',
             locale: 'en',
         };
-        setAssignReqPreview(payload);
-        setAssignRespPreview(null);
         try {
-            const resp = await api.post(`/loans/${id}?command=assignLoanOfficer`, payload);
-            setAssignRespPreview(resp?.data || { ok: true });
+            await api.post(`/loans/${id}?command=assignLoanOfficer`, payload);
             addToast('Loan Officer assigned', 'success');
             await fetchAll();
         } catch (err) {
             const data = err?.response?.data;
-            setAssignRespPreview(data || { error: true });
             const msg = data?.errors?.[0]?.defaultUserMessage || data?.defaultUserMessage || 'Assign failed';
             addToast(msg, 'error');
         } finally {
@@ -1259,14 +1253,14 @@ const LoanDetails = () => {
                 </div>
             </Modal>
 
-            {/* Assign Officer Modal (with request/response preview) */}
+            {/* Assign Officer Modal */}
             <Modal
                 open={assignOpen}
                 title="Assign Loan Officer"
-                onClose={() => { setAssignOpen(false); setAssignReqPreview(null); setAssignRespPreview(null); }}
+                onClose={() => { setAssignOpen(false); }}
                 footer={
                     <>
-                        <Button variant="secondary" onClick={() => { setAssignOpen(false); setAssignReqPreview(null); setAssignRespPreview(null); }}>
+                        <Button variant="secondary" onClick={() => { setAssignOpen(false); }}>
                             Close
                         </Button>
                         <Button onClick={assignOfficer} disabled={assignBusy}>
@@ -1301,26 +1295,9 @@ const LoanDetails = () => {
                         </div>
                     </div>
 
-                    {/* Request + Response preview */}
-                    {assignReqPreview && (
-                        <div className="mt-3">
-                            <div className="text-xs font-semibold text-gray-500 mb-1">Request Body</div>
-                            <pre className="text-xs bg-gray-100 dark:bg-gray-800 p-3 rounded overflow-auto">
-{JSON.stringify(assignReqPreview, null, 2)}
-              </pre>
-                        </div>
-                    )}
-                    {assignRespPreview && (
-                        <div className="mt-3">
-                            <div className="text-xs font-semibold text-gray-500 mb-1">Response</div>
-                            <pre className="text-xs bg-gray-100 dark:bg-gray-800 p-3 rounded overflow-auto">
-{JSON.stringify(assignRespPreview, null, 2)}
-              </pre>
-                        </div>
-                    )}
-                    {!assignReqPreview && !assignRespPreview && (
-                        <p className="text-xs text-gray-500">Submit to see the request payload and server response.</p>
-                    )}
+                    <div className="rounded-xl border border-slate-200/70 bg-slate-50 px-3 py-3 text-xs text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/50 dark:text-slate-300">
+                        Assign the selected loan officer from the chosen assignment date. When submitted successfully, the loan profile will show the updated officer.
+                    </div>
                 </div>
             </Modal>
 
