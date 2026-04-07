@@ -20,6 +20,11 @@ export async function createGwLoan(payload) {
   return unwrap(r);
 }
 
+export async function applyGwLoanOnBehalf(customerId, payload) {
+  const r = await gatewayApi.post(`/ops/loans/customers/${encodeURIComponent(customerId)}/apply`, payload);
+  return unwrap(r);
+}
+
 export async function replaceGwLoan(platformLoanId, payload) {
   const r = await gatewayApi.put(`/ops/loans/${encodeURIComponent(platformLoanId)}`, payload);
   return unwrap(r);

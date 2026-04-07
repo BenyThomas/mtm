@@ -4,11 +4,40 @@ import { Copy } from 'lucide-react';
 import Button from '../../../components/Button';
 import Card from '../../../components/Card';
 import Skeleton from '../../../components/Skeleton';
-import { cancelInvite, deleteInvite, getInvite } from '../../../api/gateway/invites';
+import Modal from '../../../components/Modal';
+import SearchableSelectField from '../../../components/SearchableSelectField';
+import { cancelInvite, deleteInvite, getInvite, getInviteOnboarding, acceptInviteOnBehalf } from '../../../api/gateway/invites';
 import { useToast } from '../../../context/ToastContext';
 import Can from '../../../components/Can';
 import { getCenter, getGroup } from '../../../api/gateway/community';
 import useStaff from '../../../hooks/useStaff';
+import { listLoanProductsOps } from '../../../api/gateway/loanProducts';
+import { applyGwLoanOnBehalf } from '../../../api/gateway/loans';
+import { listBankNames } from '../../../api/gateway/bankNames';
+
+const GENDER_OPTIONS = [
+  { value: '', label: 'Select gender' },
+  { value: 'MALE', label: 'Male' },
+  { value: 'FEMALE', label: 'Female' },
+];
+
+const INCOME_SOURCE_OPTIONS = [
+  { value: '', label: 'Select income source' },
+  { value: 'SALARY', label: 'Salary' },
+  { value: 'BUSINESS', label: 'Business' },
+  { value: 'FARMING', label: 'Farming' },
+  { value: 'CASUAL_WORK', label: 'Casual Work' },
+  { value: 'OTHER', label: 'Other' },
+];
+
+const EMPLOYMENT_TYPE_OPTIONS = [
+  { value: '', label: 'Select employment type' },
+  { value: 'EMPLOYED', label: 'Employed' },
+  { value: 'SELF_EMPLOYED', label: 'Self Employed' },
+  { value: 'BUSINESS_OWNER', label: 'Business Owner' },
+  { value: 'UNEMPLOYED', label: 'Unemployed' },
+  { value: 'OTHER', label: 'Other' },
+];
 
 const copyToClipboard = async (text) => {
   const t = String(text || '');
@@ -80,8 +109,37 @@ const InviteDetails = () => {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const [doc, setDoc] = useState(null);
+  const [onboarding, setOnboarding] = useState(null);
   const [centerName, setCenterName] = useState('');
   const [groupName, setGroupName] = useState('');
+  const [acceptOpen, setAcceptOpen] = useState(false);
+  const [loanOpen, setLoanOpen] = useState(false);
+  const [loanProducts, setLoanProducts] = useState([]);
+  const [bankOptions, setBankOptions] = useState([]);
+  const [acceptSaving, setAcceptSaving] = useState(false);
+  const [loanSaving, setLoanSaving] = useState(false);
+  const [acceptForm, setAcceptForm] = useState({
+    firstName: '',
+    lastName: '',
+    phone: '',
+    email: '',
+    dob: '',
+    gender: '',
+    nationalId: '',
+    region: '',
+    district: '',
+    ward: '',
+    street: '',
+    nextOfKinName: '',
+    nextOfKinPhone: '',
+    employerName: '',
+    employmentType: '',
+    incomeSource: '',
+    bankName: '',
+    bankAccount: '',
+    walletMsisdn: '',
+  });
+  const [loanForm, setLoanForm] = useState({ productCode: '', amount: '' });
 
   const load = async () => {
     setLoading(true);
@@ -89,6 +147,12 @@ const InviteDetails = () => {
     try {
       const data = await getInvite(inviteId);
       setDoc(data);
+      try {
+        const onboardingData = await getInviteOnboarding(inviteId);
+        setOnboarding(onboardingData);
+      } catch (_) {
+        setOnboarding(null);
+      }
     } catch (e) {
       setErr(e?.response?.data?.message || e?.message || 'Failed to load invite');
     } finally {
@@ -131,6 +195,70 @@ const InviteDetails = () => {
       cancelled = true;
     };
   }, [doc?.centerId, doc?.groupId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const items = await listLoanProductsOps();
+        if (!cancelled) {
+          const normalized = Array.isArray(items) ? items : Array.isArray(items?.items) ? items.items : [];
+          setLoanProducts(normalized.filter(Boolean));
+        }
+      } catch {
+        if (!cancelled) setLoanProducts([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await listBankNames({ active: true, limit: 500, offset: 0, orderBy: 'name', sortOrder: 'asc' });
+        const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+        if (!cancelled) {
+          setBankOptions(
+            items
+              .filter((item) => item?.name)
+              .map((item) => ({ id: String(item.name), label: String(item.name) }))
+          );
+        }
+      } catch {
+        if (!cancelled) setBankOptions([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    setAcceptForm({
+      firstName: doc?.prefill?.firstName || '',
+      lastName: doc?.prefill?.lastName || '',
+      phone: doc?.prefill?.phoneNumber || '',
+      email: '',
+      dob: '',
+      gender: '',
+      nationalId: '',
+      region: '',
+      district: '',
+      ward: '',
+      street: '',
+      nextOfKinName: '',
+      nextOfKinPhone: '',
+      employerName: '',
+      employmentType: '',
+      incomeSource: '',
+      bankName: '',
+      bankAccount: '',
+      walletMsisdn: doc?.prefill?.phoneNumber || '',
+    });
+  }, [doc?.inviteId, doc?.prefill?.firstName, doc?.prefill?.lastName, doc?.prefill?.phoneNumber]);
 
   const staffNameById = useMemo(() => {
     const map = {};
@@ -193,6 +321,86 @@ const InviteDetails = () => {
   const invitedByStaffName = doc?.invitedByStaffId ? (staffNameById[String(doc.invitedByStaffId)] || '') : '';
   const invitedByStaffContact = doc?.invitedByStaffId ? (staffContactById[String(doc.invitedByStaffId)] || '') : '';
   const inviteLabel = doc?.campaignCode || doc?.channel || 'Invite';
+  const canAcceptOnBehalf = !!doc?.inviteId && !['ACCEPTED', 'CANCELLED', 'EXPIRED'].includes(String(doc?.status || '').toUpperCase());
+  const canApplyLoan = !!(onboarding?.gatewayCustomerId || onboarding?.fineractClientId);
+  const loanProductOptions = loanProducts.map((item) => ({
+    id: String(item?.productCode || ''),
+    label: `${item?.name || item?.productCode || 'Product'}${item?.productCode ? ` (${item.productCode})` : ''}`,
+  })).filter((item) => item.id);
+
+  const openAcceptModal = () => setAcceptOpen(true);
+
+  const submitAcceptOnBehalf = async (e) => {
+    e?.preventDefault?.();
+    setAcceptSaving(true);
+    setErr('');
+    try {
+      const payload = {
+        authenticationMode: 'PASSWORD',
+        profile: {
+          firstName: acceptForm.firstName || null,
+          lastName: acceptForm.lastName || null,
+          phone: acceptForm.phone || null,
+          email: acceptForm.email || null,
+          dob: acceptForm.dob || null,
+          gender: acceptForm.gender || null,
+          nationalId: acceptForm.nationalId || null,
+          region: acceptForm.region || null,
+          district: acceptForm.district || null,
+          ward: acceptForm.ward || null,
+          street: acceptForm.street || null,
+          nextOfKinName: acceptForm.nextOfKinName || null,
+          nextOfKinPhone: acceptForm.nextOfKinPhone || null,
+          employerName: acceptForm.employerName || null,
+          employmentType: acceptForm.employmentType || null,
+          incomeSource: acceptForm.incomeSource || null,
+          bankName: acceptForm.bankName || null,
+          bankAccount: acceptForm.bankAccount || null,
+          walletMsisdn: acceptForm.walletMsisdn || null,
+        },
+      };
+      const result = await acceptInviteOnBehalf(inviteId, payload);
+      setOnboarding(result?.onboarding || null);
+      setAcceptOpen(false);
+      addToast(result?.profileComplete ? 'Onboarding completed and PIN sent by SMS' : 'Invite accepted and PIN sent by SMS', 'success');
+      setRefreshRequested();
+    } catch (e2) {
+      const msg = e2?.response?.data?.errors?.[0]?.details || e2?.response?.data?.message || e2?.message || 'Assisted onboarding failed';
+      setErr(msg);
+      addToast(msg, 'error');
+    } finally {
+      setAcceptSaving(false);
+    }
+  };
+
+  const submitLoanOnBehalf = async (e) => {
+    e?.preventDefault?.();
+    if (!onboarding?.gatewayCustomerId) {
+      addToast('Customer mapping is missing', 'error');
+      return;
+    }
+    setLoanSaving(true);
+    setErr('');
+    try {
+      const loan = await applyGwLoanOnBehalf(onboarding.gatewayCustomerId, {
+        productCode: loanForm.productCode,
+        amount: Number(loanForm.amount),
+      });
+      setLoanOpen(false);
+      addToast('Loan application submitted', 'success');
+      navigate(`/gateway/loans/${encodeURIComponent(loan?.platformLoanId)}`);
+    } catch (e2) {
+      const msg = e2?.response?.data?.errors?.[0]?.details || e2?.response?.data?.message || e2?.message || 'Loan application failed';
+      setErr(msg);
+      addToast(msg, 'error');
+    } finally {
+      setLoanSaving(false);
+    }
+  };
+
+  const setRefreshRequested = () => {
+    load();
+  };
 
   return (
     <div>
@@ -207,6 +415,18 @@ const InviteDetails = () => {
           <Button variant="secondary" onClick={load} disabled={loading || saving}>
             Refresh
           </Button>
+          <Can any={['GW_OPS_WRITE']}>
+            {canAcceptOnBehalf ? (
+              <Button onClick={openAcceptModal} disabled={loading || saving || acceptSaving}>
+                Accept On Behalf
+              </Button>
+            ) : null}
+            {canApplyLoan ? (
+              <Button onClick={() => setLoanOpen(true)} disabled={loading || saving || loanSaving}>
+                Apply Loan On Behalf
+              </Button>
+            ) : null}
+          </Can>
           <Can any={['GW_OPS_WRITE']}>
             <Button variant="secondary" onClick={doCancel} disabled={loading || saving}>
               Cancel Invite
@@ -319,9 +539,149 @@ const InviteDetails = () => {
                 <Field label="Accepted At" value={doc?.acceptedAt} />
               </div>
             </Card>
+
+            <Card>
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                Onboarding
+              </div>
+              <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Field label="Status" value={onboarding?.status || '-'} />
+                <Field label="State" value={onboarding?.onboardingState || '-'} />
+                <Field label="Login Phone" value={onboarding?.mobileNo || doc?.prefill?.phoneNumber || '-'} />
+                <Field label="Account Ready" value={canApplyLoan ? 'Yes' : 'No'} />
+                <Field label="Updated At" value={onboarding?.updatedAt || '-'} />
+              </div>
+            </Card>
           </div>
         )}
       </div>
+
+      <Modal
+        open={acceptOpen}
+        onClose={() => setAcceptOpen(false)}
+        title="Accept Invite On Behalf"
+        size="4xl"
+        footer={(
+          <>
+            <Button variant="secondary" onClick={() => setAcceptOpen(false)} disabled={acceptSaving}>Cancel</Button>
+            <Button onClick={submitAcceptOnBehalf} disabled={acceptSaving}>{acceptSaving ? 'Saving...' : 'Complete Onboarding'}</Button>
+          </>
+        )}
+      >
+        <form className="grid grid-cols-1 gap-4 md:grid-cols-2" onSubmit={submitAcceptOnBehalf}>
+          {[
+            ['First Name', 'firstName'],
+            ['Last Name', 'lastName'],
+            ['Phone', 'phone'],
+            ['Email', 'email'],
+            ['National ID', 'nationalId'],
+            ['Region', 'region'],
+            ['District', 'district'],
+            ['Ward', 'ward'],
+            ['Street', 'street'],
+            ['Next of Kin Name', 'nextOfKinName'],
+            ['Next of Kin Phone', 'nextOfKinPhone'],
+            ['Employer Name', 'employerName'],
+            ['Bank Account', 'bankAccount'],
+            ['Wallet MSISDN', 'walletMsisdn'],
+          ].map(([label, key]) => (
+            <label key={key} className="block text-sm text-slate-700 dark:text-slate-200">
+              <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</span>
+              <input
+                value={acceptForm[key]}
+                onChange={(e) => setAcceptForm((prev) => ({ ...prev, [key]: e.target.value }))}
+                className="w-full rounded-xl border p-2.5 dark:border-gray-600 dark:bg-gray-700"
+              />
+            </label>
+          ))}
+          <label className="block text-sm text-slate-700 dark:text-slate-200">
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Date of Birth</span>
+            <input
+              type="date"
+              value={acceptForm.dob}
+              onChange={(e) => setAcceptForm((prev) => ({ ...prev, dob: e.target.value }))}
+              className="w-full rounded-xl border p-2.5 dark:border-gray-600 dark:bg-gray-700"
+            />
+          </label>
+          <label className="block text-sm text-slate-700 dark:text-slate-200">
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Gender</span>
+            <select
+              value={acceptForm.gender}
+              onChange={(e) => setAcceptForm((prev) => ({ ...prev, gender: e.target.value }))}
+              className="w-full rounded-xl border p-2.5 dark:border-gray-600 dark:bg-gray-700"
+            >
+              {GENDER_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm text-slate-700 dark:text-slate-200">
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Employment Type</span>
+            <select
+              value={acceptForm.employmentType}
+              onChange={(e) => setAcceptForm((prev) => ({ ...prev, employmentType: e.target.value }))}
+              className="w-full rounded-xl border p-2.5 dark:border-gray-600 dark:bg-gray-700"
+            >
+              {EMPLOYMENT_TYPE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm text-slate-700 dark:text-slate-200">
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Income Source</span>
+            <select
+              value={acceptForm.incomeSource}
+              onChange={(e) => setAcceptForm((prev) => ({ ...prev, incomeSource: e.target.value }))}
+              className="w-full rounded-xl border p-2.5 dark:border-gray-600 dark:bg-gray-700"
+            >
+              {INCOME_SOURCE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <SearchableSelectField
+            label="Bank"
+            value={acceptForm.bankName}
+            onChange={(value) => setAcceptForm((prev) => ({ ...prev, bankName: String(value || '') }))}
+            options={bankOptions}
+            placeholder="Search bank"
+          />
+        </form>
+      </Modal>
+
+      <Modal
+        open={loanOpen}
+        onClose={() => setLoanOpen(false)}
+        title="Apply Loan On Behalf"
+        size="lg"
+        footer={(
+          <>
+            <Button variant="secondary" onClick={() => setLoanOpen(false)} disabled={loanSaving}>Cancel</Button>
+            <Button onClick={submitLoanOnBehalf} disabled={loanSaving}>{loanSaving ? 'Submitting...' : 'Submit Loan'}</Button>
+          </>
+        )}
+      >
+        <form className="grid grid-cols-1 gap-4" onSubmit={submitLoanOnBehalf}>
+          <SearchableSelectField
+            label="Loan Product"
+            value={loanForm.productCode}
+            onChange={(value) => setLoanForm((prev) => ({ ...prev, productCode: value }))}
+            options={loanProductOptions}
+            placeholder="Select product"
+          />
+          <label className="block text-sm text-slate-700 dark:text-slate-200">
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Amount</span>
+            <input
+              type="number"
+              min="1"
+              step="0.01"
+              value={loanForm.amount}
+              onChange={(e) => setLoanForm((prev) => ({ ...prev, amount: e.target.value }))}
+              className="w-full rounded-xl border p-2.5 dark:border-gray-600 dark:bg-gray-700"
+            />
+          </label>
+        </form>
+      </Modal>
     </div>
   );
 };
