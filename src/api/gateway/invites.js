@@ -16,6 +16,11 @@ export async function getInvite(inviteId) {
   return unwrap(r);
 }
 
+export async function getInviteOnboarding(inviteId) {
+  const r = await gatewayApi.get(`/ops/invites/${encodeURIComponent(inviteId)}/onboarding`);
+  return unwrap(r);
+}
+
 export async function createInvite(payload) {
   const r = await gatewayApi.post('/ops/invites', payload);
   return unwrap(r);
@@ -85,5 +90,10 @@ export async function deleteInvite(inviteId) {
 
 export async function cancelInvite(inviteId) {
   const r = await gatewayApi.post(`/ops/invites/${encodeURIComponent(inviteId)}/cancel`);
+  return unwrap(r);
+}
+
+export async function acceptInviteOnBehalf(inviteId, payload) {
+  const r = await gatewayApi.post(`/ops/invites/${encodeURIComponent(inviteId)}/accept-on-behalf`, payload);
   return unwrap(r);
 }

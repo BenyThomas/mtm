@@ -63,6 +63,7 @@ const copyToClipboard = async (text) => {
 const statusTone = (s) => {
   const v = String(s || '').toUpperCase();
   if (v === 'APPROVED') return 'green';
+  if (v === 'ACTIVE') return 'blue';
   if (v === 'DISBURSED') return 'blue';
   if (v === 'SUBMITTED') return 'yellow';
   if (v === 'CLOSED') return 'gray';
@@ -425,11 +426,12 @@ const GwLoanDetails = () => {
 
   const canApprove =
     statusUpper === 'SUBMITTED' ||
-    ((statusUpper !== 'APPROVED' && statusUpper !== 'DISBURSED' && statusUpper !== 'CLOSED') && fxPendingApproval);
+    ((statusUpper !== 'APPROVED' && statusUpper !== 'ACTIVE' && statusUpper !== 'DISBURSED' && statusUpper !== 'CLOSED') && fxPendingApproval);
 
   const hasFineractLoanId = !!String(doc?.fineractLoanId || '').trim();
   const canDisburse =
     hasFineractLoanId &&
+    statusUpper !== 'ACTIVE' &&
     statusUpper !== 'DISBURSED' &&
     statusUpper !== 'CLOSED' &&
     (statusUpper === 'APPROVED' || (fxApproved && fxNotDisbursedOrClosed));
@@ -464,7 +466,7 @@ const GwLoanDetails = () => {
   }), [customerProfile, doc?.customerFullName, doc?.customerPhone]);
   const canRepayViaSelcom =
     hasFineractLoanId &&
-    statusUpper !== 'CLOSED' &&
+    (statusUpper === 'ACTIVE' || statusUpper === 'DISBURSED' || fxStatusUpper.includes('ACTIVE')) &&
     (outstandingAmount == null || outstandingAmount > 0);
   const nextWorkflowAction = canRefund
     ? 'refund'

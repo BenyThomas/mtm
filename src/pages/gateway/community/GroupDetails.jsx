@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { Pencil, ShieldCheck, UserMinus, UserPlus, UserX } from 'lucide-react';
+import { Pencil, ShieldCheck, UserMinus, UserPlus, UserX, Users } from 'lucide-react';
 import AsyncSearchableSelectField from '../../../components/AsyncSearchableSelectField';
 import Badge from '../../../components/Badge';
 import Button from '../../../components/Button';
@@ -12,6 +12,7 @@ import Skeleton from '../../../components/Skeleton';
 import {
   assignGroupAdmin,
   createGroupInvite,
+  createGroupInvitesBulk,
   deactivateGroupMember,
   getGroup,
   removeGroupMember,
@@ -20,6 +21,7 @@ import { getOpsResource, listOpsResources } from '../../../api/gateway/opsResour
 import useInviteCatalog from '../../../hooks/useInviteCatalog';
 import useStaff from '../../../hooks/useStaff';
 import { useToast } from '../../../context/ToastContext';
+import { approveGwLoan, disburseGwLoan, listGwLoans } from '../../../api/gateway/loans';
 
 const inviteInit = {
   campaignCode: '',
@@ -27,6 +29,12 @@ const inviteInit = {
   maxUses: '1',
   membershipRole: 'MEMBER',
   invitedByStaffId: '',
+  phoneNumber: '',
+  firstName: '',
+  lastName: '',
+};
+
+const bulkInviteRowInit = {
   phoneNumber: '',
   firstName: '',
   lastName: '',
@@ -57,6 +65,23 @@ const formatDateTime = (value) => {
 };
 
 const memberActionId = (customerId, action) => `${customerId}:${action}`;
+const loanActionId = (platformLoanId, action) => `${platformLoanId}:${action}`;
+
+const normalizeLoanStatus = (value) => String(value || '').trim().toUpperCase();
+
+const nextLoanAction = (loan) => {
+  const status = normalizeLoanStatus(loan?.status);
+  if (['SUBMITTED', 'PENDING', 'PENDING_UPSTREAM', 'CREATED_IN_FINERACT'].includes(status)) {
+    return 'approve';
+  }
+  if (status === 'APPROVED') {
+    return 'disburse';
+  }
+  if (status === 'ACTIVE' || status === 'DISBURSED') {
+    return 'repay';
+  }
+  return '';
+};
 
 const GroupDetails = () => {
   const { groupId } = useParams();
@@ -78,12 +103,21 @@ const GroupDetails = () => {
   const [actorCustomerId, setActorCustomerId] = useState('');
   const [inviteForm, setInviteForm] = useState(inviteInit);
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [bulkInviteOpen, setBulkInviteOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [deactivateOpen, setDeactivateOpen] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
   const [selectedMember, setSelectedMember] = useState(null);
   const [memberRoleDraft, setMemberRoleDraft] = useState('MEMBER');
+  const [bulkInviteRows, setBulkInviteRows] = useState([{ ...bulkInviteRowInit }]);
+  const [memberTab, setMemberTab] = useState('members');
+  const [loanMemberFilter, setLoanMemberFilter] = useState('');
+  const [loanStatusFilter, setLoanStatusFilter] = useState('ACTIVE');
+  const [loanSearch, setLoanSearch] = useState('');
+  const [groupLoans, setGroupLoans] = useState([]);
+  const [memberLoansLoading, setMemberLoansLoading] = useState(false);
+  const [actingOnLoanId, setActingOnLoanId] = useState('');
 
   const load = async () => {
     setLoading(true);
@@ -195,6 +229,117 @@ const GroupDetails = () => {
     }));
   }, [campaignOptions, channelOptions]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const loadMemberLoans = async () => {
+      const memberIds = activeMembers
+        .map((item) => String(item?.customerId || '').trim())
+        .filter(Boolean);
+      if (!memberIds.length) {
+        setGroupLoans([]);
+        return;
+      }
+      setMemberLoansLoading(true);
+      try {
+        const responses = await Promise.all(
+          memberIds.map((customerId) => listGwLoans({
+            customerId,
+            limit: 100,
+            offset: 0,
+            orderBy: 'appliedAt',
+            sortOrder: 'desc',
+          }))
+        );
+        if (!cancelled) {
+          const merged = [];
+          for (const response of responses) {
+            const items = Array.isArray(response?.items) ? response.items : [];
+            merged.push(...items);
+          }
+          const deduped = Array.from(new Map(
+            merged
+              .filter((item) => item?.platformLoanId)
+              .map((item) => [String(item.platformLoanId), item])
+          ).values());
+          setGroupLoans(deduped);
+        }
+      } catch (_) {
+        if (!cancelled) setGroupLoans([]);
+      } finally {
+        if (!cancelled) setMemberLoansLoading(false);
+      }
+    };
+    loadMemberLoans();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeMembers]);
+
+  const refreshGroupLoans = async () => {
+    const memberIds = activeMembers
+      .map((item) => String(item?.customerId || '').trim())
+      .filter(Boolean);
+    if (!memberIds.length) {
+      setGroupLoans([]);
+      return;
+    }
+    setMemberLoansLoading(true);
+    try {
+      const responses = await Promise.all(
+        memberIds.map((customerId) => listGwLoans({
+          customerId,
+          limit: 100,
+          offset: 0,
+          orderBy: 'appliedAt',
+          sortOrder: 'desc',
+        }))
+      );
+      const merged = [];
+      for (const response of responses) {
+        const items = Array.isArray(response?.items) ? response.items : [];
+        merged.push(...items);
+      }
+      const deduped = Array.from(new Map(
+        merged
+          .filter((item) => item?.platformLoanId)
+          .map((item) => [String(item.platformLoanId), item])
+      ).values());
+      setGroupLoans(deduped);
+    } catch (_) {
+      setGroupLoans([]);
+    } finally {
+      setMemberLoansLoading(false);
+    }
+  };
+
+  const handleLoanAction = async (loan, action) => {
+    const platformLoanId = String(loan?.platformLoanId || '').trim();
+    if (!platformLoanId) return;
+    if (action === 'repay') {
+      navigate(`/gateway/loans/${encodeURIComponent(platformLoanId)}`);
+      return;
+    }
+    const actionKey = loanActionId(platformLoanId, action);
+    setActingOnLoanId(actionKey);
+    setError('');
+    try {
+      if (action === 'approve') {
+        await approveGwLoan(platformLoanId, {});
+        addToast('Loan approved', 'success');
+      } else if (action === 'disburse') {
+        await disburseGwLoan(platformLoanId, {});
+        addToast('Loan disbursed', 'success');
+      }
+      await Promise.all([load(), refreshGroupLoans()]);
+    } catch (e) {
+      const msg = e?.response?.data?.errors?.[0]?.details || e?.response?.data?.message || e?.message || `Failed to ${action} loan`;
+      setError(msg);
+      addToast(msg, 'error');
+    } finally {
+      setActingOnLoanId('');
+    }
+  };
+
   const openMemberModal = (member, mode) => {
     setSelectedMember(member);
     setMemberRoleDraft(String(member?.role || 'MEMBER').toUpperCase());
@@ -249,6 +394,42 @@ const GroupDetails = () => {
       navigate(`/gateway/invites/${encodeURIComponent(created?.inviteId)}`);
     } catch (e2) {
       const msg = e2?.response?.data?.errors?.[0]?.details || e2?.response?.data?.message || e2?.message || 'Create failed';
+      setError(msg);
+      addToast(msg, 'error');
+    } finally {
+      setSavingInvite(false);
+    }
+  };
+
+  const submitBulkInvite = async (e) => {
+    e.preventDefault();
+    setSavingInvite(true);
+    setError('');
+    try {
+      const members = bulkInviteRows
+        .map((item) => ({
+          phoneNumber: String(item.phoneNumber || '').trim() || null,
+          firstName: String(item.firstName || '').trim() || null,
+          lastName: String(item.lastName || '').trim() || null,
+        }))
+        .filter((item) => item.phoneNumber);
+      if (!members.length) {
+        addToast('At least one member phone number is required', 'error');
+        return;
+      }
+      const created = await createGroupInvitesBulk(groupId, {
+        campaignCode: inviteForm.campaignCode.trim(),
+        channel: inviteForm.channel.trim(),
+        maxUses: Number(inviteForm.maxUses) || 1,
+        membershipRole: inviteForm.membershipRole,
+        invitedByStaffId: Number(inviteForm.invitedByStaffId),
+        members,
+      });
+      setBulkInviteOpen(false);
+      setBulkInviteRows([{ ...bulkInviteRowInit }]);
+      addToast(`${Number(created?.total || members.length)} group invites created`, 'success');
+    } catch (e2) {
+      const msg = e2?.response?.data?.errors?.[0]?.details || e2?.response?.data?.message || e2?.message || 'Bulk invite failed';
       setError(msg);
       addToast(msg, 'error');
     } finally {
@@ -377,6 +558,112 @@ const GroupDetails = () => {
     },
   ], [customerById]);
 
+  const memberLoanOptions = activeMembers
+    .map((item) => {
+      const customer = customerById[String(item?.customerId || '')] || null;
+      return {
+        id: String(item?.customerId || ''),
+        label: customer ? customerLabelFromDoc(customer) : String(item?.customerId || ''),
+      };
+    })
+    .filter((item) => item.id);
+
+  const memberLoanColumns = useMemo(() => [
+    {
+      key: 'member',
+      header: 'Member',
+      sortable: false,
+      render: (row) => {
+        const customer = customerById[String(row?.customerId || '')] || null;
+        return customer ? customerLabelFromDoc(customer) : '-';
+      },
+    },
+    {
+      key: 'productCode',
+      header: 'Product',
+      sortable: false,
+      render: (row) => row?.productCode || '-',
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      sortable: false,
+      render: (row) => <Badge tone={statusTone(row?.status)}>{row?.status || '-'}</Badge>,
+    },
+    {
+      key: 'principal',
+      header: 'Principal',
+      sortable: false,
+      render: (row) => row?.principal ?? '-',
+    },
+    {
+      key: 'outstandingAmount',
+      header: 'Outstanding',
+      sortable: false,
+      render: (row) => row?.outstandingAmount ?? '-',
+    },
+    {
+      key: 'appliedAt',
+      header: 'Applied',
+      sortable: false,
+      render: (row) => formatDateTime(row?.appliedAt),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      sortable: false,
+      render: (row) => {
+        const action = nextLoanAction(row);
+        if (!action) {
+          return <span className="text-xs text-slate-500 dark:text-slate-400">No action</span>;
+        }
+        const labels = {
+          approve: 'Approve',
+          disburse: 'Disburse',
+          repay: 'Repay',
+        };
+        const actionKey = loanActionId(row?.platformLoanId, action);
+        return (
+          <div onClick={(e) => e.stopPropagation()}>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => handleLoanAction(row, action)}
+              disabled={actingOnLoanId === actionKey}
+            >
+              {actingOnLoanId === actionKey ? 'Working...' : labels[action]}
+            </Button>
+          </div>
+        );
+      },
+    },
+  ], [actingOnLoanId, customerById]);
+
+  const filteredGroupLoans = useMemo(() => {
+    let items = Array.isArray(groupLoans) ? [...groupLoans] : [];
+    if (loanMemberFilter) {
+      items = items.filter((item) => String(item?.customerId || '') === String(loanMemberFilter));
+    }
+    if (loanStatusFilter) {
+      items = items.filter((item) => String(item?.status || '').toUpperCase() === String(loanStatusFilter).toUpperCase());
+    }
+    const q = String(loanSearch || '').trim().toLowerCase();
+    if (q) {
+      items = items.filter((item) => {
+        const customer = customerById[String(item?.customerId || '')] || null;
+        const memberLabel = customer ? customerLabelFromDoc(customer).toLowerCase() : '';
+        return [
+          item?.productCode,
+          item?.status,
+          item?.platformLoanId,
+          item?.fineractLoanId,
+          memberLabel,
+        ].some((value) => String(value || '').toLowerCase().includes(q));
+      });
+    }
+    return items.sort((a, b) => String(b?.appliedAt || '').localeCompare(String(a?.appliedAt || '')));
+  }, [groupLoans, loanMemberFilter, loanSearch, loanStatusFilter, customerById]);
+
   return (
     <div>
       <div className="flex flex-wrap items-end justify-between gap-2">
@@ -391,6 +678,9 @@ const GroupDetails = () => {
           <Button variant="secondary" onClick={load} disabled={loading || savingAdmin || savingInvite || savingMember || !!actingOnMemberId}>Refresh</Button>
           <Button onClick={() => setInviteOpen(true)} disabled={loading}>
             <UserPlus size={16} /> Create Member
+          </Button>
+          <Button variant="secondary" onClick={() => setBulkInviteOpen(true)} disabled={loading}>
+            <Users size={16} /> Bulk Invite
           </Button>
         </div>
       </div>
@@ -423,21 +713,92 @@ const GroupDetails = () => {
                 <div className="text-sm font-semibold">Members</div>
                 <div className="text-xs text-slate-500 dark:text-slate-400">Manage members from the action column. Deactivate or remove is blocked when the member has an active loan.</div>
               </div>
+              <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-800/60">
+                <button
+                  type="button"
+                  className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${memberTab === 'members' ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-50' : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-50'}`}
+                  onClick={() => setMemberTab('members')}
+                >
+                  Members
+                </button>
+                <button
+                  type="button"
+                  className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${memberTab === 'loans' ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-50' : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-50'}`}
+                  onClick={() => setMemberTab('loans')}
+                >
+                  Loans
+                </button>
+              </div>
             </div>
             <div className="mt-4">
-              <DataTable
-                columns={memberColumns}
-                data={data.members.map((item) => ({ ...item, id: item?.membershipId }))}
-                loading={loading}
-                total={data.members.length}
-                page={0}
-                limit={Math.max(1, data.members.length || 1)}
-                onPageChange={() => {}}
-                sortBy=""
-                sortDir="asc"
-                onSort={() => {}}
-                emptyMessage="No members found"
-              />
+              {memberTab === 'members' ? (
+                <DataTable
+                  columns={memberColumns}
+                  data={data.members.map((item) => ({ ...item, id: item?.membershipId }))}
+                  loading={loading}
+                  total={data.members.length}
+                  page={0}
+                  limit={Math.max(1, data.members.length || 1)}
+                  onPageChange={() => {}}
+                  sortBy=""
+                  sortDir="asc"
+                  onSort={() => {}}
+                  emptyMessage="No members found"
+                />
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div>
+                      <SearchableSelectField
+                        label="Member"
+                        value={loanMemberFilter}
+                        onChange={(value) => setLoanMemberFilter(String(value || ''))}
+                        options={[{ id: '', label: 'All members' }, ...memberLoanOptions]}
+                        placeholder="Filter by member"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Status</label>
+                      <select
+                        value={loanStatusFilter}
+                        onChange={(e) => setLoanStatusFilter(e.target.value)}
+                        className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                      >
+                        <option value="ACTIVE">Active</option>
+                        <option value="">All statuses</option>
+                        <option value="APPROVED">Approved</option>
+                        <option value="DISBURSED">Disbursed</option>
+                        <option value="OVERPAID">Overpaid</option>
+                        <option value="CLOSED">Closed</option>
+                        <option value="CREATED_IN_FINERACT">Created</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Search</label>
+                      <input
+                        value={loanSearch}
+                        onChange={(e) => setLoanSearch(e.target.value)}
+                        placeholder="Product, member, status..."
+                        className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                      />
+                    </div>
+                  </div>
+                  <DataTable
+                    columns={memberLoanColumns}
+                    data={filteredGroupLoans.map((item) => ({ ...item, id: item?.platformLoanId }))}
+                    loading={memberLoansLoading}
+                    total={filteredGroupLoans.length}
+                    page={0}
+                    limit={Math.max(1, filteredGroupLoans.length || 1)}
+                    onPageChange={() => {}}
+                    sortBy=""
+                    sortDir="asc"
+                    onSort={() => {}}
+                    onRowClick={(row) => navigate(`/gateway/loans/${encodeURIComponent(row?.platformLoanId || '')}`)}
+                    emptyMessage="No loans found for the current filters"
+                  />
+                </div>
+              )}
             </div>
           </Card>
         </div>
@@ -518,6 +879,98 @@ const GroupDetails = () => {
               <input className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={inviteForm.lastName}
                 onChange={(e) => setInviteForm((p) => ({ ...p, lastName: e.target.value }))} />
             </div>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        open={bulkInviteOpen}
+        onClose={() => (savingInvite ? null : setBulkInviteOpen(false))}
+        title="Bulk Group Invite"
+        size="2xl"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setBulkInviteOpen(false)} disabled={savingInvite}>Cancel</Button>
+            <Button onClick={submitBulkInvite} disabled={savingInvite}>{savingInvite ? 'Creating...' : 'Create Invites'}</Button>
+          </>
+        }
+      >
+        <form className="space-y-4" onSubmit={submitBulkInvite}>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <SearchableSelectField
+              label="Campaign Code"
+              value={inviteForm.campaignCode}
+              onChange={(value) => setInviteForm((p) => ({ ...p, campaignCode: String(value || '') }))}
+              options={campaignOptions}
+              placeholder="Search campaign"
+              disabled={inviteCatalogLoading}
+              required
+            />
+            <SearchableSelectField
+              label="Channel"
+              value={inviteForm.channel}
+              onChange={(value) => setInviteForm((p) => ({ ...p, channel: String(value || '') }))}
+              options={channelOptions}
+              placeholder="Search channel"
+              disabled={inviteCatalogLoading}
+              required
+            />
+            <SearchableSelectField
+              label="Invited By Staff Id"
+              value={inviteForm.invitedByStaffId}
+              onChange={(value) => setInviteForm((p) => ({ ...p, invitedByStaffId: String(value || '') }))}
+              options={staffOptions}
+              placeholder="Search staff"
+              disabled={staffLoading}
+              required
+            />
+            <div>
+              <label className="block text-sm font-medium">Max Uses</label>
+              <input className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={inviteForm.maxUses}
+                onChange={(e) => setInviteForm((p) => ({ ...p, maxUses: e.target.value }))} />
+            </div>
+          </div>
+          <div className="space-y-3">
+            {bulkInviteRows.map((row, idx) => (
+              <div key={`bulk-row-${idx}`} className="grid gap-3 rounded-xl border border-slate-200/70 p-3 dark:border-slate-700/60 md:grid-cols-3">
+                <div>
+                  <label className="block text-sm font-medium">Phone</label>
+                  <input
+                    className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                    value={row.phoneNumber}
+                    onChange={(e) => setBulkInviteRows((prev) => prev.map((item, itemIdx) => itemIdx === idx ? { ...item, phoneNumber: e.target.value } : item))}
+                    placeholder="2557..."
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium">First Name</label>
+                  <input
+                    className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                    value={row.firstName}
+                    onChange={(e) => setBulkInviteRows((prev) => prev.map((item, itemIdx) => itemIdx === idx ? { ...item, firstName: e.target.value } : item))}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium">Last Name</label>
+                  <input
+                    className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                    value={row.lastName}
+                    onChange={(e) => setBulkInviteRows((prev) => prev.map((item, itemIdx) => itemIdx === idx ? { ...item, lastName: e.target.value } : item))}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <Button type="button" variant="secondary" onClick={() => setBulkInviteRows((prev) => ([...prev, { ...bulkInviteRowInit }]))}>Add Row</Button>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setBulkInviteRows((prev) => (prev.length > 1 ? prev.slice(0, -1) : prev))}
+              disabled={bulkInviteRows.length <= 1}
+            >
+              Remove Last
+            </Button>
           </div>
         </form>
       </Modal>
