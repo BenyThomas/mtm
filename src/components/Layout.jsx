@@ -35,41 +35,42 @@ const NAV_GROUPS = [
   {
     title: 'Gateway',
     items: [
-      { to: '/gateway', label: 'Overview', icon: 'G', perm: 'GW_OPS_READ' },
-      { to: '/gateway/invites', label: 'Invites', icon: 'I', perm: 'GW_OPS_READ' },
-      { to: '/gateway/invite-campaigns', label: 'Invite Campaigns', icon: 'IC', perm: 'GW_OPS_WRITE' },
-      { to: '/gateway/invite-channels', label: 'Invite Channels', icon: 'CH', perm: 'GW_OPS_WRITE' },
-      { to: '/gateway/loans', label: 'Gw Loans', icon: 'L', perm: 'GW_OPS_READ' },
-      { to: '/gateway/product-catalog', label: 'Product Catalog', icon: 'P', perm: 'GW_OPS_READ' },
-      { to: '/gateway/loan-automation', label: 'Loan Automation', icon: 'A', perm: 'GW_OPS_WRITE' },
-      { to: '/gateway/group-lifecycle', label: 'Group Lifecycle', icon: 'GL', perm: 'GW_OPS_WRITE' },
-      { to: '/gateway/centers', label: 'Centers', icon: 'C', perm: 'GW_OPS_READ' },
-      { to: '/gateway/bank-names', label: 'Bank Names', icon: 'B', perm: 'GW_OPS_WRITE' },
-      { to: '/gateway/disbursements', label: 'Disbursements', icon: 'D', perm: 'GW_OPS_READ' },
-      { to: '/gateway/kyc', label: 'KYC Ops', icon: 'K', perm: 'GW_OPS_READ' },
+      { to: '/gateway', label: 'Overview', icon: 'G', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
+      { to: '/gateway/invites', label: 'Invites', icon: 'I', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CLIENT'] },
+      { to: '/gateway/invite-campaigns', label: 'Invite Campaigns', icon: 'IC', any: ['GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
+      { to: '/gateway/invite-channels', label: 'Invite Channels', icon: 'CH', any: ['GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
+      { to: '/gateway/loans', label: 'Gw Loans', icon: 'GL', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_LOAN'] },
+      { to: '/gateway/product-catalog', label: 'Product Catalog', icon: 'P', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
+      { to: '/gateway/access-mappings', label: 'Access Mappings', icon: 'AM', perm: ['READ_CONFIGURATION','GW_OPS_ALL'] },
+      { to: '/gateway/loan-automation', label: 'Loan Automation', icon: 'A', any: ['GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
+      { to: '/gateway/group-lifecycle', label: 'Group Lifecycle', icon: 'GL', any: ['GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
+      { to: '/gateway/centers', label: 'Centers', icon: 'C', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CENTER', 'READ_GROUP'] },
+      { to: '/gateway/bank-names', label: 'Bank Names', icon: 'B', any: ['GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION', 'UPDATE_CONFIGURATION'] },
+      { to: '/gateway/disbursements', label: 'Disbursements', icon: 'D', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
+      { to: '/gateway/kyc', label: 'KYC Ops', icon: 'K', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
     ],
   },
   {
     title: 'Gateway Data',
     items: [
-      { to: '/gateway/data/onboarding_records', label: 'Onboarding', icon: 'O', perm: 'GW_OPS_READ' },
-      { to: '/gateway/data/prospects', label: 'Prospects', icon: 'Pr', perm: 'GW_OPS_READ' },
-      { to: '/gateway/data/customers', label: 'Customers', icon: 'Cu', perm: 'GW_OPS_READ' },
-      { to: '/gateway/data/auth_accounts', label: 'Auth Accounts', icon: 'AA', perm: 'GW_OPS_READ' },
-      { to: '/gateway/data/auth_sessions', label: 'Auth Sessions', icon: 'AS', perm: 'GW_OPS_READ' },
-      { to: '/gateway/data/auth_refresh_tokens', label: 'Refresh Tokens', icon: 'RT', perm: 'GW_OPS_READ' },
-      { to: '/gateway/data/auth_otp_challenges', label: 'OTP Challenges', icon: 'OT', perm: 'GW_OPS_READ' },
-      { to: '/gateway/data/loans', label: 'Platform Loans', icon: 'L', perm: 'GW_OPS_READ' },
-      { to: '/gateway/data/disbursement_orders', label: 'Disbursement Orders', icon: 'DO', perm: 'GW_OPS_READ' },
-      { to: '/gateway/data/products', label: 'Products', icon: 'Pd', perm: 'GW_OPS_READ' },
-      { to: '/gateway/data/product_snapshots', label: 'Product Snapshots', icon: 'PS', perm: 'GW_OPS_READ' },
-      { to: '/gateway/data/score_band_policies', label: 'Score Bands', icon: 'SB', perm: 'GW_OPS_READ' },
-      { to: '/gateway/data/loan_product_policies', label: 'Loan Policies', icon: 'LP', perm: 'GW_OPS_READ' },
-      { to: '/gateway/data/borrower_scores', label: 'Borrower Scores', icon: 'BS', perm: 'GW_OPS_READ' },
-      { to: '/gateway/data/borrower_eligibility_results', label: 'Eligibility Results', icon: 'ER', perm: 'GW_OPS_READ' },
-      { to: '/gateway/data/schedule_preview_cache', label: 'Schedule Cache', icon: 'SC', perm: 'GW_OPS_READ' },
-      { to: '/gateway/data/consent_documents', label: 'Consent Docs', icon: 'CD', perm: 'GW_OPS_READ' },
-      { to: '/gateway/data/audit_events', label: 'Audit Events', icon: 'Au', perm: 'GW_OPS_READ' },
+      { to: '/gateway/data/onboarding_records', label: 'Onboarding', icon: 'O', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
+      { to: '/gateway/data/prospects', label: 'Prospects', icon: 'Pr', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
+      { to: '/gateway/data/customers', label: 'Customers', icon: 'Cu', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
+      { to: '/gateway/data/auth_accounts', label: 'Auth Accounts', icon: 'AA', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
+      { to: '/gateway/data/auth_sessions', label: 'Auth Sessions', icon: 'AS', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
+      { to: '/gateway/data/auth_refresh_tokens', label: 'Refresh Tokens', icon: 'RT', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
+      { to: '/gateway/data/auth_otp_challenges', label: 'OTP Challenges', icon: 'OT', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
+      { to: '/gateway/data/loans', label: 'Platform Loans', icon: 'L', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
+      { to: '/gateway/data/disbursement_orders', label: 'Disbursement Orders', icon: 'DO', any: ['GW_OPS_READ', 'GW_OPS_ALL'] },
+      { to: '/gateway/data/products', label: 'Products', icon: 'Pd', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
+      { to: '/gateway/data/product_snapshots', label: 'Product Snapshots', icon: 'PS', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
+      { to: '/gateway/data/score_band_policies', label: 'Score Bands', icon: 'SB', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
+      { to: '/gateway/data/loan_product_policies', label: 'Loan Policies', icon: 'LP', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
+      { to: '/gateway/data/borrower_scores', label: 'Borrower Scores', icon: 'BS', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
+      { to: '/gateway/data/borrower_eligibility_results', label: 'Eligibility Results', icon: 'ER', any: ['GW_OPS_READ', 'GW_OPS_ALL','READ_CONFIGURATION'] },
+      { to: '/gateway/data/schedule_preview_cache', label: 'Schedule Cache', icon: 'SC', any: ['GW_OPS_READ', 'GW_OPS_ALL'] },
+      { to: '/gateway/data/consent_documents', label: 'Consent Docs', icon: 'CD', any: ['GW_OPS_READ', 'GW_OPS_ALL'] },
+      { to: '/gateway/data/audit_events', label: 'Audit Events', icon: 'Au', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_AUDIT', 'READ_CONFIGURATION'] },
     ],
   },
   {
@@ -152,11 +153,16 @@ const Layout = () => {
   const [open, setOpen] = useState(false);
   const { can } = useAuth();
 
-  // filter items by single 'perm' (add support for 'any'/'all' if you want later)
+  // filter items by single 'perm' or permission groups
   const visibleGroups = useMemo(() => {
     return NAV_GROUPS.map(g => ({
       ...g,
-      items: g.items.filter(it => !it.perm || can(it.perm)),
+      items: g.items.filter((it) => {
+        if (Array.isArray(it.all) && it.all.length > 0) return it.all.every((code) => can(code));
+        if (Array.isArray(it.any) && it.any.length > 0) return it.any.some((code) => can(code));
+        if (it.perm) return can(it.perm);
+        return true;
+      }),
     })).filter(g => g.items.length > 0);
   }, [can]);
 

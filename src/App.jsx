@@ -103,6 +103,7 @@ import GatewayDashboard from "./pages/gateway/GatewayDashboard";
 import GatewayProductCatalog from "./pages/gateway/ProductCatalog";
 import GatewayLoanAutomationConfig from "./pages/gateway/LoanAutomationConfig";
 import GatewayBankNamesConfig from "./pages/gateway/BankNamesConfig";
+import GatewayAccessMappings from "./pages/gateway/AccessMappings";
 import GatewayKycOps from "./pages/gateway/KycOps";
 import DisbursementOrders from "./pages/gateway/DisbursementOrders";
 import InvitesList from "./pages/gateway/invites/InvitesList";
@@ -288,6 +289,7 @@ const App = () => {
                             <Route path="/gateway/loan-automation" element={<GatewayLoanAutomationConfig />} />
                             <Route path="/gateway/group-lifecycle" element={<GroupLifecycleConfig />} />
                             <Route path="/gateway/bank-names" element={<GatewayBankNamesConfig />} />
+                            <Route path="/gateway/access-mappings" element={<GatewayAccessMappings />} />
                             <Route path="/gateway/kyc" element={<GatewayKycOps />} />
                             <Route path="/gateway/disbursements" element={<DisbursementOrders />} />
                             <Route path="/gateway/centers" element={<CommunityCenters />} />

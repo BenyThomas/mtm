@@ -625,26 +625,27 @@ const GwLoanDetails = () => {
       addToast('Repayment amount must be greater than zero', 'error');
       return;
     }
-    if (!normalizeText(repaymentMsisdn)) {
+    if (!isEpikpayRepayment && !normalizeText(repaymentMsisdn)) {
       addToast('Customer wallet MSISDN is required', 'error');
       return;
     }
 
     setRepayBusy(true);
     try {
-      const provider = normalizeProvider(repaymentProvider) || resolveRepaymentProvider(loanAutomationCfg);
+      const provider = repaymentProviderValue;
       const result = await repayGwLoanMobile(platformLoanId, {
         amount,
         provider: provider || undefined,
+        channel: provider === 'EPIKPAY' ? 'CASH' : undefined,
         currency: normalizeText(repaymentCurrency) || 'TZS',
-        msisdn: normalizeText(repaymentMsisdn),
+        msisdn: isEpikpayRepayment ? undefined : normalizeText(repaymentMsisdn),
         payerName: normalizeText(repaymentPayerName) || undefined,
         payerEmail: normalizeText(repaymentPayerEmail) || undefined,
       });
       setRepaymentResult(result || null);
-      addToast(`${provider || 'Mobile'} push initiated`, 'success');
+      addToast(provider === 'EPIKPAY' ? 'Cash repayment posted' : `${provider || 'Mobile'} push initiated`, 'success');
     } catch (e) {
-      const msg = extractGatewayErrorMessage(e, 'Repayment push failed');
+      const msg = extractGatewayErrorMessage(e, provider === 'EPIKPAY' ? 'Cash repayment failed' : 'Repayment push failed');
       setErr(msg);
       addToast(msg, 'error');
     } finally {
@@ -675,6 +676,9 @@ const GwLoanDetails = () => {
     const uniq = Array.from(new Set([...enabled, ...(fallback ? [fallback] : [])]));
     return uniq;
   };
+
+  const repaymentProviderValue = normalizeProvider(repaymentProvider) || resolveRepaymentProvider(loanAutomationCfg);
+  const isEpikpayRepayment = repaymentProviderValue === 'EPIKPAY';
 
   const unwrapGatewayBody = (response) => {
     const body = response?.data;
@@ -1226,7 +1230,7 @@ const GwLoanDetails = () => {
       <Modal
         open={repayOpen}
         onClose={() => (repayBusy ? null : setRepayOpen(false))}
-        title="Repay Loan via Mobile Push"
+        title={isEpikpayRepayment ? 'Repay Loan via Cash Payment' : 'Repay Loan via Mobile Push'}
         size="lg"
         footer={
           <>
@@ -1236,10 +1240,10 @@ const GwLoanDetails = () => {
             <Button onClick={submitRepayMobile} disabled={repayBusy}>
               {repayBusy ? (
                 <span className="inline-flex items-center gap-2">
-                  <Loader2 className="animate-spin" size={16} /> Sending Push...
+                  <Loader2 className="animate-spin" size={16} /> {isEpikpayRepayment ? 'Posting Payment...' : 'Sending Push...'}
                 </span>
               ) : (
-                'Send Push'
+                isEpikpayRepayment ? 'Post Cash Payment' : 'Send Push'
               )}
             </Button>
           </>
@@ -1250,7 +1254,15 @@ const GwLoanDetails = () => {
             <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Aggregator</label>
             <select
               value={repaymentProvider}
-              onChange={(e) => setRepaymentProvider(e.target.value)}
+              onChange={(e) => {
+                const nextProvider = e.target.value;
+                setRepaymentProvider(nextProvider);
+                if (normalizeProvider(nextProvider) === 'EPIKPAY') {
+                  setRepaymentMsisdn('');
+                } else if (!normalizeText(repaymentMsisdn)) {
+                  setRepaymentMsisdn(customerRepaymentIdentity.msisdn || '');
+                }
+              }}
               className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
             >
               <option value="">Auto (Default Aggregator)</option>
@@ -1279,15 +1291,17 @@ const GwLoanDetails = () => {
               className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
             />
           </div>
-          <div className="sm:col-span-2">
-            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Customer MSISDN</label>
-            <input
-              value={repaymentMsisdn}
-              onChange={(e) => setRepaymentMsisdn(e.target.value)}
-              placeholder="2557XXXXXXXX"
-              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
-            />
-          </div>
+          {!isEpikpayRepayment ? (
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Customer MSISDN</label>
+              <input
+                value={repaymentMsisdn}
+                onChange={(e) => setRepaymentMsisdn(e.target.value)}
+                placeholder="2557XXXXXXXX"
+                className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+              />
+            </div>
+          ) : null}
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Payer Name</label>
             <input
@@ -1305,19 +1319,32 @@ const GwLoanDetails = () => {
             />
           </div>
           <div className="sm:col-span-2 rounded-xl border border-slate-200/70 bg-slate-50 px-3 py-3 text-xs text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/50 dark:text-slate-300">
-            Repayment is posted to Fineract only after the selected aggregator confirms payment completion.
+            {isEpikpayRepayment
+              ? 'Cash repayment is posted directly to Fineract through the gateway.'
+              : 'Repayment is posted to Fineract only after the selected aggregator confirms payment completion.'}
           </div>
           {repaymentResult ? (
             <div className="sm:col-span-2 rounded-xl border border-emerald-200/70 bg-emerald-50 px-3 py-3 dark:border-emerald-900/50 dark:bg-emerald-900/20">
-              <div className="text-sm font-semibold text-emerald-900 dark:text-emerald-100">Push initiated</div>
+              <div className="text-sm font-semibold text-emerald-900 dark:text-emerald-100">
+                {isEpikpayRepayment ? 'Cash payment posted' : 'Push initiated'}
+              </div>
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 <Field label="Provider" value={repaymentResult?.provider} />
                 <Field label="Payment Event ID" value={repaymentResult?.paymentEvent?.paymentEventId} mono />
                 <Field label="Payment Status" value={repaymentResult?.paymentEvent?.status} />
-                <Field label="Selcom Order ID" value={repaymentResult?.selcomOrder?.orderId} mono />
-                <Field label="Selcom Trans ID" value={repaymentResult?.selcomOrder?.transid} mono />
-                <Field label="Collection Status" value={repaymentResult?.selcomOrder?.paymentStatus} />
-                <Field label="Gateway Reference" value={repaymentResult?.selcomOrder?.gatewayReference} mono />
+                {repaymentResult?.selcomOrder ? (
+                  <>
+                    <Field label="Selcom Order ID" value={repaymentResult?.selcomOrder?.orderId} mono />
+                    <Field label="Selcom Trans ID" value={repaymentResult?.selcomOrder?.transid} mono />
+                    <Field label="Collection Status" value={repaymentResult?.selcomOrder?.paymentStatus} />
+                    <Field label="Gateway Reference" value={repaymentResult?.selcomOrder?.gatewayReference} mono />
+                  </>
+                ) : (
+                  <>
+                    <Field label="Channel" value={repaymentResult?.paymentEvent?.channel} />
+                    <Field label="External Payment ID" value={repaymentResult?.paymentEvent?.externalPaymentId} mono />
+                  </>
+                )}
               </div>
             </div>
           ) : null}
