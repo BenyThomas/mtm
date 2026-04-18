@@ -12,7 +12,7 @@ import Can from '../../../components/Can';
 import { getCenter, getGroup } from '../../../api/gateway/community';
 import useStaff from '../../../hooks/useStaff';
 import { listLoanProductsOps } from '../../../api/gateway/loanProducts';
-import { applyGwLoanOnBehalf } from '../../../api/gateway/loans';
+import { applyGwLoanOnBehalf, getGwLoanEligibilityForCustomer } from '../../../api/gateway/loans';
 import { listBankNames } from '../../../api/gateway/bankNames';
 
 const GENDER_OPTIONS = [
@@ -139,7 +139,9 @@ const InviteDetails = () => {
     bankAccount: '',
     walletMsisdn: '',
   });
-  const [loanForm, setLoanForm] = useState({ productCode: '', amount: '' });
+  const [loanForm, setLoanForm] = useState({ productCode: '', amount: '', tenure: '' });
+  const [loanEligibility, setLoanEligibility] = useState(null);
+  const [loanEligibilityLoading, setLoanEligibilityLoading] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -260,6 +262,61 @@ const InviteDetails = () => {
     });
   }, [doc?.inviteId, doc?.prefill?.firstName, doc?.prefill?.lastName, doc?.prefill?.phoneNumber]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const customerId = onboarding?.gatewayCustomerId;
+    const amount = Number(loanForm.amount);
+    const productCode = String(loanForm.productCode || '').trim();
+
+    if (!loanOpen || !customerId || !productCode || !(amount > 0)) {
+      setLoanEligibility(null);
+      setLoanEligibilityLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setLoanEligibilityLoading(true);
+    (async () => {
+      try {
+        const data = await getGwLoanEligibilityForCustomer(customerId, {
+          productCode,
+          requestedAmount: amount,
+        });
+        if (cancelled) return;
+        const products = Array.isArray(data?.eligibleProducts) ? data.eligibleProducts : [];
+        const match = products.find((item) => String(item?.productCode || '').trim() === productCode) || null;
+        setLoanEligibility(match);
+        setLoanForm((prev) => {
+          const allowed = Array.isArray(match?.allowedTenures) ? match.allowedTenures.map((item) => String(item)) : [];
+          if (!allowed.length) {
+            return { ...prev, tenure: '' };
+          }
+          if (allowed.includes(String(prev.tenure || ''))) {
+            return prev;
+          }
+          const recommended = String(
+            match?.recommended?.tenure ??
+            match?.eligibleTenure ??
+            allowed[0]
+          );
+          return { ...prev, tenure: recommended };
+        });
+      } catch (_) {
+        if (!cancelled) {
+          setLoanEligibility(null);
+          setLoanForm((prev) => ({ ...prev, tenure: '' }));
+        }
+      } finally {
+        if (!cancelled) setLoanEligibilityLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loanOpen, onboarding?.gatewayCustomerId, loanForm.productCode, loanForm.amount]);
+
   const staffNameById = useMemo(() => {
     const map = {};
     for (const member of staff || []) {
@@ -379,12 +436,22 @@ const InviteDetails = () => {
       addToast('Customer mapping is missing', 'error');
       return;
     }
+    if (!loanForm.productCode || !(Number(loanForm.amount) > 0)) {
+      addToast('Select a product and enter a valid amount', 'error');
+      return;
+    }
+    if (tenureOptions.length > 0 && !loanForm.tenure) {
+      addToast('Select a tenure from the allowed options', 'error');
+      return;
+    }
     setLoanSaving(true);
     setErr('');
     try {
       const loan = await applyGwLoanOnBehalf(onboarding.gatewayCustomerId, {
         productCode: loanForm.productCode,
         amount: Number(loanForm.amount),
+        tenure: loanForm.tenure ? Number(loanForm.tenure) : undefined,
+        tenureUnit: loanEligibility?.tenureUnit || undefined,
       });
       setLoanOpen(false);
       addToast('Loan application submitted', 'success');
@@ -401,6 +468,16 @@ const InviteDetails = () => {
   const setRefreshRequested = () => {
     load();
   };
+
+  const tenureOptions = Array.isArray(loanEligibility?.allowedTenures)
+    ? loanEligibility.allowedTenures
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && value > 0)
+        .map((value) => ({
+          value: String(value),
+          label: `${value} ${loanEligibility?.tenureUnit || 'Tenure'}`,
+        }))
+    : [];
 
   return (
     <div>
@@ -665,7 +742,7 @@ const InviteDetails = () => {
           <SearchableSelectField
             label="Loan Product"
             value={loanForm.productCode}
-            onChange={(value) => setLoanForm((prev) => ({ ...prev, productCode: value }))}
+            onChange={(value) => setLoanForm((prev) => ({ ...prev, productCode: value, tenure: '' }))}
             options={loanProductOptions}
             placeholder="Select product"
           />
@@ -679,6 +756,31 @@ const InviteDetails = () => {
               onChange={(e) => setLoanForm((prev) => ({ ...prev, amount: e.target.value }))}
               className="w-full rounded-xl border p-2.5 dark:border-gray-600 dark:bg-gray-700"
             />
+          </label>
+          <label className="block text-sm text-slate-700 dark:text-slate-200">
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Tenure</span>
+            <select
+              value={loanForm.tenure}
+              onChange={(e) => setLoanForm((prev) => ({ ...prev, tenure: e.target.value }))}
+              className="w-full rounded-xl border p-2.5 dark:border-gray-600 dark:bg-gray-700"
+              disabled={loanEligibilityLoading || tenureOptions.length === 0}
+            >
+              <option value="">
+                {loanEligibilityLoading ? 'Loading tenures...' : tenureOptions.length ? 'Select tenure' : 'No allowed tenures'}
+              </option>
+              {tenureOptions.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              {loanEligibilityLoading
+                ? 'Checking allowed tenures for the selected amount.'
+                : loanEligibility?.recommended?.tenure
+                ? `Recommended: ${loanEligibility.recommended.tenure} ${loanEligibility?.tenureUnit || ''}`.trim()
+                : loanEligibility?.tenureUnit
+                ? `Tenure unit: ${loanEligibility.tenureUnit}`
+                : 'Select product and amount to load allowed tenures.'}
+            </div>
           </label>
         </form>
       </Modal>
