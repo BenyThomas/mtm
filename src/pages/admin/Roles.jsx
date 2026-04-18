@@ -24,6 +24,7 @@ import {
     ToggleRight,
     RefreshCw,
     KeyRound,
+    Eye,
 } from 'lucide-react';
 import MultiSelect from "../../components/MultiSelect";
 
@@ -49,6 +50,10 @@ const Roles = () => {
     const [permRole, setPermRole] = useState(null);
     const [permOptions, setPermOptions] = useState([]);   // [{ id, code, name }]
     const [permSelected, setPermSelected] = useState([]); // number[] of permission IDs
+    const [viewPermOpen, setViewPermOpen] = useState(false);
+    const [viewPermBusy, setViewPermBusy] = useState(false);
+    const [viewPermRole, setViewPermRole] = useState(null);
+    const [viewPermItems, setViewPermItems] = useState([]);
 
     // delete
     const [deleting, setDeleting] = useState(null);
@@ -178,6 +183,32 @@ const Roles = () => {
         }
     };
 
+    const openViewPerms = async (role) => {
+        setViewPermRole(role);
+        setViewPermOpen(true);
+        setViewPermBusy(true);
+        try {
+            const rolePerms = await getRolePermissions(role.id);
+            setViewPermItems(rolePerms.filter((p) => p.selected));
+        } catch (e) {
+            addToast(e?.response?.data?.defaultUserMessage || 'Failed to load permissions', 'error');
+            setViewPermItems([]);
+        } finally {
+            setViewPermBusy(false);
+        }
+    };
+
+    const viewPermGroups = useMemo(() => {
+        const groups = new Map();
+        for (const item of viewPermItems) {
+            const key = item.entityName || 'Other';
+            const bucket = groups.get(key) || [];
+            bucket.push(item);
+            groups.set(key, bucket);
+        }
+        return Array.from(groups.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+    }, [viewPermItems]);
+
     // Delete
     const askDelete = (role) => setDeleting(role);
 
@@ -250,6 +281,9 @@ const Roles = () => {
                                     <td className="py-2 pr-4">{r.description || '—'}</td>
                                     <td className="py-2 pr-4">{r.enabled ? 'Enabled' : 'Disabled'}</td>
                                     <td className="py-2 pr-4 whitespace-nowrap space-x-2">
+                                        <Button variant="secondary" onClick={() => openViewPerms(r)}>
+                                            <Eye className="w-4 h-4 mr-1" /> View
+                                        </Button>
                                         <Button variant="secondary" onClick={() => openPerms(r)}>
                                             <KeyRound className="w-4 h-4 mr-1" /> Permissions
                                         </Button>
@@ -318,7 +352,7 @@ const Roles = () => {
                 }}
                 title={permRole ? `Permissions: ${permRole.name}` : 'Permissions'}
                 size="5xl"
-                panelClassName="shadow-2xl"
+                panelClassName="shadow-2xl sm:!max-h-[92vh] sm:!max-h-[92dvh]"
                 bodyClassName="pt-4 pb-1"
                 footer={
                     <>
@@ -342,6 +376,56 @@ const Roles = () => {
                         disabled={permBusy}
                         required
                     />
+                )}
+            </Modal>
+
+            <Modal
+                open={viewPermOpen}
+                onClose={() => {
+                    if (!viewPermBusy) {
+                        setViewPermOpen(false);
+                        setViewPermRole(null);
+                        setViewPermItems([]);
+                    }
+                }}
+                title={viewPermRole ? `Role Permissions: ${viewPermRole.name}` : 'Role Permissions'}
+                size="4xl"
+                panelClassName="shadow-2xl sm:!max-h-[90vh] sm:!max-h-[90dvh]"
+                footer={
+                    <Button variant="secondary" onClick={() => setViewPermOpen(false)} disabled={viewPermBusy}>
+                        Close
+                    </Button>
+                }
+            >
+                {viewPermBusy ? (
+                    <Skeleton height="10rem" />
+                ) : viewPermItems.length === 0 ? (
+                    <div className="text-sm text-gray-600">This role has no assigned permissions.</div>
+                ) : (
+                    <div className="space-y-5">
+                        <div className="text-sm text-gray-600">
+                            {viewPermItems.length} permission{viewPermItems.length === 1 ? '' : 's'} assigned
+                        </div>
+                        {viewPermGroups.map(([groupName, groupItems]) => (
+                            <div key={groupName} className="space-y-2">
+                                <div className="text-sm font-semibold text-gray-900">{groupName}</div>
+                                <div className="flex flex-wrap gap-2">
+                                    {groupItems
+                                        .slice()
+                                        .sort((a, b) => `${a.actionName} ${a.code}`.localeCompare(`${b.actionName} ${b.code}`))
+                                        .map((item) => (
+                                            <span
+                                                key={`${item.code}-${item.id}`}
+                                                className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700"
+                                            >
+                                                {item.actionName || item.code}
+                                                {item.code ? ` - ${item.code}` : ''}
+                                            </span>
+                                        ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
                 )}
             </Modal>
 
