@@ -10,13 +10,11 @@ import ClientDocumentsTab from './ClientDocumentsTab';
 import ClientCharges from './ClientCharges';
 import ClientAddresses from './ClientAddresses';
 import ClientCommandModal from '../../components/ClientCommandModal';
-
-// NEW
 import ClientIdentifiers from './ClientIdentifiers';
 import ClientTransactions from './ClientTransactions';
-import ClientCollaterals from "./ClientCollaterals";
-import LoanTab from "./LoanTab";
-import ClientFamilyMembersTab from "../ClientFamilyMembersTab";
+import ClientCollaterals from './ClientCollaterals';
+import LoanTab from './LoanTab';
+import ClientFamilyMembersTab from '../ClientFamilyMembersTab';
 
 const statusTone = (s) => {
     const code = s?.code || s?.value || '';
@@ -25,6 +23,18 @@ const statusTone = (s) => {
     if (/closed|dormant|inactivated/i.test(code)) return 'gray';
     return 'gray';
 };
+
+const formatValue = (value) => {
+    if (value === null || value === undefined || value === '') return '-';
+    if (Array.isArray(value)) return value.join('-');
+    if (typeof value === 'object') return value.value || value.code || value.name || '-';
+    return String(value);
+};
+
+const fullName = (client) =>
+    client?.displayName ||
+    [client?.firstname, client?.middlename, client?.lastname].filter(Boolean).join(' ') ||
+    '-';
 
 const ClientProfile = () => {
     const { id } = useParams();
@@ -57,9 +67,7 @@ const ClientProfile = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id]);
 
-    const savings = useMemo(() => {
-        return accounts?.savingsAccounts || [];
-    }, [accounts]);
+    const savings = useMemo(() => accounts?.savingsAccounts || [], [accounts]);
 
     if (loading) {
         return (
@@ -82,18 +90,15 @@ const ClientProfile = () => {
 
     return (
         <div className="space-y-6">
-            {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold">
-                        {client.displayName || [client.firstname, client.lastname].filter(Boolean).join(' ')}
-                    </h1>
+                    <h1 className="text-2xl font-bold">{fullName(client)}</h1>
                     <div className="mt-1 text-sm text-gray-600 dark:text-gray-300">
                         Client #{client.id} {client.accountNo ? `• ${client.accountNo}` : ''}
                         {client.status ? (
                             <span className="ml-2">
-                <Badge tone={statusTone(client.status)}>{client.status?.value || client.status?.code}</Badge>
-              </span>
+                                <Badge tone={statusTone(client.status)}>{client.status?.value || client.status?.code}</Badge>
+                            </span>
                         ) : null}
                         {client.officeName ? <span className="ml-2">• {client.officeName}</span> : null}
                     </div>
@@ -104,7 +109,6 @@ const ClientProfile = () => {
                 </div>
             </div>
 
-            {/* Tabs */}
             <Tabs
                 tabs={[
                     { key: 'overview', label: 'Overview' },
@@ -115,41 +119,35 @@ const ClientProfile = () => {
                     { key: 'charges', label: 'Charges' },
                     { key: 'address', label: 'Address' },
                     { key: 'family', label: 'Family' },
-                    // NEW:
                     { key: 'identifiers', label: 'Identifiers' },
                     { key: 'transactions', label: 'Transactions' },
                     { key: 'collateral', label: 'Collaterals' },
                 ]}
             >
-                {/* Overview */}
                 <div data-tab="overview" className="space-y-4">
                     <Card>
-                        <div className="grid md:grid-cols-2 gap-4 text-sm">
-                            <div>
-                                <div className="text-gray-500">Office</div>
-                                <div className="font-medium">{client.officeName || '-'}</div>
-                            </div>
-                            <div>
-                                <div className="text-gray-500">Mobile</div>
-                                <div className="font-medium">{client.mobileNo || '-'}</div>
-                            </div>
-                            <div>
-                                <div className="text-gray-500">Activation Date</div>
-                                <div className="font-medium">
-                                    {Array.isArray(client.activationDate) ? client.activationDate.join('-') : (client.activationDate || '-')}
-                                </div>
-                            </div>
-                            <div>
-                                <div className="text-gray-500">External ID</div>
-                                <div className="font-medium">{client.externalId || '—'}</div>
-                            </div>
+                        <div className="grid gap-4 text-sm md:grid-cols-2 xl:grid-cols-3">
+                            <div><div className="text-gray-500">Display Name</div><div className="font-medium">{fullName(client)}</div></div>
+                            <div><div className="text-gray-500">Client ID</div><div className="font-medium">{formatValue(client.id)}</div></div>
+                            <div><div className="text-gray-500">Account No</div><div className="font-medium">{formatValue(client.accountNo)}</div></div>
+                            <div><div className="text-gray-500">Status</div><div className="font-medium">{formatValue(client.status)}</div></div>
+                            <div><div className="text-gray-500">Office</div><div className="font-medium">{formatValue(client.officeName)}</div></div>
+                            <div><div className="text-gray-500">Staff</div><div className="font-medium">{formatValue(client.staffName)}</div></div>
+                            <div><div className="text-gray-500">Submitted On</div><div className="font-medium">{formatValue(client.submittedOnDate)}</div></div>
+                            <div><div className="text-gray-500">Activation Date</div><div className="font-medium">{formatValue(client.activationDate)}</div></div>
+                            <div><div className="text-gray-500">Closed On</div><div className="font-medium">{formatValue(client.closedOnDate)}</div></div>
+                            <div><div className="text-gray-500">External ID</div><div className="font-medium">{formatValue(client.externalId)}</div></div>
+                            <div><div className="text-gray-500">Mobile</div><div className="font-medium">{formatValue(client.mobileNo)}</div></div>
+                            <div><div className="text-gray-500">Email</div><div className="font-medium">{formatValue(client.emailAddress)}</div></div>
+                            <div><div className="text-gray-500">Date of Birth</div><div className="font-medium">{formatValue(client.dateOfBirth)}</div></div>
+                            <div><div className="text-gray-500">Gender</div><div className="font-medium">{formatValue(client.gender)}</div></div>
+                            <div><div className="text-gray-500">Client Type</div><div className="font-medium">{formatValue(client.clientType)}</div></div>
+                            <div><div className="text-gray-500">Client Classification</div><div className="font-medium">{formatValue(client.clientClassification)}</div></div>
+                            <div><div className="text-gray-500">Legal Form</div><div className="font-medium">{formatValue(client.legalForm)}</div></div>
                         </div>
                     </Card>
                 </div>
-                {/*389*/}
-                {/*667*/}
 
-                {/* Loans (placeholder) */}
                 <div data-tab="loans" className="space-y-4">
                     <Card>
                         <div className="text-sm text-gray-600 dark:text-gray-400">
@@ -158,10 +156,9 @@ const ClientProfile = () => {
                     </Card>
                 </div>
 
-                {/* Savings */}
                 <div data-tab="savings" className="space-y-4">
                     <Card>
-                        <div className="flex items-center justify-between mb-3">
+                        <div className="mb-3 flex items-center justify-between">
                             <div className="font-semibold">Savings Accounts</div>
                         </div>
 
@@ -186,7 +183,7 @@ const ClientProfile = () => {
                                         const balance = sum.accountBalance ?? sum.balance ?? '-';
                                         const currency = (sum.currency && (sum.currency.code || sum.currency.name)) || s.currencyCode || '';
                                         return (
-                                            <tr key={s.id} className="border-t border-gray-200 dark:border-gray-700 text-sm">
+                                            <tr key={s.id} className="border-t border-gray-200 text-sm dark:border-gray-700">
                                                 <td className="py-2 pr-4">{s.id}</td>
                                                 <td className="py-2 pr-4">{s.accountNo || '-'}</td>
                                                 <td className="py-2 pr-4">{s.productName || s.savingsProductName || '-'}</td>
@@ -195,9 +192,7 @@ const ClientProfile = () => {
                                                 </td>
                                                 <td className="py-2 pr-4">{balance} {currency}</td>
                                                 <td className="py-2 pr-4">
-                                                    <Button variant="secondary" onClick={() => navigate(`/savings/${s.id}`)}>
-                                                        View
-                                                    </Button>
+                                                    <Button variant="secondary" onClick={() => navigate(`/savings/${s.id}`)}>View</Button>
                                                 </td>
                                             </tr>
                                         );
@@ -209,39 +204,34 @@ const ClientProfile = () => {
                     </Card>
                 </div>
 
-                {/* Documents */}
                 <div data-tab="documents" className="space-y-4">
                     <ClientDocumentsTab clientId={id} />
                 </div>
 
-                {/* Timeline */}
                 <div data-tab="timeline" className="space-y-4">
                     <Card>Client timeline and notes appear here.</Card>
                 </div>
 
-                {/* Charges */}
                 <div data-tab="charges" className="space-y-4">
                     <ClientCharges clientId={id} />
                 </div>
 
-                {/* Address */}
                 <div data-tab="address" className="space-y-4">
                     <ClientAddresses clientId={id} />
                 </div>
 
-                {/* NEW: Identifiers */}
                 <div data-tab="identifiers" className="space-y-4">
                     <ClientIdentifiers clientId={id} />
                 </div>
+
                 <div data-tab="family" className="space-y-4">
                     <ClientFamilyMembersTab clientId={id} />
                 </div>
 
-                {/* NEW: Transactions */}
                 <div data-tab="transactions" className="space-y-4">
                     <ClientTransactions clientId={id} clientExternalId={client.externalId} />
                 </div>
-                {/* Collaterals */}
+
                 <div data-tab="collateral" className="space-y-4">
                     <ClientCollaterals clientId={id} />
                 </div>
