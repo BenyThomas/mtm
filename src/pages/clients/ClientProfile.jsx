@@ -9,6 +9,7 @@ import Button from '../../components/Button';
 import ClientDocumentsTab from './ClientDocumentsTab';
 import ClientCharges from './ClientCharges';
 import ClientAddresses from './ClientAddresses';
+import ClientCommandModal from '../../components/ClientCommandModal';
 
 // NEW
 import ClientIdentifiers from './ClientIdentifiers';
@@ -32,6 +33,7 @@ const ClientProfile = () => {
     const [loading, setLoading] = useState(true);
     const [client, setClient] = useState(null);
     const [accounts, setAccounts] = useState(null);
+    const [commandOpen, setCommandOpen] = useState(false);
 
     const load = async () => {
         setLoading(true);
@@ -97,6 +99,7 @@ const ClientProfile = () => {
                     </div>
                 </div>
                 <div className="space-x-2">
+                    <Button variant="secondary" onClick={() => setCommandOpen(true)}>Actions</Button>
                     <Button variant="secondary" onClick={load}>Refresh</Button>
                 </div>
             </div>
@@ -243,6 +246,16 @@ const ClientProfile = () => {
                     <ClientCollaterals clientId={id} />
                 </div>
             </Tabs>
+
+            <ClientCommandModal
+                open={commandOpen}
+                client={client}
+                onClose={() => setCommandOpen(false)}
+                onDone={() => {
+                    setCommandOpen(false);
+                    load();
+                }}
+            />
         </div>
     );
 };

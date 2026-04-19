@@ -10,6 +10,7 @@ import LoanApply from './pages/LoanApply';
 import LoanDetails from './pages/LoanDetails';
 import LoanProducts from './pages/LoanProducts';
 import LoanProductNew from './pages/LoanProductNew';
+import LoanProductDetails from './pages/LoanProductDetails';
 import LoanProductEdit from './pages/LoanProductEdit';
 import SavingsAccountDetails from './pages/SavingsAccountDetails';
 import Offices from './pages/Offices';
@@ -156,6 +157,7 @@ const App = () => {
                             {/* Loan Products */}
                             <Route path="/loan-products" element={<LoanProducts />} />
                             <Route path="loan-products/new" element={<LoanProductNew />} />
+                            <Route path="loan-products/:id" element={<LoanProductDetails />} />
                             <Route path="loan-products/:id/edit" element={<LoanProductEdit />} />
 
                             {/* Savings */}

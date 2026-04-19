@@ -240,6 +240,7 @@ const GwLoanDetails = () => {
   const [repaymentPayerName, setRepaymentPayerName] = useState('');
   const [repaymentPayerEmail, setRepaymentPayerEmail] = useState('');
   const [repaymentResult, setRepaymentResult] = useState(null);
+  const [repaymentBanner, setRepaymentBanner] = useState(null);
   const [refundOpen, setRefundOpen] = useState(false);
   const [refundBusy, setRefundBusy] = useState(false);
   const [refundAmount, setRefundAmount] = useState('');
@@ -264,64 +265,65 @@ const GwLoanDetails = () => {
     }
   };
 
+  const loadWorkflowData = async () => {
+    setWorkflowLoading(true);
+    setWorkflowErr('');
+    try {
+      const data = await getGwLoanWorkflow(platformLoanId);
+      setWorkflow(data || null);
+    } catch (e) {
+      setWorkflow(null);
+      setWorkflowErr(e?.response?.data?.message || e?.message || 'Failed to load workflow');
+    } finally {
+      setWorkflowLoading(false);
+    }
+  };
+
+  const loadFineractLoanData = async (fineractLoanId) => {
+    const resolvedLoanId = fineractLoanId ? String(fineractLoanId) : '';
+    if (!resolvedLoanId) {
+      setFxLoan(null);
+      setFxErr('');
+      setFxLoading(false);
+      return;
+    }
+    setFxLoading(true);
+    setFxErr('');
+    try {
+      const r = await api.get(`/loans/${encodeURIComponent(resolvedLoanId)}`, {
+        params: { associations: 'repaymentSchedule,charges' },
+      });
+      setFxLoan(r?.data || null);
+    } catch (e) {
+      setFxLoan(null);
+      setFxErr(e?.response?.data?.message || e?.message || 'Failed to load Fineract loan details');
+    } finally {
+      setFxLoading(false);
+    }
+  };
+
+  const refreshLoanViews = async (nextDoc) => {
+    const currentDoc = nextDoc || doc;
+    const fineractLoanId = currentDoc?.fineractLoanId ? String(currentDoc.fineractLoanId) : '';
+    await Promise.all([
+      load(),
+      loadWorkflowData(),
+      loadFineractLoanData(fineractLoanId),
+    ]);
+  };
+
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [platformLoanId]);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setWorkflowLoading(true);
-      setWorkflowErr('');
-      try {
-        const data = await getGwLoanWorkflow(platformLoanId);
-        if (cancelled) return;
-        setWorkflow(data || null);
-      } catch (e) {
-        if (cancelled) return;
-        setWorkflow(null);
-        setWorkflowErr(e?.response?.data?.message || e?.message || 'Failed to load workflow');
-      } finally {
-        if (!cancelled) setWorkflowLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    loadWorkflowData();
   }, [platformLoanId]);
 
   useEffect(() => {
-    let cancelled = false;
     const fineractLoanId = doc?.fineractLoanId ? String(doc.fineractLoanId) : '';
-    if (!fineractLoanId) {
-      setFxLoan(null);
-      setFxErr('');
-      setFxLoading(false);
-      return () => {};
-    }
-
-    (async () => {
-      setFxLoading(true);
-      setFxErr('');
-      try {
-        const r = await api.get(`/loans/${encodeURIComponent(fineractLoanId)}`, {
-          params: { associations: 'repaymentSchedule,charges' },
-        });
-        if (cancelled) return;
-        setFxLoan(r?.data || null);
-      } catch (e) {
-        if (cancelled) return;
-        setFxLoan(null);
-        setFxErr(e?.response?.data?.message || e?.message || 'Failed to load Fineract loan details');
-      } finally {
-        if (!cancelled) setFxLoading(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
+    loadFineractLoanData(fineractLoanId);
   }, [doc?.fineractLoanId]);
 
   useEffect(() => {
@@ -631,8 +633,8 @@ const GwLoanDetails = () => {
     }
 
     setRepayBusy(true);
+    const provider = repaymentProviderValue;
     try {
-      const provider = repaymentProviderValue;
       const result = await repayGwLoanMobile(platformLoanId, {
         amount,
         provider: provider || undefined,
@@ -643,6 +645,13 @@ const GwLoanDetails = () => {
         payerEmail: normalizeText(repaymentPayerEmail) || undefined,
       });
       setRepaymentResult(result || null);
+      setRepaymentBanner({
+        provider,
+        result: result || null,
+        title: provider === 'EPIKPAY' ? 'Cash repayment posted successfully' : `${provider || 'Mobile'} repayment request submitted`,
+      });
+      setRepayOpen(false);
+      await refreshLoanViews(doc);
       addToast(provider === 'EPIKPAY' ? 'Cash repayment posted' : `${provider || 'Mobile'} push initiated`, 'success');
     } catch (e) {
       const msg = extractGatewayErrorMessage(e, provider === 'EPIKPAY' ? 'Cash repayment failed' : 'Repayment push failed');
@@ -788,6 +797,39 @@ const GwLoanDetails = () => {
           </div>
         </div>
       </section>
+
+      {repaymentBanner ? (
+        <div className="rounded-xl border border-emerald-200/70 bg-emerald-50 px-4 py-3 dark:border-emerald-900/50 dark:bg-emerald-900/20">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <div className="text-sm font-semibold text-emerald-900 dark:text-emerald-100">
+                {repaymentBanner.title}
+              </div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <Field label="Provider" value={repaymentBanner?.result?.provider || repaymentBanner?.provider} />
+                <Field label="Payment Event ID" value={repaymentBanner?.result?.paymentEvent?.paymentEventId} mono />
+                <Field label="Payment Status" value={repaymentBanner?.result?.paymentEvent?.status} />
+                {repaymentBanner?.result?.selcomOrder ? (
+                  <>
+                    <Field label="Selcom Order ID" value={repaymentBanner?.result?.selcomOrder?.orderId} mono />
+                    <Field label="Selcom Trans ID" value={repaymentBanner?.result?.selcomOrder?.transid} mono />
+                    <Field label="Collection Status" value={repaymentBanner?.result?.selcomOrder?.paymentStatus} />
+                    <Field label="Gateway Reference" value={repaymentBanner?.result?.selcomOrder?.gatewayReference} mono />
+                  </>
+                ) : (
+                  <>
+                    <Field label="Channel" value={repaymentBanner?.result?.paymentEvent?.channel} />
+                    <Field label="External Payment ID" value={repaymentBanner?.result?.paymentEvent?.externalPaymentId} mono />
+                  </>
+                )}
+              </div>
+            </div>
+            <Button variant="secondary" size="sm" onClick={() => setRepaymentBanner(null)}>
+              Dismiss
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       {err ? (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-900/50 dark:bg-rose-900/20 dark:text-rose-200">
@@ -1323,31 +1365,6 @@ const GwLoanDetails = () => {
               ? 'Cash repayment is posted directly to Fineract through the gateway.'
               : 'Repayment is posted to Fineract only after the selected aggregator confirms payment completion.'}
           </div>
-          {repaymentResult ? (
-            <div className="sm:col-span-2 rounded-xl border border-emerald-200/70 bg-emerald-50 px-3 py-3 dark:border-emerald-900/50 dark:bg-emerald-900/20">
-              <div className="text-sm font-semibold text-emerald-900 dark:text-emerald-100">
-                {isEpikpayRepayment ? 'Cash payment posted' : 'Push initiated'}
-              </div>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <Field label="Provider" value={repaymentResult?.provider} />
-                <Field label="Payment Event ID" value={repaymentResult?.paymentEvent?.paymentEventId} mono />
-                <Field label="Payment Status" value={repaymentResult?.paymentEvent?.status} />
-                {repaymentResult?.selcomOrder ? (
-                  <>
-                    <Field label="Selcom Order ID" value={repaymentResult?.selcomOrder?.orderId} mono />
-                    <Field label="Selcom Trans ID" value={repaymentResult?.selcomOrder?.transid} mono />
-                    <Field label="Collection Status" value={repaymentResult?.selcomOrder?.paymentStatus} />
-                    <Field label="Gateway Reference" value={repaymentResult?.selcomOrder?.gatewayReference} mono />
-                  </>
-                ) : (
-                  <>
-                    <Field label="Channel" value={repaymentResult?.paymentEvent?.channel} />
-                    <Field label="External Payment ID" value={repaymentResult?.paymentEvent?.externalPaymentId} mono />
-                  </>
-                )}
-              </div>
-            </div>
-          ) : null}
         </div>
       </Modal>
     </div>
