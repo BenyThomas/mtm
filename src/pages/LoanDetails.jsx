@@ -8,6 +8,7 @@ import Skeleton from '../components/Skeleton';
 import Badge from '../components/Badge';
 import Modal from '../components/Modal';
 import ScheduleTable from '../components/ScheduleTable';
+import LoanAdvancedActionModal from '../components/LoanAdvancedActionModal';
 import { useToast } from '../context/ToastContext';
 import {
     CheckCircle,        // Approve
@@ -21,6 +22,7 @@ import {
     ReceiptText,        // Record Repayment
     UserPlus,           // Assign Officer
     UserMinus,          // Unassign Officer
+    Settings2,          // More actions
     Loader2             // Busy spinner
 } from 'lucide-react';
 
@@ -115,11 +117,21 @@ const LoanDetails = () => {
     const [unassignOpen, setUnassignOpen] = useState(false);
     const [unassignBusy, setUnassignBusy] = useState(false);
     const [unassignedOnDate, setUnassignedOnDate] = useState(dateISO());
+    const [advancedActionOpen, setAdvancedActionOpen] = useState(false);
 
     // Transactions filters
     const [fromDate, setFromDate] = useState('');
     const [toDate, setToDate] = useState('');
     const [typeFilter, setTypeFilter] = useState(''); // '' = all
+    const [transactionDetailOpen, setTransactionDetailOpen] = useState(false);
+    const [transactionDetailBusy, setTransactionDetailBusy] = useState(false);
+    const [selectedTransaction, setSelectedTransaction] = useState(null);
+    const [transactionDetail, setTransactionDetail] = useState(null);
+    const [adjustTransactionOpen, setAdjustTransactionOpen] = useState(false);
+    const [adjustTransactionBusy, setAdjustTransactionBusy] = useState(false);
+    const [adjustTransactionDate, setAdjustTransactionDate] = useState(dateISO());
+    const [adjustTransactionAmount, setAdjustTransactionAmount] = useState('');
+    const [adjustTransactionNote, setAdjustTransactionNote] = useState('');
 
     const fetchAll = async () => {
         setLoading(true);
@@ -611,6 +623,71 @@ const LoanDetails = () => {
         URL.revokeObjectURL(url);
     };
 
+    const openTransactionDetail = async (tx) => {
+        if (!tx?.id) return;
+        setSelectedTransaction(tx);
+        setTransactionDetail(null);
+        setTransactionDetailOpen(true);
+        setTransactionDetailBusy(true);
+        try {
+            const res = await api.get(`/loans/${id}/transactions/${tx.id}`);
+            setTransactionDetail(res.data || null);
+        } catch (err) {
+            const msg =
+                err?.response?.data?.errors?.[0]?.defaultUserMessage ||
+                err?.response?.data?.defaultUserMessage ||
+                'Failed to load transaction details';
+            addToast(msg, 'error');
+        } finally {
+            setTransactionDetailBusy(false);
+        }
+    };
+
+    const openAdjustTransaction = (tx) => {
+        setSelectedTransaction(tx);
+        setAdjustTransactionDate(txDateToISO(tx?.date) || dateISO());
+        setAdjustTransactionAmount(String(tx?.amount ?? tx?.amountPaid ?? ''));
+        setAdjustTransactionNote('');
+        setAdjustTransactionOpen(true);
+    };
+
+    const submitAdjustedTransaction = async () => {
+        if (!selectedTransaction?.id) {
+            addToast('Transaction is required', 'error');
+            return;
+        }
+        if (!adjustTransactionDate) {
+            addToast('Transaction date is required', 'error');
+            return;
+        }
+        if (!adjustTransactionAmount || Number(adjustTransactionAmount) <= 0) {
+            addToast('Enter a valid transaction amount', 'error');
+            return;
+        }
+
+        setAdjustTransactionBusy(true);
+        try {
+            await api.post(`/loans/${id}/transactions/${selectedTransaction.id}`, {
+                transactionDate: adjustTransactionDate,
+                transactionAmount: Number(adjustTransactionAmount),
+                note: adjustTransactionNote || undefined,
+                dateFormat: 'yyyy-MM-dd',
+                locale: 'en',
+            });
+            addToast('Transaction adjusted', 'success');
+            setAdjustTransactionOpen(false);
+            await fetchAll();
+        } catch (err) {
+            const msg =
+                err?.response?.data?.errors?.[0]?.defaultUserMessage ||
+                err?.response?.data?.defaultUserMessage ||
+                'Adjust transaction failed';
+            addToast(msg, 'error');
+        } finally {
+            setAdjustTransactionBusy(false);
+        }
+    };
+
     if (loading) {
         return (
             <div className="space-y-6">
@@ -771,6 +848,15 @@ const LoanDetails = () => {
                             <UserMinus className="w-5 h-5" />
                         </Button>
                     )}
+                    <Button
+                        variant="secondary"
+                        onClick={() => setAdvancedActionOpen(true)}
+                        title="More Loan Actions"
+                        aria-label="More Loan Actions"
+                        className="p-2"
+                    >
+                        <Settings2 className="w-5 h-5" />
+                    </Button>
                 </div>
 
             </div>
@@ -906,6 +992,7 @@ const LoanDetails = () => {
                                         <th className="py-2 pr-4">Amount</th>
                                         <th className="py-2 pr-4">Running Balance</th>
                                         <th className="py-2 pr-4">Receipt / External ID</th>
+                                        <th className="py-2 pr-4 text-right">Actions</th>
                                     </tr>
                                     </thead>
                                     <tbody>
@@ -917,6 +1004,20 @@ const LoanDetails = () => {
                                             <td className="py-2 pr-4">{t.amount ?? t.amountPaid ?? '-'}</td>
                                             <td className="py-2 pr-4">{t.runningBalance ?? t.outstandingLoanBalance ?? '-'}</td>
                                             <td className="py-2 pr-4">{t.externalId ?? '-'}</td>
+                                            <td className="py-2 pr-4">
+                                                <div className="flex items-center justify-end gap-2">
+                                                    <Button variant="secondary" onClick={() => openTransactionDetail(t)}>
+                                                        View
+                                                    </Button>
+                                                    <Button
+                                                        variant="secondary"
+                                                        onClick={() => openAdjustTransaction(t)}
+                                                        disabled={!t?.id || t?.manuallyReversed || t?.reversed}
+                                                    >
+                                                        Adjust
+                                                    </Button>
+                                                </div>
+                                            </td>
                                         </tr>
                                     ))}
                                     </tbody>
@@ -1323,6 +1424,112 @@ const LoanDetails = () => {
                             value={unassignedOnDate}
                             onChange={(e) => setUnassignedOnDate(e.target.value)}
                             className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                        />
+                    </div>
+                </div>
+            </Modal>
+
+            <LoanAdvancedActionModal
+                open={advancedActionOpen}
+                loanId={id}
+                paymentTypeOptions={paymentTypeOptions}
+                onClose={() => setAdvancedActionOpen(false)}
+                onDone={() => {
+                    setAdvancedActionOpen(false);
+                    fetchAll();
+                }}
+            />
+
+            <Modal
+                open={transactionDetailOpen}
+                title={`Loan Transaction${selectedTransaction?.id ? ` #${selectedTransaction.id}` : ''}`}
+                onClose={() => setTransactionDetailOpen(false)}
+                footer={
+                    <Button variant="secondary" onClick={() => setTransactionDetailOpen(false)}>
+                        Close
+                    </Button>
+                }
+            >
+                {transactionDetailBusy ? (
+                    <div className="text-sm text-gray-600 dark:text-gray-400">Loading transaction details...</div>
+                ) : (
+                    <div className="space-y-3">
+                        <div className="grid gap-3 md:grid-cols-2 text-sm">
+                            <div>
+                                <div className="text-gray-500">Date</div>
+                                <div className="font-medium">{txDateToISO(transactionDetail?.date || selectedTransaction?.date) || '-'}</div>
+                            </div>
+                            <div>
+                                <div className="text-gray-500">Type</div>
+                                <div className="font-medium">{txTypeLabel(transactionDetail?.type || selectedTransaction?.type)}</div>
+                            </div>
+                            <div>
+                                <div className="text-gray-500">Amount</div>
+                                <div className="font-medium">{transactionDetail?.amount ?? selectedTransaction?.amount ?? selectedTransaction?.amountPaid ?? '-'}</div>
+                            </div>
+                            <div>
+                                <div className="text-gray-500">External ID</div>
+                                <div className="font-medium">{transactionDetail?.externalId ?? selectedTransaction?.externalId ?? '-'}</div>
+                            </div>
+                            <div>
+                                <div className="text-gray-500">Running Balance</div>
+                                <div className="font-medium">{transactionDetail?.runningBalance ?? selectedTransaction?.runningBalance ?? selectedTransaction?.outstandingLoanBalance ?? '-'}</div>
+                            </div>
+                            <div>
+                                <div className="text-gray-500">Reversed</div>
+                                <div className="font-medium">{transactionDetail?.manuallyReversed || transactionDetail?.reversed ? 'Yes' : 'No'}</div>
+                            </div>
+                        </div>
+                        <div>
+                            <div className="text-gray-500 text-sm mb-1">Raw Payload</div>
+                            <pre className="max-h-80 overflow-auto rounded-md border p-3 text-xs dark:border-gray-600 dark:bg-gray-900">{JSON.stringify(transactionDetail || selectedTransaction || {}, null, 2)}</pre>
+                        </div>
+                    </div>
+                )}
+            </Modal>
+
+            <Modal
+                open={adjustTransactionOpen}
+                title={`Adjust Transaction${selectedTransaction?.id ? ` #${selectedTransaction.id}` : ''}`}
+                onClose={() => setAdjustTransactionOpen(false)}
+                footer={
+                    <>
+                        <Button variant="secondary" onClick={() => setAdjustTransactionOpen(false)}>Cancel</Button>
+                        <Button onClick={submitAdjustedTransaction} disabled={adjustTransactionBusy}>
+                            {adjustTransactionBusy ? 'Adjusting...' : 'Adjust'}
+                        </Button>
+                    </>
+                }
+            >
+                <div className="space-y-3">
+                    <div>
+                        <label className="block text-sm font-medium">Transaction Date *</label>
+                        <input
+                            type="date"
+                            value={adjustTransactionDate}
+                            onChange={(e) => setAdjustTransactionDate(e.target.value)}
+                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium">Transaction Amount *</label>
+                        <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={adjustTransactionAmount}
+                            onChange={(e) => setAdjustTransactionAmount(e.target.value)}
+                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium">Note</label>
+                        <textarea
+                            rows={3}
+                            value={adjustTransactionNote}
+                            onChange={(e) => setAdjustTransactionNote(e.target.value)}
+                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                            placeholder="Optional adjustment note"
                         />
                     </div>
                 </div>

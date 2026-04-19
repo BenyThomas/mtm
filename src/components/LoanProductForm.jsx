@@ -108,6 +108,64 @@ const hasValidNumber = (v) => {
     return Number.isFinite(Number(v));
 };
 
+const normalizeEnumToken = (value, fallback = '') => {
+    if (value === null || value === undefined) return fallback;
+    const raw = typeof value === 'object'
+        ? (value.code ?? value.value ?? value.id ?? '')
+        : value;
+    const text = String(raw || '').trim();
+    if (!text) return fallback;
+    return text.replace(/\s+/g, '_').replace(/-/g, '_').toUpperCase();
+};
+
+const normalizeAccountingOptions = (options) => ({
+    assetAccountOptions: Array.isArray(options?.assetAccountOptions) ? options.assetAccountOptions : [],
+    incomeAccountOptions: Array.isArray(options?.incomeAccountOptions) ? options.incomeAccountOptions : [],
+    expenseAccountOptions: Array.isArray(options?.expenseAccountOptions) ? options.expenseAccountOptions : [],
+    liabilityAccountOptions: Array.isArray(options?.liabilityAccountOptions) ? options.liabilityAccountOptions : [],
+});
+
+const hasAccountingOptions = (options) =>
+    Object.values(normalizeAccountingOptions(options)).some((items) => items.length > 0);
+
+const buildAccountingOptionsFromGlAccounts = (accounts) => {
+    const normalized = Array.isArray(accounts)
+        ? accounts
+            .map((account) => {
+                const id = Number(account?.id ?? account?.accountId);
+                if (!Number.isInteger(id) || id <= 0) return null;
+                return {
+                    id,
+                    glCode: account?.glCode ?? account?.code ?? '',
+                    name: account?.name ?? account?.nameDecorated ?? `#${id}`,
+                    typeLabel: String(
+                        account?.type?.value ??
+                        account?.classification?.value ??
+                        account?.accountType?.value ??
+                        account?.type ??
+                        ''
+                    ).toLowerCase(),
+                };
+            })
+            .filter(Boolean)
+        : [];
+
+    const buckets = {
+        assetAccountOptions: normalized.filter((account) => account.typeLabel.includes('asset')),
+        incomeAccountOptions: normalized.filter((account) => account.typeLabel.includes('income')),
+        expenseAccountOptions: normalized.filter((account) => account.typeLabel.includes('expense')),
+        liabilityAccountOptions: normalized.filter((account) => account.typeLabel.includes('liability')),
+    };
+
+    const fallbackList = normalized.map(({ typeLabel, ...account }) => account);
+    return {
+        assetAccountOptions: buckets.assetAccountOptions.length ? buckets.assetAccountOptions.map(({ typeLabel, ...account }) => account) : fallbackList,
+        incomeAccountOptions: buckets.incomeAccountOptions.length ? buckets.incomeAccountOptions.map(({ typeLabel, ...account }) => account) : fallbackList,
+        expenseAccountOptions: buckets.expenseAccountOptions.length ? buckets.expenseAccountOptions.map(({ typeLabel, ...account }) => account) : fallbackList,
+        liabilityAccountOptions: buckets.liabilityAccountOptions.length ? buckets.liabilityAccountOptions.map(({ typeLabel, ...account }) => account) : fallbackList,
+    };
+};
+
 const SectionTitle = ({ icon, children, hint }) => (
     <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
@@ -235,49 +293,65 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
             setLoading(true);
             try {
                 const res = await api.get('/loanproducts/template');
+                const templateData = res?.data || {};
+                let accountingMappingOptions = normalizeAccountingOptions(templateData.accountingMappingOptions);
+
+                if (!hasAccountingOptions(accountingMappingOptions)) {
+                    try {
+                        const glRes = await api.get('/glaccounts');
+                        const glAccounts = Array.isArray(glRes?.data) ? glRes.data : glRes?.data?.pageItems || [];
+                        const fallbackOptions = buildAccountingOptionsFromGlAccounts(glAccounts);
+                        if (hasAccountingOptions(fallbackOptions)) {
+                            accountingMappingOptions = fallbackOptions;
+                        }
+                    } catch {
+                        accountingMappingOptions = normalizeAccountingOptions(templateData.accountingMappingOptions);
+                    }
+                }
+
                 if (!cancelled && res?.data) {
                     setTpl({
-                        currencyOptions: res.data.currencyOptions || FALLBACK_TEMPLATE.currencyOptions,
-                        amortizationTypeOptions: res.data.amortizationTypeOptions || FALLBACK_TEMPLATE.amortizationTypeOptions,
-                        interestTypeOptions: res.data.interestTypeOptions || FALLBACK_TEMPLATE.interestTypeOptions,
-                        interestCalculationPeriodTypeOptions: res.data.interestCalculationPeriodTypeOptions || FALLBACK_TEMPLATE.interestCalculationPeriodTypeOptions,
-                        repaymentFrequencyTypeOptions: res.data.repaymentFrequencyTypeOptions || FALLBACK_TEMPLATE.repaymentFrequencyTypeOptions,
-                        interestRateFrequencyTypeOptions: res.data.interestRateFrequencyTypeOptions || FALLBACK_TEMPLATE.interestRateFrequencyTypeOptions,
-                        daysInMonthTypeOptions: res.data.daysInMonthTypeOptions || FALLBACK_TEMPLATE.daysInMonthTypeOptions,
-                        daysInYearTypeOptions: res.data.daysInYearTypeOptions || FALLBACK_TEMPLATE.daysInYearTypeOptions,
-                        accountingRuleOptions: res.data.accountingRuleOptions || FALLBACK_TEMPLATE.accountingRuleOptions,
-                        transactionProcessingStrategyOptions: res.data.transactionProcessingStrategyOptions || FALLBACK_TEMPLATE.transactionProcessingStrategyOptions,
-                        chargeOptions: res.data.chargeOptions || [],
-                        accountingMappingOptions: res.data.accountingMappingOptions || FALLBACK_TEMPLATE.accountingMappingOptions,
+                        currencyOptions: templateData.currencyOptions || FALLBACK_TEMPLATE.currencyOptions,
+                        amortizationTypeOptions: templateData.amortizationTypeOptions || FALLBACK_TEMPLATE.amortizationTypeOptions,
+                        interestTypeOptions: templateData.interestTypeOptions || FALLBACK_TEMPLATE.interestTypeOptions,
+                        interestCalculationPeriodTypeOptions: templateData.interestCalculationPeriodTypeOptions || FALLBACK_TEMPLATE.interestCalculationPeriodTypeOptions,
+                        repaymentFrequencyTypeOptions: templateData.repaymentFrequencyTypeOptions || FALLBACK_TEMPLATE.repaymentFrequencyTypeOptions,
+                        interestRateFrequencyTypeOptions: templateData.interestRateFrequencyTypeOptions || FALLBACK_TEMPLATE.interestRateFrequencyTypeOptions,
+                        daysInMonthTypeOptions: templateData.daysInMonthTypeOptions || FALLBACK_TEMPLATE.daysInMonthTypeOptions,
+                        daysInYearTypeOptions: templateData.daysInYearTypeOptions || FALLBACK_TEMPLATE.daysInYearTypeOptions,
+                        accountingRuleOptions: templateData.accountingRuleOptions || FALLBACK_TEMPLATE.accountingRuleOptions,
+                        transactionProcessingStrategyOptions: templateData.transactionProcessingStrategyOptions || FALLBACK_TEMPLATE.transactionProcessingStrategyOptions,
+                        chargeOptions: templateData.chargeOptions || [],
+                        accountingMappingOptions,
 
                         // New option sets
-                        loanScheduleTypeOptions: res.data.loanScheduleTypeOptions || FALLBACK_TEMPLATE.loanScheduleTypeOptions,
-                        loanScheduleProcessingTypeOptions: res.data.loanScheduleProcessingTypeOptions || FALLBACK_TEMPLATE.loanScheduleProcessingTypeOptions,
-                        capitalizedIncomeCalculationTypeOptions: res.data.capitalizedIncomeCalculationTypeOptions || FALLBACK_TEMPLATE.capitalizedIncomeCalculationTypeOptions,
-                        capitalizedIncomeStrategyOptions: res.data.capitalizedIncomeStrategyOptions || FALLBACK_TEMPLATE.capitalizedIncomeStrategyOptions,
-                        capitalizedIncomeTypeOptions: res.data.capitalizedIncomeTypeOptions || FALLBACK_TEMPLATE.capitalizedIncomeTypeOptions,
-                        buyDownFeeCalculationTypeOptions: res.data.buyDownFeeCalculationTypeOptions || FALLBACK_TEMPLATE.buyDownFeeCalculationTypeOptions,
-                        buyDownFeeStrategyOptions: res.data.buyDownFeeStrategyOptions || FALLBACK_TEMPLATE.buyDownFeeStrategyOptions,
-                        buyDownFeeIncomeTypeOptions: res.data.buyDownFeeIncomeTypeOptions || FALLBACK_TEMPLATE.buyDownFeeIncomeTypeOptions,
+                        loanScheduleTypeOptions: templateData.loanScheduleTypeOptions || FALLBACK_TEMPLATE.loanScheduleTypeOptions,
+                        loanScheduleProcessingTypeOptions: templateData.loanScheduleProcessingTypeOptions || FALLBACK_TEMPLATE.loanScheduleProcessingTypeOptions,
+                        capitalizedIncomeCalculationTypeOptions: templateData.capitalizedIncomeCalculationTypeOptions || FALLBACK_TEMPLATE.capitalizedIncomeCalculationTypeOptions,
+                        capitalizedIncomeStrategyOptions: templateData.capitalizedIncomeStrategyOptions || FALLBACK_TEMPLATE.capitalizedIncomeStrategyOptions,
+                        capitalizedIncomeTypeOptions: templateData.capitalizedIncomeTypeOptions || FALLBACK_TEMPLATE.capitalizedIncomeTypeOptions,
+                        buyDownFeeCalculationTypeOptions: templateData.buyDownFeeCalculationTypeOptions || FALLBACK_TEMPLATE.buyDownFeeCalculationTypeOptions,
+                        buyDownFeeStrategyOptions: templateData.buyDownFeeStrategyOptions || FALLBACK_TEMPLATE.buyDownFeeStrategyOptions,
+                        buyDownFeeIncomeTypeOptions: templateData.buyDownFeeIncomeTypeOptions || FALLBACK_TEMPLATE.buyDownFeeIncomeTypeOptions,
 
                         // Recalc sets
                         interestRecalculationCompoundingTypeOptions:
-                            res.data.interestRecalculationCompoundingTypeOptions ||
+                            templateData.interestRecalculationCompoundingTypeOptions ||
                             FALLBACK_TEMPLATE.interestRecalculationCompoundingTypeOptions,
                         interestRecalculationFrequencyTypeOptions:
-                            res.data.interestRecalculationFrequencyTypeOptions ||
+                            templateData.interestRecalculationFrequencyTypeOptions ||
                             FALLBACK_TEMPLATE.interestRecalculationFrequencyTypeOptions,
                         rescheduleStrategyTypeOptions:
-                            res.data.rescheduleStrategyTypeOptions ||
+                            templateData.rescheduleStrategyTypeOptions ||
                             FALLBACK_TEMPLATE.rescheduleStrategyTypeOptions,
                         preClosureInterestCalculationStrategyOptions:
-                            res.data.preClosureInterestCalculationStrategyOptions ||
+                            templateData.preClosureInterestCalculationStrategyOptions ||
                             FALLBACK_TEMPLATE.preClosureInterestCalculationStrategyOptions,
                     });
 
                     // Default strategy if available and not in edit mode
                     if (!initial) {
-                        const firstStrat = res.data.transactionProcessingStrategyOptions?.[0];
+                        const firstStrat = templateData.transactionProcessingStrategyOptions?.[0];
                         if (firstStrat?.code) {
                             setForm((f) => ({
                                 ...f,
@@ -415,9 +489,9 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
             buyDownFeeIncomeType: initial.buyDownFeeIncomeType || f.buyDownFeeIncomeType,
             incomeFromBuyDownAccountId: initial.incomeFromBuyDownAccountId || '',
 
-            loanScheduleType: initial.loanScheduleType || f.loanScheduleType,
+            loanScheduleType: normalizeEnumToken(initial.loanScheduleType, f.loanScheduleType),
             loanScheduleProcessingType:
-                initial.loanScheduleProcessingType || f.loanScheduleProcessingType,
+                normalizeEnumToken(initial.loanScheduleProcessingType, f.loanScheduleProcessingType),
 
             // Interest Recalculation
             isInterestRecalculationEnabled: Boolean(initial.isInterestRecalculationEnabled),
@@ -458,6 +532,26 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
         }
         if (form.rateDefault === '' || Number(form.rateDefault) < 0 || !hasValidNumber(form.rateDefault)) {
             e.rateDefault = 'Default interest rate is required';
+        }
+        if (form.rateMin !== '' && (!hasValidNumber(form.rateMin) || Number(form.rateMin) < 0)) {
+            e.rateMin = 'Minimum interest rate must be 0 or more';
+        }
+        if (form.rateMax !== '' && (!hasValidNumber(form.rateMax) || Number(form.rateMax) < 0)) {
+            e.rateMax = 'Maximum interest rate must be 0 or more';
+        }
+        if (
+            hasValidNumber(form.rateMin) &&
+            hasValidNumber(form.rateDefault) &&
+            Number(form.rateMin) > Number(form.rateDefault)
+        ) {
+            e.rateMin = 'Minimum rate cannot exceed default rate';
+        }
+        if (
+            hasValidNumber(form.rateMax) &&
+            hasValidNumber(form.rateDefault) &&
+            Number(form.rateDefault) > Number(form.rateMax)
+        ) {
+            e.rateMax = 'Maximum rate cannot be below default rate';
         }
         if (!form.repaymentEvery || Number(form.repaymentEvery) <= 0) {
             e.repaymentEvery = 'Repayment every is required';
@@ -575,8 +669,8 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
             transactionProcessingStrategyCode: form.transactionProcessingStrategyId || undefined,
 
             // loan schedule
-            loanScheduleType: form.loanScheduleType,
-            loanScheduleProcessingType: form.loanScheduleProcessingType,
+            loanScheduleType: normalizeEnumToken(form.loanScheduleType),
+            loanScheduleProcessingType: normalizeEnumToken(form.loanScheduleProcessingType),
 
             charges: (form.chargeIds || []).map((id) => ({ id: Number(id) })),
 
@@ -584,6 +678,13 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
 
             locale: 'en',
         };
+
+        if (!payload.loanScheduleType) {
+            delete payload.loanScheduleType;
+        }
+        if (!payload.loanScheduleProcessingType) {
+            delete payload.loanScheduleProcessingType;
+        }
 
         // --- ALWAYS include this flag (fix) ---
         payload.isInterestRecalculationEnabled = Boolean(form.isInterestRecalculationEnabled);
@@ -834,6 +935,7 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                             onChange={(e) => setField('rateMin', e.target.value)}
                             className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                         />
+                        {errors.rateMin && <p className="text-xs text-red-500 mt-1">{errors.rateMin}</p>}
                     </div>
                     <div>
                         <label className="block text-sm font-medium">Default (%)</label>
@@ -857,6 +959,7 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                             onChange={(e) => setField('rateMax', e.target.value)}
                             className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                         />
+                        {errors.rateMax && <p className="text-xs text-red-500 mt-1">{errors.rateMax}</p>}
                     </div>
                     <div>
                         <label className="block text-sm font-medium">Rate Frequency</label>

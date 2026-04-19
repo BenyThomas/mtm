@@ -5,11 +5,13 @@ import Badge from '../components/Badge';
 import Button from '../components/Button';
 import DataTable from '../components/DataTable';
 import { useNavigate } from 'react-router-dom';
+import { useToast } from '../context/ToastContext';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
 
 const LoanProducts = () => {
     const navigate = useNavigate();
+    const { addToast } = useToast();
     const [loading, setLoading] = useState(true);
     const [products, setProducts] = useState([]);
 
@@ -37,6 +39,24 @@ const LoanProducts = () => {
     useEffect(() => {
         load();
     }, []);
+
+    const deleteProduct = async (product) => {
+        const productId = product?.id;
+        const productName = product?.name || productId || 'this loan product';
+        if (!productId) return;
+        if (!window.confirm(`Delete ${productName}?`)) return;
+        try {
+            await api.delete(`/loanproducts/${productId}`);
+            addToast('Loan product deleted', 'success');
+            await load();
+        } catch (err) {
+            const msg =
+                err?.response?.data?.errors?.[0]?.defaultUserMessage ||
+                err?.response?.data?.defaultUserMessage ||
+                'Delete failed';
+            addToast(msg, 'error');
+        }
+    };
 
     const currencies = useMemo(() => {
         const set = new Set(products.map((p) => p.currency?.code || p.currencyCode).filter(Boolean));
@@ -139,16 +159,38 @@ const LoanProducts = () => {
                 header: 'Actions',
                 sortable: false,
                 render: (p) => (
-                    <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            navigate(`/loan-products/${p.id}/edit`);
-                        }}
-                    >
-                        Edit
-                    </Button>
+                    <div className="flex gap-2">
+                        <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(`/loan-products/${p.id}`);
+                            }}
+                        >
+                            View
+                        </Button>
+                        <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(`/loan-products/${p.id}/edit`);
+                            }}
+                        >
+                            Edit
+                        </Button>
+                        <Button
+                            variant="danger"
+                            size="sm"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                deleteProduct(p);
+                            }}
+                        >
+                            Delete
+                        </Button>
+                    </div>
                 ),
             },
         ],
@@ -240,7 +282,7 @@ const LoanProducts = () => {
                     sortBy={sortBy}
                     sortDir={sortDir}
                     onSort={onSort}
-                    onRowClick={(row) => navigate(`/loan-products/${row.id}/edit`)}
+                    onRowClick={(row) => navigate(`/loan-products/${row.id}`)}
                     emptyMessage="No products found"
                 />
             </Card>

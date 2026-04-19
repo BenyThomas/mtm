@@ -39,6 +39,29 @@ const EMPLOYMENT_TYPE_OPTIONS = [
   { value: 'OTHER', label: 'Other' },
 ];
 
+const normalizeText = (value) => String(value || '').trim().toUpperCase();
+
+const resolveEligibilityMatch = (data, productCode) => {
+  const products = Array.isArray(data?.eligibleProducts) ? data.eligibleProducts : [];
+  const normalizedCode = normalizeText(productCode);
+  const match = products.find((item) => normalizeText(item?.productCode) === normalizedCode) || null;
+  if (match) {
+    return match;
+  }
+  if (products.length === 1) {
+    return {
+      ...products[0],
+      allowedTenures: Array.isArray(products[0]?.allowedTenures)
+        ? products[0].allowedTenures
+        : Array.isArray(data?.eligibility?.allowedTenures)
+        ? data.eligibility.allowedTenures
+        : [],
+      tenureUnit: products[0]?.tenureUnit || data?.tenureUnit || data?.eligibility?.tenureUnit,
+    };
+  }
+  return null;
+};
+
 const copyToClipboard = async (text) => {
   const t = String(text || '');
   if (!t) return false;
@@ -279,33 +302,22 @@ const InviteDetails = () => {
     setLoanEligibilityLoading(true);
     (async () => {
       try {
-        const data = await getGwLoanEligibilityForCustomer(customerId, {
+        const requestPayload = {
           productCode,
           requestedAmount: amount,
-        });
+        };
+        let data = await getGwLoanEligibilityForCustomer(customerId, requestPayload);
         if (cancelled) return;
-        const products = Array.isArray(data?.eligibleProducts) ? data.eligibleProducts : [];
-        const match = products.find((item) => String(item?.productCode || '').trim() === productCode) || null;
-        setLoanEligibility(match);
-        setLoanForm((prev) => {
-          const allowed = Array.isArray(match?.allowedTenures) ? match.allowedTenures.map((item) => String(item)) : [];
-          if (!allowed.length) {
-            return { ...prev, tenure: '' };
-          }
-          if (allowed.includes(String(prev.tenure || ''))) {
-            return prev;
-          }
-          const recommended = String(
-            match?.recommended?.tenure ??
-            match?.eligibleTenure ??
-            allowed[0]
-          );
-          return { ...prev, tenure: recommended };
-        });
+        let resolvedEligibility = resolveEligibilityMatch(data, productCode);
+        if (!resolvedEligibility) {
+          data = await getGwLoanEligibilityForCustomer(customerId, { productCode });
+          if (cancelled) return;
+          resolvedEligibility = resolveEligibilityMatch(data, productCode);
+        }
+        setLoanEligibility(resolvedEligibility);
       } catch (_) {
         if (!cancelled) {
           setLoanEligibility(null);
-          setLoanForm((prev) => ({ ...prev, tenure: '' }));
         }
       } finally {
         if (!cancelled) setLoanEligibilityLoading(false);
@@ -440,18 +452,36 @@ const InviteDetails = () => {
       addToast('Select a product and enter a valid amount', 'error');
       return;
     }
-    if (tenureOptions.length > 0 && !loanForm.tenure) {
-      addToast('Select a tenure from the allowed options', 'error');
+    if (!loanForm.tenure || !(Number(loanForm.tenure) > 0)) {
+      addToast('Enter a valid tenure', 'error');
       return;
     }
     setLoanSaving(true);
     setErr('');
     try {
+      const eligibilityData = await getGwLoanEligibilityForCustomer(onboarding.gatewayCustomerId, {
+        productCode: loanForm.productCode,
+        requestedAmount: Number(loanForm.amount),
+      });
+      const resolvedEligibility = resolveEligibilityMatch(eligibilityData, loanForm.productCode)
+        || resolveEligibilityMatch(await getGwLoanEligibilityForCustomer(onboarding.gatewayCustomerId, {
+          productCode: loanForm.productCode,
+        }), loanForm.productCode);
+      const allowedTenures = Array.isArray(resolvedEligibility?.allowedTenures)
+        ? resolvedEligibility.allowedTenures
+            .map((value) => Number(value))
+            .filter((value) => Number.isFinite(value) && value > 0)
+        : [];
+      const requestedTenure = Number(loanForm.tenure);
+      if (allowedTenures.length > 0 && !allowedTenures.includes(requestedTenure)) {
+        addToast(`Tenure ${requestedTenure} is not allowed. Allowed: ${allowedTenures.join(', ')}`, 'error');
+        return;
+      }
       const loan = await applyGwLoanOnBehalf(onboarding.gatewayCustomerId, {
         productCode: loanForm.productCode,
         amount: Number(loanForm.amount),
-        tenure: loanForm.tenure ? Number(loanForm.tenure) : undefined,
-        tenureUnit: loanEligibility?.tenureUnit || undefined,
+        tenure: requestedTenure,
+        tenureUnit: resolvedEligibility?.tenureUnit || loanEligibility?.tenureUnit || undefined,
       });
       setLoanOpen(false);
       addToast('Loan application submitted', 'success');
@@ -759,22 +789,20 @@ const InviteDetails = () => {
           </label>
           <label className="block text-sm text-slate-700 dark:text-slate-200">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Tenure</span>
-            <select
+            <input
+              type="number"
+              min="1"
+              step="1"
               value={loanForm.tenure}
               onChange={(e) => setLoanForm((prev) => ({ ...prev, tenure: e.target.value }))}
               className="w-full rounded-xl border p-2.5 dark:border-gray-600 dark:bg-gray-700"
-              disabled={loanEligibilityLoading || tenureOptions.length === 0}
-            >
-              <option value="">
-                {loanEligibilityLoading ? 'Loading tenures...' : tenureOptions.length ? 'Select tenure' : 'No allowed tenures'}
-              </option>
-              {tenureOptions.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
+              placeholder={loanEligibilityLoading ? 'Loading tenures...' : 'Enter tenure'}
+            />
             <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
               {loanEligibilityLoading
                 ? 'Checking allowed tenures for the selected amount.'
+                : tenureOptions.length
+                ? `Allowed: ${tenureOptions.map((option) => option.value).join(', ')} ${loanEligibility?.tenureUnit || ''}`.trim()
                 : loanEligibility?.recommended?.tenure
                 ? `Recommended: ${loanEligibility.recommended.tenure} ${loanEligibility?.tenureUnit || ''}`.trim()
                 : loanEligibility?.tenureUnit
