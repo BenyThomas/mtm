@@ -15,6 +15,7 @@ import { createInvite, deleteInvite, patchInvite, listInvites } from '../../../a
 import { useToast } from '../../../context/ToastContext';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
+const INVITE_READ_PERMISSIONS = ['READ_CLIENT', 'CREATE_CLIENT', 'UPDATE_CLIENT', 'DELETE_CLIENT'];
 
 const STATUS_OPTIONS = [
   { value: '', label: 'All' },
@@ -344,11 +345,13 @@ const InvitesList = () => {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <div className="hidden sm:block text-right">
-              <div className="text-xs text-slate-500 dark:text-slate-400">Page</div>
-              <div className="text-base font-semibold">{page + 1}</div>
-            </div>
-            <Can any={['GW_OPS_WRITE']}>
+            <Can any={INVITE_READ_PERMISSIONS}>
+              <div className="hidden sm:block text-right">
+                <div className="text-xs text-slate-500 dark:text-slate-400">Page</div>
+                <div className="text-base font-semibold">{page + 1}</div>
+              </div>
+            </Can>
+            <Can any={['CREATE_CLIENT']}>
               <Button onClick={openCreateModal}><Plus size={16} /> Create Invite</Button>
             </Can>
           </div>

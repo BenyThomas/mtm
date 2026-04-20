@@ -97,6 +97,7 @@ import TaxComponentEdit from "./pages/taxes/TaxComponentEdit";
 import Funds from "./pages/funds/Funds";
 import Users from "./pages/users/Users";
 import Roles from "./pages/admin/Roles";
+import RoleDetails from "./pages/admin/RoleDetails";
 import Permissions from "./pages/admin/Permissions";
 import CollectionSheet from "./pages/funds/CollectionSheet";
 import Search from "./pages/search/Search";
@@ -283,6 +284,7 @@ const App = () => {
 
                             <Route path="/admin/permissions" element={<Permissions />} />
                             <Route path="/admin/roles" element={<Roles />} />
+                            <Route path="/admin/roles/:id" element={<RoleDetails />} />
                             <Route path="/search" element={<Search />} />
 
                             {/* Gateway back-office */}

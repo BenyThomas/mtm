@@ -38,6 +38,7 @@ const EMPLOYMENT_TYPE_OPTIONS = [
   { value: 'UNEMPLOYED', label: 'Unemployed' },
   { value: 'OTHER', label: 'Other' },
 ];
+const INVITE_READ_PERMISSIONS = ['READ_CLIENT', 'CREATE_CLIENT', 'UPDATE_CLIENT', 'DELETE_CLIENT'];
 
 const normalizeText = (value) => String(value || '').trim().toUpperCase();
 
@@ -519,25 +520,31 @@ const InviteDetails = () => {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="secondary" onClick={load} disabled={loading || saving}>
-            Refresh
-          </Button>
-          <Can any={['GW_OPS_WRITE']}>
+          <Can any={INVITE_READ_PERMISSIONS}>
+            <Button variant="secondary" onClick={load} disabled={loading || saving}>
+              Refresh
+            </Button>
+          </Can>
+          <Can any={['UPDATE_CLIENT']}>
             {canAcceptOnBehalf ? (
               <Button onClick={openAcceptModal} disabled={loading || saving || acceptSaving}>
                 Accept On Behalf
               </Button>
             ) : null}
+          </Can>
+          <Can any={['CREATE_LOAN']}>
             {canApplyLoan ? (
               <Button onClick={() => setLoanOpen(true)} disabled={loading || saving || loanSaving}>
                 Apply Loan On Behalf
               </Button>
             ) : null}
           </Can>
-          <Can any={['GW_OPS_WRITE']}>
+          <Can any={['UPDATE_CLIENT']}>
             <Button variant="secondary" onClick={doCancel} disabled={loading || saving}>
               Cancel Invite
             </Button>
+          </Can>
+          <Can any={['DELETE_CLIENT']}>
             <Button variant="danger" onClick={doDelete} disabled={loading || saving}>
               Delete
             </Button>

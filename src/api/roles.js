@@ -1,5 +1,7 @@
 import api from './axios';
 
+const normalizePermissionCode = (value) => String(value || '').trim();
+
 /** GET /v1/roles */
 export const listRoles = async () => {
     const { data } = await api.get('/roles');
@@ -36,23 +38,25 @@ export const setRoleEnabled = async (roleId, enabled) => {
 /** GET /v1/roles/{roleId}/permissions  -> permissions for role */
 export const getRolePermissions = async (roleId) => {
     const { data } = await api.get(`/roles/${roleId}/permissions`);
-    const arr = Array.isArray(data) ? data : (data?.permissions || []);
+    const arr = Array.isArray(data)
+        ? data
+        : (data?.permissionUsageData || data?.permissions || []);
     return arr.map((p, idx) => ({
         id: p.id ?? idx,
-        code: p.code || p.actionName || '',
-        entityName: p.entityName || p.grouping || '',
-        actionName: p.actionName || '',
+        rawCode: String(p.code || p.actionName || ''),
+        code: normalizePermissionCode(p.code || p.actionName || ''),
+        entityName: String(p.entityName || p.grouping || '').trim(),
+        actionName: String(p.actionName || '').trim(),
+        description: String(p.description || p.code || p.actionName || '').trim(),
         makerCheckerEnabled: Boolean(p.makerCheckerEnabled ?? p.selected ?? false),
         selected: Boolean(p.selected ?? false),
     }));
 };
 
-/** PUT /v1/roles/{roleId}/permissions  -> assign permissions to role
- *  Sends a compact array of IDs (or codes) depending on your backend.
- */
-export const updateRolePermissions = async (roleId, permissionIds) => {
+/** PUT /v1/roles/{roleId}/permissions  -> assign permissions to role */
+export const updateRolePermissions = async (roleId, permissionsMap) => {
     const { data } = await api.put(`/roles/${roleId}/permissions`, {
-        permissions: permissionIds, // array<number>
+        permissions: permissionsMap,
     });
     return data;
 };

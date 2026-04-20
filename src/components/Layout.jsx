@@ -36,7 +36,7 @@ const NAV_GROUPS = [
     title: 'Gateway',
     items: [
       { to: '/gateway', label: 'Overview', icon: 'G', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
-      { to: '/gateway/invites', label: 'Invites', icon: 'I', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CLIENT'] },
+      { to: '/gateway/invites', label: 'Invites', icon: 'I', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CLIENT', 'CREATE_CLIENT', 'UPDATE_CLIENT', 'DELETE_CLIENT'] },
       { to: '/gateway/invite-campaigns', label: 'Invite Campaigns', icon: 'IC', any: ['GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
       { to: '/gateway/invite-channels', label: 'Invite Channels', icon: 'CH', any: ['GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
       { to: '/gateway/loans', label: 'Gw Loans', icon: 'GL', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_LOAN'] },
@@ -151,20 +151,22 @@ const NAV_GROUPS = [
 
 const Layout = () => {
   const [open, setOpen] = useState(false);
-  const { can } = useAuth();
+  const { can, user } = useAuth();
+  const isGatewayOnlyLoanOfficer = Boolean(user?.isGatewayOnlyLoanOfficer);
 
   // filter items by single 'perm' or permission groups
   const visibleGroups = useMemo(() => {
     return NAV_GROUPS.map(g => ({
       ...g,
+      hidden: isGatewayOnlyLoanOfficer && !g.title.startsWith('Gateway'),
       items: g.items.filter((it) => {
         if (Array.isArray(it.all) && it.all.length > 0) return it.all.every((code) => can(code));
         if (Array.isArray(it.any) && it.any.length > 0) return it.any.some((code) => can(code));
         if (it.perm) return can(it.perm);
         return true;
       }),
-    })).filter(g => g.items.length > 0);
-  }, [can]);
+    })).filter(g => !g.hidden && g.items.length > 0);
+  }, [can, isGatewayOnlyLoanOfficer]);
 
   return (
       <div className="min-h-screen text-slate-900 dark:text-slate-100">
