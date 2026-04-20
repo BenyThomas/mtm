@@ -46,6 +46,7 @@ const NAV_GROUPS = [
       { to: '/gateway/group-lifecycle', label: 'Group Lifecycle', icon: 'GL', any: ['GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
       { to: '/gateway/centers', label: 'Centers', icon: 'C', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CENTER', 'READ_GROUP'] },
       { to: '/gateway/bank-names', label: 'Bank Names', icon: 'B', any: ['GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION', 'UPDATE_CONFIGURATION'] },
+      { to: '/gateway/loan-purposes', label: 'Loan Purposes', icon: 'LP', any: ['GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION', 'UPDATE_CONFIGURATION', 'READ_LOANPRODUCT'] },
       { to: '/gateway/disbursements', label: 'Disbursements', icon: 'D', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
       { to: '/gateway/kyc', label: 'KYC Ops', icon: 'K', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
     ],

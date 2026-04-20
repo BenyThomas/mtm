@@ -1,25 +1,22 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Eye, Plus } from 'lucide-react';
-import AsyncSearchableSelectField from '../../../components/AsyncSearchableSelectField';
 import Badge from '../../../components/Badge';
 import Button from '../../../components/Button';
 import Card from '../../../components/Card';
 import DataTable from '../../../components/DataTable';
 import Modal from '../../../components/Modal';
-import SearchableSelectField from '../../../components/SearchableSelectField';
 import { createCenter, listCenters } from '../../../api/gateway/community';
-import { listOpsResources } from '../../../api/gateway/opsResources';
 import useOffices from '../../../hooks/useOffices';
 import useStaff from '../../../hooks/useStaff';
 import { useToast } from '../../../context/ToastContext';
+import { useAuth } from '../../../context/AuthContext';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
 const emptyForm = {
   name: '',
-  officeId: '1',
+  officeId: '',
   invitedByStaffId: '',
-  centerAdminCustomerId: '',
   active: true,
 };
 
@@ -33,8 +30,9 @@ const statusTone = (value) => {
 const CommunityCenters = () => {
   const navigate = useNavigate();
   const { addToast } = useToast();
-  const { offices, loading: officesLoading } = useOffices();
-  const { staff, loading: staffLoading } = useStaff({ activeOnly: true });
+  const { user } = useAuth();
+  const { offices } = useOffices();
+  const { staff } = useStaff({ activeOnly: true });
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(0);
@@ -48,7 +46,9 @@ const CommunityCenters = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [form, setForm] = useState(emptyForm);
-  const [selectedCenterAdminLabel, setSelectedCenterAdminLabel] = useState('');
+
+  const linkedOfficeId = String(user?.officeId || '').trim();
+  const linkedStaffId = String(user?.staffId || '').trim();
 
   useEffect(() => {
     let cancelled = false;
@@ -126,6 +126,12 @@ const CommunityCenters = () => {
 
   const submit = async (e) => {
     e?.preventDefault?.();
+    if (!form.officeId || !form.invitedByStaffId) {
+      const msg = 'Your login is not linked to an office and staff profile.';
+      setError(msg);
+      addToast(msg, 'error');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -133,12 +139,10 @@ const CommunityCenters = () => {
         name: form.name.trim(),
         officeId: Number(form.officeId),
         invitedByStaffId: Number(form.invitedByStaffId),
-        centerAdminCustomerId: form.centerAdminCustomerId.trim(),
         active: !!form.active,
       });
       setCreateOpen(false);
       setForm(emptyForm);
-      setSelectedCenterAdminLabel('');
       setRefreshTick((tick) => tick + 1);
       addToast('Center created', 'success');
     } catch (e2) {
@@ -150,39 +154,14 @@ const CommunityCenters = () => {
     }
   };
 
-  const officeOptions = useMemo(
-    () => offices.map((office) => ({ id: String(office.id), label: `${office.name}${office.parentName ? ` - ${office.parentName}` : ''}` })),
-    [offices],
+  const linkedOffice = useMemo(
+    () => offices.find((office) => String(office.id) === linkedOfficeId) || null,
+    [offices, linkedOfficeId],
   );
-
-  const staffOptions = useMemo(
-    () => staff.map((item) => ({ id: String(item.id), label: `${item.displayName}${item.officeName ? ` - ${item.officeName}` : ''} (${item.id})` })),
-    [staff],
+  const linkedStaff = useMemo(
+    () => staff.find((item) => String(item.id) === linkedStaffId) || null,
+    [staff, linkedStaffId],
   );
-
-  const searchCustomerOptions = async (query) => {
-    const response = await listOpsResources('customers', {
-      q: query || undefined,
-      limit: 20,
-      offset: 0,
-      orderBy: 'createdAt',
-      sortOrder: 'desc',
-    });
-    const items = Array.isArray(response?.items) ? response.items : [];
-    return items
-      .map((item) => {
-        const first = String(item?.profile?.firstName || '').trim();
-        const last = String(item?.profile?.lastName || '').trim();
-        const fullName = [first, last].filter(Boolean).join(' ');
-        const phone = String(item?.profile?.phone || '').trim();
-        const id = item?.gatewayCustomerId || item?.platformCustomerId || item?.customerId || item?.id;
-        return {
-          id: String(id || ''),
-          label: `${fullName || item?.username || id}${phone ? ` - ${phone}` : ''}${id ? ` (${id})` : ''}`,
-        };
-      })
-      .filter((item) => item.id);
-  };
 
   const columns = useMemo(() => [
     {
@@ -246,7 +225,18 @@ const CommunityCenters = () => {
           </div>
           <div className="flex items-center gap-2">
             <Button variant="secondary" onClick={() => setRefreshTick((tick) => tick + 1)} disabled={loading}>Refresh</Button>
-            <Button onClick={() => { setError(''); setForm(emptyForm); setSelectedCenterAdminLabel(''); setCreateOpen(true); }}>
+            <Button
+              onClick={() => {
+                setError('');
+                setForm({
+                  ...emptyForm,
+                  officeId: linkedOfficeId,
+                  invitedByStaffId: linkedStaffId,
+                });
+                setCreateOpen(true);
+              }}
+              disabled={!linkedOfficeId || !linkedStaffId}
+            >
               <Plus size={16} /> Create Center
             </Button>
           </div>
@@ -330,41 +320,26 @@ const CommunityCenters = () => {
               onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} required />
           </div>
           <div>
-            <SearchableSelectField
-              label="Office Id"
-              value={form.officeId}
-              onChange={(value) => setForm((prev) => ({ ...prev, officeId: String(value || '') }))}
-              options={officeOptions}
-              placeholder="Search office"
-              disabled={officesLoading}
-              required
+            <label className="block text-sm font-medium">Office</label>
+            <input
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+              value={linkedOffice ? `${linkedOffice.name}${linkedOffice.parentName ? ` - ${linkedOffice.parentName}` : ''}` : user?.officeName || ''}
+              readOnly
             />
+            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              Center will be created under your linked office.
+            </div>
           </div>
           <div>
-            <SearchableSelectField
-              label="Invited By Staff Id"
-              value={form.invitedByStaffId}
-              onChange={(value) => setForm((prev) => ({ ...prev, invitedByStaffId: String(value || '') }))}
-              options={staffOptions}
-              placeholder="Search staff"
-              disabled={staffLoading}
-              required
+            <label className="block text-sm font-medium">Staff</label>
+            <input
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+              value={linkedStaff ? `${linkedStaff.displayName}${linkedStaff.officeName ? ` - ${linkedStaff.officeName}` : ''} (${linkedStaff.id})` : user?.staffDisplayName || ''}
+              readOnly
             />
-          </div>
-          <div className="sm:col-span-2">
-            <AsyncSearchableSelectField
-              label="Center Admin Customer Id"
-              value={form.centerAdminCustomerId}
-              onChange={(value, option) => {
-                setForm((prev) => ({ ...prev, centerAdminCustomerId: String(value || '') }));
-                setSelectedCenterAdminLabel(option?.label || '');
-              }}
-              loadOptions={searchCustomerOptions}
-              selectedLabel={selectedCenterAdminLabel}
-              placeholder="Search customer"
-              required
-              helperText="Search by customer name, phone, or customer id."
-            />
+            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              Center will be linked to your staff profile.
+            </div>
           </div>
           <label className="sm:col-span-2 flex items-center gap-3 text-sm">
             <input type="checkbox" checked={form.active} onChange={(e) => setForm((prev) => ({ ...prev, active: e.target.checked }))} />

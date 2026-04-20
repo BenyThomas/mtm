@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Plus, Power, SquarePen, Trash2 } from 'lucide-react';
-import AsyncSearchableSelectField from '../../../components/AsyncSearchableSelectField';
 import Badge from '../../../components/Badge';
 import Button from '../../../components/Button';
 import Card from '../../../components/Card';
@@ -9,7 +8,7 @@ import DataTable from '../../../components/DataTable';
 import Modal from '../../../components/Modal';
 import SearchableSelectField from '../../../components/SearchableSelectField';
 import Skeleton from '../../../components/Skeleton';
-import { assignCenterAdmin, createGroup, deactivateGroup as deactivateGroupRequest, deleteGroup as deleteGroupRequest, getCenter, updateGroup as updateGroupRequest } from '../../../api/gateway/community';
+import { createGroup, deactivateGroup as deactivateGroupRequest, deleteGroup as deleteGroupRequest, getCenter, updateGroup as updateGroupRequest } from '../../../api/gateway/community';
 import { getOpsResource, listOpsResources } from '../../../api/gateway/opsResources';
 import useOffices from '../../../hooks/useOffices';
 import useStaff from '../../../hooks/useStaff';
@@ -47,9 +46,7 @@ const CommunityCenterDetails = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [data, setData] = useState({ center: null, groups: [] });
-  const [adminOpen, setAdminOpen] = useState(false);
   const [groupOpen, setGroupOpen] = useState(false);
-  const [savingAdmin, setSavingAdmin] = useState(false);
   const [savingGroup, setSavingGroup] = useState(false);
   const [editingGroup, setEditingGroup] = useState(null);
   const [editGroupOpen, setEditGroupOpen] = useState(false);
@@ -60,9 +57,7 @@ const CommunityCenterDetails = () => {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deletingGroup, setDeletingGroup] = useState(false);
-  const [centerAdminCustomerId, setCenterAdminCustomerId] = useState('');
   const [groupForm, setGroupForm] = useState(groupFormInit);
-  const [selectedCenterAdminLabel, setSelectedCenterAdminLabel] = useState('');
   const [selectedGroupAdminLabel, setSelectedGroupAdminLabel] = useState('');
   const [selectedEditGroupAdminLabel, setSelectedEditGroupAdminLabel] = useState('');
   const [centerAdminDoc, setCenterAdminDoc] = useState(null);
@@ -77,7 +72,6 @@ const CommunityCenterDetails = () => {
         center: response?.center || null,
         groups: Array.isArray(response?.groups) ? response.groups.map((item) => ({ ...item, id: item?.platformGroupId })) : [],
       });
-      setCenterAdminCustomerId(response?.center?.centerAdminCustomerId || '');
     } catch (e) {
       setError(e?.response?.data?.message || e?.message || 'Failed to load center');
     } finally {
@@ -121,30 +115,11 @@ const CommunityCenterDetails = () => {
     const customerId = String(data.center?.centerAdminCustomerId || '').trim();
     if (!customerId) {
       setCenterAdminDoc(null);
-      setSelectedCenterAdminLabel('');
       return;
     }
     const doc = customerById[customerId] || null;
     setCenterAdminDoc(doc);
-    setSelectedCenterAdminLabel(doc ? customerLabelFromDoc(doc) : customerId);
   }, [data.center?.centerAdminCustomerId, customerById]);
-
-  const saveAdmin = async () => {
-    setSavingAdmin(true);
-    setError('');
-    try {
-      await assignCenterAdmin(centerId, { customerId: centerAdminCustomerId.trim() });
-      setAdminOpen(false);
-      await load();
-      addToast('Center admin updated', 'success');
-    } catch (e) {
-      const msg = e?.response?.data?.errors?.[0]?.details || e?.response?.data?.message || e?.message || 'Update failed';
-      setError(msg);
-      addToast(msg, 'error');
-    } finally {
-      setSavingAdmin(false);
-    }
-  };
 
   const submitGroup = async (e) => {
     e?.preventDefault?.();
@@ -370,10 +345,7 @@ const CommunityCenterDetails = () => {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Link to="/gateway/centers"><Button variant="secondary">Back</Button></Link>
-            <Button variant="secondary" onClick={load} disabled={loading || savingAdmin || savingGroup}>Refresh</Button>
-            <Button variant="secondary" onClick={() => setAdminOpen(true)} disabled={loading}>
-              <SquarePen size={16} /> Update Center
-            </Button>
+            <Button variant="secondary" onClick={load} disabled={loading || savingGroup}>Refresh</Button>
             <Button onClick={() => { setGroupForm((prev) => ({ ...groupFormInit, invitedByStaffId: String(data.center?.invitedByStaffId || '') })); setSelectedGroupAdminLabel(''); setGroupOpen(true); }} disabled={loading}>
               <Plus size={16} /> Create Group
             </Button>
@@ -424,38 +396,6 @@ const CommunityCenterDetails = () => {
           />
         </div>
       </Card>
-
-      <Modal
-        open={adminOpen}
-        onClose={() => (savingAdmin ? null : setAdminOpen(false))}
-        title="Update Center Admin"
-        size="lg"
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setAdminOpen(false)} disabled={savingAdmin}>Cancel</Button>
-            <Button onClick={saveAdmin} disabled={savingAdmin}>{savingAdmin ? 'Saving...' : 'Save'}</Button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <AsyncSearchableSelectField
-            label="Center Admin Customer Id"
-            value={centerAdminCustomerId}
-            onChange={(value, option) => {
-              setCenterAdminCustomerId(String(value || ''));
-              setSelectedCenterAdminLabel(option?.label || '');
-            }}
-            loadOptions={searchCustomerOptions}
-            selectedLabel={selectedCenterAdminLabel}
-            placeholder="Search customer"
-            required
-            helperText="Search by customer name, phone, or customer id."
-          />
-          <div className="rounded-xl border border-slate-200/70 bg-slate-50 px-3 py-3 text-xs text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/50 dark:text-slate-300">
-            Updating the center admin changes the local management role used for group admin oversight and member management.
-          </div>
-        </div>
-      </Modal>
 
       <Modal
         open={editGroupOpen}

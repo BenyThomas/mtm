@@ -11,9 +11,9 @@ import { useToast } from '../../../context/ToastContext';
 import Can from '../../../components/Can';
 import { getCenter, getGroup } from '../../../api/gateway/community';
 import useStaff from '../../../hooks/useStaff';
-import { listLoanProductsOps } from '../../../api/gateway/loanProducts';
 import { applyGwLoanOnBehalf, getGwLoanEligibilityForCustomer } from '../../../api/gateway/loans';
 import { listBankNames } from '../../../api/gateway/bankNames';
+import { listLoanPurposesOps } from '../../../api/gateway/loanPurposes';
 
 const GENDER_OPTIONS = [
   { value: '', label: 'Select gender' },
@@ -139,7 +139,9 @@ const InviteDetails = () => {
   const [acceptOpen, setAcceptOpen] = useState(false);
   const [loanOpen, setLoanOpen] = useState(false);
   const [loanProducts, setLoanProducts] = useState([]);
+  const [loanPurposes, setLoanPurposes] = useState([]);
   const [bankOptions, setBankOptions] = useState([]);
+  const [loanProductsLoading, setLoanProductsLoading] = useState(false);
   const [acceptSaving, setAcceptSaving] = useState(false);
   const [loanSaving, setLoanSaving] = useState(false);
   const [acceptForm, setAcceptForm] = useState({
@@ -163,7 +165,7 @@ const InviteDetails = () => {
     bankAccount: '',
     walletMsisdn: '',
   });
-  const [loanForm, setLoanForm] = useState({ productCode: '', amount: '', tenure: '' });
+  const [loanForm, setLoanForm] = useState({ productCode: '', amount: '', tenure: '', loanPurposeId: '' });
   const [loanEligibility, setLoanEligibility] = useState(null);
   const [loanEligibilityLoading, setLoanEligibilityLoading] = useState(false);
 
@@ -224,15 +226,56 @@ const InviteDetails = () => {
 
   useEffect(() => {
     let cancelled = false;
+    const customerId = onboarding?.gatewayCustomerId;
+    if (!loanOpen || !customerId) {
+      setLoanProducts([]);
+      setLoanProductsLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setLoanProductsLoading(true);
     (async () => {
       try {
-        const items = await listLoanProductsOps();
+        const data = await getGwLoanEligibilityForCustomer(customerId, {});
+        if (cancelled) return;
+        const items = Array.isArray(data?.eligibleProducts) ? data.eligibleProducts : [];
+        setLoanProducts(items.filter((item) => item?.productCode));
+        setLoanForm((prev) => {
+          const stillExists = items.some((item) => String(item?.productCode || '') === String(prev.productCode || ''));
+          return stillExists ? prev : { ...prev, productCode: '', tenure: '' };
+        });
+      } catch {
         if (!cancelled) {
-          const normalized = Array.isArray(items) ? items : Array.isArray(items?.items) ? items.items : [];
-          setLoanProducts(normalized.filter(Boolean));
+          setLoanProducts([]);
+        }
+      } finally {
+        if (!cancelled) setLoanProductsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loanOpen, onboarding?.gatewayCustomerId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await listLoanPurposesOps({
+          active: true,
+          limit: 500,
+          offset: 0,
+          orderBy: 'name',
+          sortOrder: 'asc',
+        });
+        const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+        if (!cancelled) {
+          setLoanPurposes(items.filter((item) => item?.fineractCodeValueId || item?.loanPurposeId));
         }
       } catch {
-        if (!cancelled) setLoanProducts([]);
+        if (!cancelled) setLoanPurposes([]);
       }
     })();
     return () => {
@@ -395,7 +438,11 @@ const InviteDetails = () => {
   const canApplyLoan = !!(onboarding?.gatewayCustomerId || onboarding?.fineractClientId);
   const loanProductOptions = loanProducts.map((item) => ({
     id: String(item?.productCode || ''),
-    label: `${item?.name || item?.productCode || 'Product'}${item?.productCode ? ` (${item.productCode})` : ''}`,
+    label: `${item?.productName || item?.name || item?.productCode || 'Product'}${item?.productCode ? ` (${item.productCode})` : ''}`,
+  })).filter((item) => item.id);
+  const loanPurposeOptions = loanPurposes.map((item) => ({
+    id: String(item?.fineractCodeValueId || item?.loanPurposeId || ''),
+    label: `${item?.name || item?.code || 'Purpose'}${item?.code ? ` (${item.code})` : ''}`,
   })).filter((item) => item.id);
 
   const openAcceptModal = () => setAcceptOpen(true);
@@ -483,6 +530,7 @@ const InviteDetails = () => {
         amount: Number(loanForm.amount),
         tenure: requestedTenure,
         tenureUnit: resolvedEligibility?.tenureUnit || loanEligibility?.tenureUnit || undefined,
+        loanPurposeId: loanForm.loanPurposeId ? Number(loanForm.loanPurposeId) : undefined,
       });
       setLoanOpen(false);
       addToast('Loan application submitted', 'success');
@@ -781,7 +829,14 @@ const InviteDetails = () => {
             value={loanForm.productCode}
             onChange={(value) => setLoanForm((prev) => ({ ...prev, productCode: value, tenure: '' }))}
             options={loanProductOptions}
-            placeholder="Select product"
+            placeholder={loanProductsLoading ? 'Loading eligible products...' : 'Select product'}
+          />
+          <SearchableSelectField
+            label="Loan Purpose"
+            value={loanForm.loanPurposeId}
+            onChange={(value) => setLoanForm((prev) => ({ ...prev, loanPurposeId: String(value || '') }))}
+            options={loanPurposeOptions}
+            placeholder="Select purpose"
           />
           <label className="block text-sm text-slate-700 dark:text-slate-200">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Amount</span>
