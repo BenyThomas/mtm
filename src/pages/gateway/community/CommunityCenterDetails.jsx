@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Plus, Power, SquarePen, Trash2 } from 'lucide-react';
+import AsyncSearchableSelectField from '../../../components/AsyncSearchableSelectField';
 import Badge from '../../../components/Badge';
 import Button from '../../../components/Button';
 import Card from '../../../components/Card';
@@ -60,7 +61,6 @@ const CommunityCenterDetails = () => {
   const [groupForm, setGroupForm] = useState(groupFormInit);
   const [selectedGroupAdminLabel, setSelectedGroupAdminLabel] = useState('');
   const [selectedEditGroupAdminLabel, setSelectedEditGroupAdminLabel] = useState('');
-  const [centerAdminDoc, setCenterAdminDoc] = useState(null);
   const [customerById, setCustomerById] = useState({});
 
   const load = async () => {
@@ -86,7 +86,6 @@ const CommunityCenterDetails = () => {
   useEffect(() => {
     let cancelled = false;
     const ids = new Set();
-    if (data.center?.centerAdminCustomerId) ids.add(String(data.center.centerAdminCustomerId));
     for (const group of data.groups || []) {
       if (group?.groupAdminCustomerId) ids.add(String(group.groupAdminCustomerId));
     }
@@ -109,17 +108,7 @@ const CommunityCenterDetails = () => {
     return () => {
       cancelled = true;
     };
-  }, [data.center?.centerAdminCustomerId, data.groups]);
-
-  useEffect(() => {
-    const customerId = String(data.center?.centerAdminCustomerId || '').trim();
-    if (!customerId) {
-      setCenterAdminDoc(null);
-      return;
-    }
-    const doc = customerById[customerId] || null;
-    setCenterAdminDoc(doc);
-  }, [data.center?.centerAdminCustomerId, customerById]);
+  }, [data.groups]);
 
   const submitGroup = async (e) => {
     e?.preventDefault?.();
@@ -259,7 +248,18 @@ const CommunityCenterDetails = () => {
   };
 
   const inviterStaff = staff.find((item) => String(item.id) === String(data.center?.invitedByStaffId || ''));
-  const officeName = offices.find((office) => String(office.id) === String(data.center?.officeId || ''))?.name || '-';
+  const officeDoc = offices.find((office) => String(office.id) === String(data.center?.officeId || '')) || null;
+  const officeLabel = data.center?.invitedByStaffOfficeName
+    || (officeDoc
+    ? `${officeDoc.name}${officeDoc.parentName ? ` - ${officeDoc.parentName}` : ''}`
+    : data.center?.officeId
+    ? `Office ${data.center.officeId}`
+    : '-');
+  const invitedByStaffLabel = data.center?.invitedByStaffName
+    || inviterStaff?.displayName
+    || (data.center?.invitedByStaffId ? `Staff ${data.center.invitedByStaffId}` : '-');
+  const invitedByStaffPhone = data.center?.invitedByStaffPhone || inviterStaff?.mobileNo || '-';
+  const invitedByStaffEmail = data.center?.invitedByStaffEmail || inviterStaff?.email || '-';
 
   const groupColumns = useMemo(() => [
     {
@@ -361,12 +361,10 @@ const CommunityCenterDetails = () => {
         ) : (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <div><div className="text-xs text-slate-500">Status</div><div className="mt-1 text-sm"><Badge tone={statusTone(data.center?.status)}>{data.center?.status || '-'}</Badge></div></div>
-            <div><div className="text-xs text-slate-500">Office</div><div className="mt-1 text-sm">{officeName}</div></div>
-            <div><div className="text-xs text-slate-500">Center Admin</div><div className="mt-1 text-sm">{centerAdminDoc ? customerLabelFromDoc(centerAdminDoc) : '-'}</div></div>
-            <div><div className="text-xs text-slate-500">Center Admin Phone</div><div className="mt-1 text-sm">{String(centerAdminDoc?.profile?.phone || '').trim() || '-'}</div></div>
-            <div><div className="text-xs text-slate-500">Invited By Staff</div><div className="mt-1 text-sm">{inviterStaff?.displayName || '-'}</div></div>
-            <div><div className="text-xs text-slate-500">Staff Phone</div><div className="mt-1 text-sm">{inviterStaff?.mobileNo || '-'}</div></div>
-            <div><div className="text-xs text-slate-500">Staff Email</div><div className="mt-1 text-sm">{inviterStaff?.email || '-'}</div></div>
+            <div><div className="text-xs text-slate-500">Office</div><div className="mt-1 text-sm">{officeLabel}</div></div>
+            <div><div className="text-xs text-slate-500">Invited By Staff</div><div className="mt-1 text-sm">{invitedByStaffLabel}</div></div>
+            <div><div className="text-xs text-slate-500">Staff Phone</div><div className="mt-1 text-sm">{invitedByStaffPhone}</div></div>
+            <div><div className="text-xs text-slate-500">Staff Email</div><div className="mt-1 text-sm">{invitedByStaffEmail}</div></div>
             <div><div className="text-xs text-slate-500">Capacity</div><div className="mt-1 text-sm">{data.center?.groupCount || 0}/{data.center?.maxGroups || '-'} groups | {data.center?.memberCount || 0}/{data.center?.maxMembers || '-'} members</div></div>
           </div>
         )}

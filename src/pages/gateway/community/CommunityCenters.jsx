@@ -139,6 +139,10 @@ const CommunityCenters = () => {
         name: form.name.trim(),
         officeId: Number(form.officeId),
         invitedByStaffId: Number(form.invitedByStaffId),
+        invitedByStaffName: linkedStaff?.displayName || user?.staffDisplayName || '',
+        invitedByStaffPhone: linkedStaff?.mobileNo || '',
+        invitedByStaffEmail: linkedStaff?.email || '',
+        invitedByStaffOfficeName: linkedStaff?.officeName || linkedOffice?.name || user?.officeName || '',
         active: !!form.active,
       });
       setCreateOpen(false);
