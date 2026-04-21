@@ -69,6 +69,21 @@ export async function getGwLoanTransactions(platformLoanId) {
   return unwrap(r);
 }
 
+export async function getGwLoanTransaction(platformLoanId, transactionId) {
+  const r = await gatewayApi.get(`/ops/loans/${encodeURIComponent(platformLoanId)}/transactions/${encodeURIComponent(transactionId)}`);
+  return unwrap(r);
+}
+
+export async function adjustGwLoanTransaction(platformLoanId, transactionId, payload) {
+  const r = await gatewayApi.post(`/ops/loans/${encodeURIComponent(platformLoanId)}/transactions/${encodeURIComponent(transactionId)}`, payload);
+  return unwrap(r);
+}
+
+export async function reverseGwLoanTransaction(platformLoanId, transactionId, payload) {
+  const r = await gatewayApi.post(`/ops/loans/${encodeURIComponent(platformLoanId)}/transactions/${encodeURIComponent(transactionId)}/reverse`, payload || {});
+  return unwrap(r);
+}
+
 export async function runGwLoanAction(platformLoanId, action, payload) {
   const r = await gatewayApi.post(`/ops/loans/${encodeURIComponent(platformLoanId)}/actions/${encodeURIComponent(action)}`, payload || {});
   return unwrap(r);
