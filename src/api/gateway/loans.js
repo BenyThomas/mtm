@@ -10,6 +10,11 @@ export async function listGwLoans(params) {
   return unwrap(r);
 }
 
+export async function listGwArrearsLoans(params) {
+  const r = await gatewayApi.get('/ops/loans/arrears', { params });
+  return unwrap(r);
+}
+
 export async function getGwLoan(platformLoanId) {
   const r = await gatewayApi.get(`/ops/loans/${encodeURIComponent(platformLoanId)}`);
   return unwrap(r);

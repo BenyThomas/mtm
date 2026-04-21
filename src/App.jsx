@@ -120,6 +120,7 @@ import CommunityCenterDetails from "./pages/gateway/community/CommunityCenterDet
 import GroupDetails from "./pages/gateway/community/GroupDetails";
 import GwLoansList from "./pages/gateway/loans/GwLoansList";
 import GwLoanDetails from "./pages/gateway/loans/GwLoanDetails";
+import GwArrearsLoans from "./pages/gateway/loans/GwArrearsLoans";
 import GatewayDataList from "./pages/gateway/data/DataList";
 
 const NotFound = () => (
@@ -307,6 +308,7 @@ const App = () => {
                             <Route path="/gateway/invite-channels" element={<InviteChannels />} />
                             <Route path="/gateway/invites/:inviteId" element={<InviteDetails />} />
                             <Route path="/gateway/loans" element={<GwLoansList />} />
+                            <Route path="/gateway/loans/arrears" element={<GwArrearsLoans />} />
                             <Route path="/gateway/loans/:platformLoanId" element={<GwLoanDetails />} />
                             <Route path="/gateway/data/:resource" element={<GatewayDataList />} />
 
