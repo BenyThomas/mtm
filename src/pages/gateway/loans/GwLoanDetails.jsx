@@ -220,6 +220,10 @@ const GwLoanDetails = () => {
   const [approvedAmount, setApprovedAmount] = useState('');
   const [approvedTenureMonths, setApprovedTenureMonths] = useState('');
   const [approvedOnDate, setApprovedOnDate] = useState(dateISO());
+  const [simpleActionOpen, setSimpleActionOpen] = useState('');
+  const [simpleActionBusy, setSimpleActionBusy] = useState(false);
+  const [simpleActionDate, setSimpleActionDate] = useState(dateISO());
+  const [simpleActionNote, setSimpleActionNote] = useState('');
 
   const [disburseOpen, setDisburseOpen] = useState(false);
   const [disburseBusy, setDisburseBusy] = useState(false);
@@ -439,6 +443,10 @@ const GwLoanDetails = () => {
     (statusUpper === 'APPROVED' || (fxApproved && fxNotDisbursedOrClosed));
   const outstandingAmount = toNumOrNull(doc?.outstandingAmount);
   const workflowActions = Array.isArray(workflow?.availableActions) ? workflow.availableActions : [];
+  const hasWorkflowAction = (action) => workflowActions.includes(action);
+  const canReject = hasFineractLoanId && (hasWorkflowAction('reject') || canApprove);
+  const canUndoApproval = hasFineractLoanId && hasWorkflowAction('undoApproval');
+  const canUndoDisbursement = hasFineractLoanId && hasWorkflowAction('undodisbursal');
   const fineractOverpaid = fxLoan?.status?.overpaid === true || /overpaid/i.test(String(fxStatusText || ''));
   const localOverpaid = statusUpper === 'OVERPAID';
   const overpaidAmount = firstNumeric(
@@ -470,15 +478,14 @@ const GwLoanDetails = () => {
     hasFineractLoanId &&
     (statusUpper === 'ACTIVE' || statusUpper === 'DISBURSED' || fxStatusUpper.includes('ACTIVE')) &&
     (outstandingAmount == null || outstandingAmount > 0);
-  const nextWorkflowAction = canRefund
-    ? 'refund'
-    : canDisburse
-      ? 'disburse'
-      : canApprove
-        ? 'approve'
-        : canRepayViaSelcom
-          ? 'repay'
-          : '';
+  const hasAnyPrimaryWorkflowAction =
+    canApprove ||
+    canReject ||
+    canUndoApproval ||
+    canDisburse ||
+    canUndoDisbursement ||
+    canRepayViaSelcom ||
+    canRefund;
 
   const filteredBankNameOptions = useMemo(() => {
     const requiredType = BANK_NAME_TYPE_BY_DISBURSEMENT[disbursementType];
@@ -515,6 +522,7 @@ const GwLoanDetails = () => {
       setEditor(pretty(updated));
       addToast('Loan approved', 'success');
       setApproveOpen(false);
+      await refreshLoanViews(updated);
     } catch (e) {
       const msg = e?.response?.data?.message || e?.message || 'Approve failed';
       setErr(msg);
@@ -554,13 +562,65 @@ const GwLoanDetails = () => {
         'success'
       );
       setDisburseOpen(false);
-      await load();
+      await refreshLoanViews(doc);
     } catch (e) {
       const msg = extractGatewayErrorMessage(e, 'Disburse failed');
       setErr(msg);
       addToast(msg, 'error');
     } finally {
       setDisburseBusy(false);
+    }
+  };
+
+  const simpleActionMeta = {
+    reject: {
+      title: 'Reject Loan',
+      button: 'Reject',
+      success: 'Loan rejected',
+      fallbackError: 'Reject failed',
+      dateLabel: 'Rejected On',
+    },
+    undoApproval: {
+      title: 'Undo Approval',
+      button: 'Undo Approval',
+      success: 'Loan approval undone',
+      fallbackError: 'Undo approval failed',
+      dateLabel: 'Approval Date',
+    },
+    undodisbursal: {
+      title: 'Undo Disbursement',
+      button: 'Undo Disbursement',
+      success: 'Loan disbursement undone',
+      fallbackError: 'Undo disbursement failed',
+      dateLabel: 'Transaction Date',
+    },
+  };
+
+  const openSimpleActionModal = (action) => {
+    setSimpleActionDate(dateISO());
+    setSimpleActionNote('');
+    setSimpleActionOpen(action);
+  };
+
+  const submitSimpleAction = async () => {
+    const action = simpleActionOpen;
+    const meta = simpleActionMeta[action];
+    if (!action || !meta) return;
+    setSimpleActionBusy(true);
+    try {
+      await runGwLoanAction(platformLoanId, action, {
+        date: simpleActionDate || undefined,
+        note: normalizeText(simpleActionNote) || undefined,
+      });
+      addToast(meta.success, 'success');
+      setSimpleActionOpen('');
+      await refreshLoanViews(doc);
+    } catch (e) {
+      const msg = extractGatewayErrorMessage(e, meta.fallbackError);
+      setErr(msg);
+      addToast(msg, 'error');
+    } finally {
+      setSimpleActionBusy(false);
     }
   };
 
@@ -904,7 +964,7 @@ const GwLoanDetails = () => {
               <div className="text-sm font-semibold">Workflow</div>
               <Can any={['GW_OPS_WRITE']}>
                 <div className="flex flex-wrap items-center gap-2">
-                  {nextWorkflowAction === 'approve' ? (
+                  {canApprove ? (
                     <Button
                       size="sm"
                       onClick={() => setApproveOpen(true)}
@@ -913,7 +973,27 @@ const GwLoanDetails = () => {
                       Approve
                     </Button>
                   ) : null}
-                  {nextWorkflowAction === 'disburse' ? (
+                  {canReject ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => openSimpleActionModal('reject')}
+                      title="Reject loan"
+                    >
+                      Reject
+                    </Button>
+                  ) : null}
+                  {canUndoApproval ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => openSimpleActionModal('undoApproval')}
+                      title="Undo approval"
+                    >
+                      Undo Approval
+                    </Button>
+                  ) : null}
+                  {canDisburse ? (
                     <Button
                       size="sm"
                       onClick={openDisburseModal}
@@ -922,7 +1002,17 @@ const GwLoanDetails = () => {
                       Disburse
                     </Button>
                   ) : null}
-                  {nextWorkflowAction === 'repay' ? (
+                  {canUndoDisbursement ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => openSimpleActionModal('undodisbursal')}
+                      title="Undo disbursement"
+                    >
+                      Undo Disbursement
+                    </Button>
+                  ) : null}
+                  {canRepayViaSelcom ? (
                     <Button
                       size="sm"
                       onClick={openRepayModal}
@@ -931,7 +1021,7 @@ const GwLoanDetails = () => {
                       Repay Loan
                     </Button>
                   ) : null}
-                  {nextWorkflowAction === 'refund' ? (
+                  {canRefund ? (
                     <Button
                       size="sm"
                       onClick={openRefundModal}
@@ -940,7 +1030,7 @@ const GwLoanDetails = () => {
                       Refund
                     </Button>
                   ) : null}
-                  {!nextWorkflowAction && !workflowLoading ? (
+                  {!hasAnyPrimaryWorkflowAction && !workflowLoading ? (
                     <span className="text-sm text-slate-600 dark:text-slate-300">No workflow action available</span>
                   ) : null}
                 </div>
@@ -1027,6 +1117,52 @@ const GwLoanDetails = () => {
           </Card>
         </div>
       )}
+
+      <Modal
+        open={!!simpleActionOpen}
+        onClose={() => (simpleActionBusy ? null : setSimpleActionOpen(''))}
+        title={simpleActionMeta[simpleActionOpen]?.title || 'Loan Action'}
+        size="lg"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setSimpleActionOpen('')} disabled={simpleActionBusy}>
+              Cancel
+            </Button>
+            <Button variant={simpleActionOpen === 'reject' ? 'danger' : 'primary'} onClick={submitSimpleAction} disabled={simpleActionBusy}>
+              {simpleActionBusy ? (
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="animate-spin" size={16} /> Working...
+                </span>
+              ) : (
+                simpleActionMeta[simpleActionOpen]?.button || 'Submit'
+              )}
+            </Button>
+          </>
+        }
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              {simpleActionMeta[simpleActionOpen]?.dateLabel || 'Transaction Date'}
+            </label>
+            <input
+              type="date"
+              value={simpleActionDate}
+              onChange={(e) => setSimpleActionDate(e.target.value)}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Note (optional)</label>
+            <textarea
+              rows={3}
+              value={simpleActionNote}
+              onChange={(e) => setSimpleActionNote(e.target.value)}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+        </div>
+      </Modal>
 
       <Modal
         open={approveOpen}

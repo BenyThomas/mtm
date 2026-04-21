@@ -313,6 +313,12 @@ export const AuthProvider = ({ children }) => {
                         userObj = {
                             ...userObj,
                             staffId: linkedStaffId,
+                            staffDisplayName: linkedStaff?.displayName || userObj.staffDisplayName,
+                            linkedStaffName: linkedStaff?.displayName || userObj.staffDisplayName || '',
+                            linkedStaffPhone: linkedStaff?.mobileNo || '',
+                            linkedStaffEmail: linkedStaff?.email || '',
+                            linkedStaffOfficeId: linkedStaff?.officeId || userObj.officeId || null,
+                            linkedStaffOfficeName: linkedStaff?.officeName || userObj.officeName || '',
                             linkedStaffIsLoanOfficer: Boolean(linkedStaff?.isLoanOfficer),
                             isGatewayOnlyLoanOfficer: Boolean(userObj.isLoanOfficer || linkedStaff?.isLoanOfficer),
                         };

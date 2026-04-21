@@ -139,10 +139,10 @@ const CommunityCenters = () => {
         name: form.name.trim(),
         officeId: Number(form.officeId),
         invitedByStaffId: Number(form.invitedByStaffId),
-        invitedByStaffName: linkedStaff?.displayName || user?.staffDisplayName || '',
-        invitedByStaffPhone: linkedStaff?.mobileNo || '',
-        invitedByStaffEmail: linkedStaff?.email || '',
-        invitedByStaffOfficeName: linkedStaff?.officeName || linkedOffice?.name || user?.officeName || '',
+        invitedByStaffName: linkedStaff?.displayName || user?.linkedStaffName || user?.staffDisplayName || '',
+        invitedByStaffPhone: linkedStaff?.mobileNo || user?.linkedStaffPhone || '',
+        invitedByStaffEmail: linkedStaff?.email || user?.linkedStaffEmail || '',
+        invitedByStaffOfficeName: linkedStaff?.officeName || user?.linkedStaffOfficeName || linkedOffice?.name || user?.officeName || '',
         active: !!form.active,
       });
       setCreateOpen(false);
@@ -166,6 +166,16 @@ const CommunityCenters = () => {
     () => staff.find((item) => String(item.id) === linkedStaffId) || null,
     [staff, linkedStaffId],
   );
+  const linkedOfficeLabel = linkedOffice
+    ? `${linkedOffice.name}${linkedOffice.parentName ? ` - ${linkedOffice.parentName}` : ''}`
+    : user?.linkedStaffOfficeName
+    || user?.officeName
+    || '';
+  const linkedStaffLabel = linkedStaff
+    ? `${linkedStaff.displayName}${linkedStaff.officeName ? ` - ${linkedStaff.officeName}` : ''} (${linkedStaff.id})`
+    : user?.linkedStaffName
+    ? `${user.linkedStaffName}${user.linkedStaffOfficeName ? ` - ${user.linkedStaffOfficeName}` : ''}${linkedStaffId ? ` (${linkedStaffId})` : ''}`
+    : user?.staffDisplayName || '';
 
   const columns = useMemo(() => [
     {
@@ -327,7 +337,7 @@ const CommunityCenters = () => {
             <label className="block text-sm font-medium">Office</label>
             <input
               className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
-              value={linkedOffice ? `${linkedOffice.name}${linkedOffice.parentName ? ` - ${linkedOffice.parentName}` : ''}` : user?.officeName || ''}
+              value={linkedOfficeLabel}
               readOnly
             />
             <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
@@ -338,7 +348,7 @@ const CommunityCenters = () => {
             <label className="block text-sm font-medium">Staff</label>
             <input
               className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
-              value={linkedStaff ? `${linkedStaff.displayName}${linkedStaff.officeName ? ` - ${linkedStaff.officeName}` : ''} (${linkedStaff.id})` : user?.staffDisplayName || ''}
+              value={linkedStaffLabel}
               readOnly
             />
             <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
