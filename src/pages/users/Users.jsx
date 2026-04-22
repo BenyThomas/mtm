@@ -16,28 +16,28 @@ const Users = () => {
     const [items, setItems] = useState([]);
     const [q, setQ] = useState('');
 
-    // Create
     const [createOpen, setCreateOpen] = useState(false);
     const [createBusy, setCreateBusy] = useState(false);
 
-    // Edit
     const [editOpen, setEditOpen] = useState(false);
     const [editBusy, setEditBusy] = useState(false);
     const [editing, setEditing] = useState(null);
 
-    // Delete
     const [deleteBusy, setDeleteBusy] = useState(false);
     const [deleting, setDeleting] = useState(null);
 
-    // Change password
     const [pwdOpen, setPwdOpen] = useState(false);
     const [pwdBusy, setPwdBusy] = useState(false);
     const [pwdUser, setPwdUser] = useState(null);
 
+    const [uploadOpen, setUploadOpen] = useState(false);
+    const [uploadBusy, setUploadBusy] = useState(false);
+    const [uploadFile, setUploadFile] = useState(null);
+
     const load = async () => {
         setLoading(true);
         try {
-            const r = await api.get('/users'); // baseURL should already include /api/v1
+            const r = await api.get('/users');
             const list = Array.isArray(r?.data) ? r.data : (r?.data?.pageItems || []);
             const norm = list.map((u) => ({
                 id: u.id,
@@ -49,8 +49,10 @@ const Users = () => {
                 officeId: u.officeId || u.office?.id,
                 officeName: u.officeName || u.office?.name,
                 staffId: u.staffId || u.staff?.id,
-                roles: Array.isArray(u.roles) ? u.roles : [],
-                status: u.status || u.selfServiceUser ? 'Self-Service' : '',
+                roles: Array.isArray(u.selectedRoles)
+                    ? u.selectedRoles
+                    : (Array.isArray(u.roles) ? u.roles : []),
+                status: u.status || (u.isSelfServiceUser || u.selfServiceUser ? 'Self-Service' : ''),
             }));
             setItems(norm);
         } catch (e) {
@@ -68,13 +70,12 @@ const Users = () => {
         const t = q.trim().toLowerCase();
         if (!t) return items;
         return items.filter((u) =>
-            [u.id, u.username, u.firstname, u.lastname, u.displayName, u.email, u.officeName]
+            [u.id, u.username, u.firstname, u.lastname, u.displayName, u.email, u.officeName, u.roles.map((r) => r?.name || r?.id).join(' ')]
                 .map((v) => String(v ?? '').toLowerCase())
                 .some((h) => h.includes(t))
         );
     }, [items, q]);
 
-    // Create
     const create = async (payload) => {
         if (!payload?.username) {
             addToast('Username is required', 'error');
@@ -97,7 +98,6 @@ const Users = () => {
         }
     };
 
-    // Edit open/update
     const openEdit = (user) => {
         setEditing(user);
         setEditOpen(true);
@@ -123,7 +123,6 @@ const Users = () => {
         }
     };
 
-    // Delete
     const askDelete = (user) => {
         setDeleting(user);
     };
@@ -144,7 +143,6 @@ const Users = () => {
         }
     };
 
-    // Change password
     const openPwd = (user) => {
         setPwdUser(user);
         setPwdOpen(true);
@@ -170,10 +168,6 @@ const Users = () => {
     };
 
     const downloadTemplateHref = '/api/api/v1/users/downloadtemplate';
-
-    const [uploadOpen, setUploadOpen] = useState(false);
-    const [uploadBusy, setUploadBusy] = useState(false);
-    const [uploadFile, setUploadFile] = useState(null);
 
     const uploadTemplate = async () => {
         if (!uploadFile) {
@@ -201,7 +195,6 @@ const Users = () => {
 
     return (
         <div className="space-y-6">
-            {/* Header */}
             <div className="flex items-center justify-between">
                 <h1 className="text-2xl font-bold">Users</h1>
                 <div className="space-x-2">
@@ -218,7 +211,6 @@ const Users = () => {
                 </div>
             </div>
 
-            {/* Filters */}
             <Card>
                 <div className="grid md:grid-cols-3 gap-3">
                     <div className="md:col-span-2">
@@ -226,14 +218,13 @@ const Users = () => {
                         <input
                             value={q}
                             onChange={(e) => setQ(e.target.value)}
-                            placeholder="Username, name, email, office…"
+                            placeholder="Username, name, email, office, role..."
                             className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                         />
                     </div>
                 </div>
             </Card>
 
-            {/* Table */}
             <Card>
                 {loading ? (
                     <Skeleton height="12rem" />
@@ -259,10 +250,10 @@ const Users = () => {
                                     <td className="py-2 pr-4">{u.id}</td>
                                     <td className="py-2 pr-4">{u.username}</td>
                                     <td className="py-2 pr-4">{u.displayName || `${u.firstname} ${u.lastname}`}</td>
-                                    <td className="py-2 pr-4">{u.email || '—'}</td>
-                                    <td className="py-2 pr-4">{u.officeName || '—'}</td>
+                                    <td className="py-2 pr-4">{u.email || '-'}</td>
+                                    <td className="py-2 pr-4">{u.officeName || '-'}</td>
                                     <td className="py-2 pr-4">
-                                        {u.roles?.length ? u.roles.map(r => r.name || r.id).join(', ') : '—'}
+                                        {u.roles?.length ? u.roles.map((r) => r?.name || r?.id).filter(Boolean).join(', ') : '-'}
                                     </td>
                                     <td className="py-2 pr-4 whitespace-nowrap space-x-2">
                                         <Button variant="secondary" onClick={() => openEdit(u)}>
@@ -283,7 +274,6 @@ const Users = () => {
                 )}
             </Card>
 
-            {/* Create Modal */}
             <Modal
                 open={createOpen}
                 onClose={() => setCreateOpen(false)}
@@ -303,7 +293,6 @@ const Users = () => {
                 </div>
             </Modal>
 
-            {/* Edit Modal */}
             <Modal
                 open={editOpen}
                 onClose={() => { if (!editBusy) { setEditOpen(false); setEditing(null); } }}
@@ -323,7 +312,6 @@ const Users = () => {
                 </div>
             </Modal>
 
-            {/* Change Password Modal */}
             <Modal
                 open={pwdOpen}
                 onClose={() => { if (!pwdBusy) { setPwdOpen(false); setPwdUser(null); } }}
@@ -336,17 +324,16 @@ const Users = () => {
                 <PasswordForm onSubmit={changePassword} submitting={pwdBusy} />
             </Modal>
 
-            {/* Upload Template modal */}
             <Modal
                 open={uploadOpen}
                 onClose={() => setUploadOpen(false)}
-                title="Upload Users Template"
+                title="Upload User Template"
                 size="lg"
                 footer={
                     <>
                         <Button variant="secondary" onClick={() => setUploadOpen(false)}>Cancel</Button>
                         <Button onClick={uploadTemplate} disabled={uploadBusy}>
-                            {uploadBusy ? 'Uploading…' : 'Upload'}
+                            {uploadBusy ? 'Uploading...' : 'Upload'}
                         </Button>
                     </>
                 }
@@ -364,24 +351,22 @@ const Users = () => {
                 </div>
             </Modal>
 
-            {/* Simple Delete confirm modal (reuse Modal) */}
             <Modal
-                open={Boolean(deleting)}
+                open={!!deleting}
                 onClose={() => { if (!deleteBusy) setDeleting(null); }}
                 title="Delete User"
-                size="sm"
+                size="md"
                 footer={
                     <>
                         <Button variant="secondary" onClick={() => setDeleting(null)} disabled={deleteBusy}>Cancel</Button>
-                        <Button onClick={doDelete} disabled={deleteBusy}>
-                            {deleteBusy ? 'Deleting…' : 'Delete'}
+                        <Button variant="danger" onClick={doDelete} disabled={deleteBusy}>
+                            {deleteBusy ? 'Deleting...' : 'Delete'}
                         </Button>
                     </>
                 }
             >
-                <p className="text-sm">
-                    Are you sure you want to delete user{' '}
-                    <span className="font-semibold">{deleting?.username}</span>?
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Delete user <strong>{deleting?.username || deleting?.displayName || '-'}</strong>?
                 </p>
             </Modal>
         </div>

@@ -15,7 +15,6 @@ const StaffDetails = () => {
 
     const [loading, setLoading] = useState(true);
     const [staff, setStaff] = useState(null);
-
     const [editOpen, setEditOpen] = useState(false);
     const [saving, setSaving] = useState(false);
 
@@ -35,7 +34,8 @@ const StaffDetails = () => {
                 mobileNo: s.mobileNo || '',
                 externalId: s.externalId || '',
                 emailAddress: s.emailAddress || s.email || '',
-                isActive: s.isActive ?? true,
+                isActive: s.isActive ?? s.active ?? true,
+                joiningDate: s.joiningDate ?? s.joinedDate ?? s.dateOfJoining ?? '',
             };
             setStaff(norm);
         } catch (e) {
@@ -47,7 +47,7 @@ const StaffDetails = () => {
         }
     };
 
-    useEffect(() => { load(); /* eslint-disable-next-line */ }, [staffId]);
+    useEffect(() => { load(); }, [staffId]);
 
     const save = async (payload) => {
         setSaving(true);
@@ -81,54 +81,55 @@ const StaffDetails = () => {
             <div className="space-y-6">
                 <h1 className="text-2xl font-bold">Staff</h1>
                 <Card>Not found.</Card>
-                <Button variant="secondary" onClick={() => navigate('/config/staff')}>Back to Staff</Button>
+                <Button variant="secondary" onClick={() => navigate('/staff')}>Back to Staff</Button>
             </div>
         );
     }
 
     return (
         <div className="space-y-6">
-            {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-2xl font-bold">{staff.displayName}</h1>
                     <div className="text-sm text-gray-600 dark:text-gray-300">
-                        #{staff.id} • {staff.officeName || '—'} • {staff.isLoanOfficer ? 'Loan Officer' : 'Staff'}
+                        #{staff.id} • {staff.officeName || '-'} • {staff.isLoanOfficer ? 'Loan Officer' : 'Staff'} • {staff.isActive ? 'Active' : 'Inactive'}
                     </div>
                 </div>
                 <div className="space-x-2">
                     <Button onClick={() => setEditOpen(true)}>Edit</Button>
-                    <Button variant="secondary" onClick={() => navigate('/config/staff')}>All Staff</Button>
+                    <Button variant="secondary" onClick={() => navigate('/staff')}>All Staff</Button>
                 </div>
             </div>
 
-            {/* Summary */}
             <Card>
                 <div className="grid md:grid-cols-2 gap-4 text-sm">
                     <div>
                         <div className="text-gray-500">Office</div>
-                        <div className="font-medium">{staff.officeName || '—'}</div>
+                        <div className="font-medium">{staff.officeName || '-'}</div>
                     </div>
                     <div>
                         <div className="text-gray-500">Role</div>
                         <div className="font-medium">{staff.isLoanOfficer ? 'Loan Officer' : 'Staff'}</div>
                     </div>
                     <div>
+                        <div className="text-gray-500">Status</div>
+                        <div className="font-medium">{staff.isActive ? 'Active' : 'Inactive'}</div>
+                    </div>
+                    <div>
                         <div className="text-gray-500">Mobile</div>
-                        <div className="font-medium">{staff.mobileNo || '—'}</div>
+                        <div className="font-medium">{staff.mobileNo || '-'}</div>
                     </div>
                     <div>
                         <div className="text-gray-500">Email</div>
-                        <div className="font-medium">{staff.emailAddress || '—'}</div>
+                        <div className="font-medium">{staff.emailAddress || '-'}</div>
                     </div>
                     <div>
                         <div className="text-gray-500">External ID</div>
-                        <div className="font-medium">{staff.externalId || '—'}</div>
+                        <div className="font-medium">{staff.externalId || '-'}</div>
                     </div>
                 </div>
             </Card>
 
-            {/* Edit modal */}
             <Modal
                 open={editOpen}
                 title={`Edit: ${staff.displayName}`}
