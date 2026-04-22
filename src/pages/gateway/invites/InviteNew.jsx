@@ -5,12 +5,16 @@ import Card from '../../../components/Card';
 import SearchableSelectField from '../../../components/SearchableSelectField';
 import { createInvite } from '../../../api/gateway/invites';
 import useInviteCatalog from '../../../hooks/useInviteCatalog';
+import useStaff from '../../../hooks/useStaff';
 import { useToast } from '../../../context/ToastContext';
+import { useAuth } from '../../../context/AuthContext';
 
 const InviteNew = () => {
   const navigate = useNavigate();
   const { addToast } = useToast();
+  const { user } = useAuth();
   const { catalog, loading: catalogLoading } = useInviteCatalog();
+  const { staff, loading: staffLoading } = useStaff({ activeOnly: true });
 
   const [campaignCode, setCampaignCode] = useState('');
   const [referrerId, setReferrerId] = useState('');
@@ -25,6 +29,9 @@ const InviteNew = () => {
 
   const campaignOptions = (catalog?.campaigns || []).map((item) => ({ id: item.code, label: `${item.name || item.code} (${item.code})` }));
   const channelOptions = (catalog?.channels || []).map((item) => ({ id: item.code, label: `${item.name || item.code} (${item.code})` }));
+  const staffOptions = staff.map((item) => ({ id: String(item.id), label: `${item.displayName}${item.officeName ? ` - ${item.officeName}` : ''} (${item.id})` }));
+  const loggedInStaffId = String(user?.staffId || '');
+  const isLoanOfficerUser = Boolean(user?.isGatewayOnlyLoanOfficer || user?.linkedStaffIsLoanOfficer || user?.isLoanOfficer);
 
   React.useEffect(() => {
     if (!campaignCode && campaignOptions.length) {
@@ -33,16 +40,20 @@ const InviteNew = () => {
     if (!channel && channelOptions.length) {
       setChannel(String(channelOptions[0].id));
     }
-  }, [campaignCode, channel, campaignOptions, channelOptions]);
+    if (!referrerId && loggedInStaffId) {
+      setReferrerId(loggedInStaffId);
+    }
+  }, [campaignCode, channel, referrerId, campaignOptions, channelOptions, loggedInStaffId]);
 
   const submit = async (e) => {
     e.preventDefault();
     setSubmitting(true);
     setErr('');
     try {
+      const effectiveStaffId = isLoanOfficerUser && loggedInStaffId ? loggedInStaffId : referrerId;
       const payload = {
         campaignCode: campaignCode.trim(),
-        referrerId: referrerId.trim() || null,
+        referrerId: String(effectiveStaffId || '').trim() || null,
         channel: channel.trim() || null,
         maxUses: Number(maxUses) || null,
         multiUse: !!multiUse,
@@ -98,11 +109,16 @@ const InviteNew = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium">Referrer Id</label>
-                <input
-                  className="mt-1 w-full rounded-xl border border-slate-200 bg-white/80 p-2 text-sm dark:border-slate-700 dark:bg-slate-900/70"
+                <SearchableSelectField
+                  label="Staff"
                   value={referrerId}
-                  onChange={(e) => setReferrerId(e.target.value)}
+                  onChange={(value) => setReferrerId(String(value || ''))}
+                  options={staffOptions}
+                  placeholder="Search staff"
+                  disabled={staffLoading || (isLoanOfficerUser && !!loggedInStaffId)}
+                  helperText={isLoanOfficerUser
+                    ? 'Your linked staff profile is used automatically for this invite.'
+                    : 'Select the staff member responsible for this invite.'}
                 />
               </div>
               <div className="grid grid-cols-2 gap-2">

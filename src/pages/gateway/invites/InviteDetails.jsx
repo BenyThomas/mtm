@@ -142,6 +142,7 @@ const InviteDetails = () => {
   const [loanPurposes, setLoanPurposes] = useState([]);
   const [bankOptions, setBankOptions] = useState([]);
   const [loanProductsLoading, setLoanProductsLoading] = useState(false);
+  const [loanProductsReady, setLoanProductsReady] = useState(false);
   const [acceptSaving, setAcceptSaving] = useState(false);
   const [loanSaving, setLoanSaving] = useState(false);
   const [acceptForm, setAcceptForm] = useState({
@@ -227,9 +228,10 @@ const InviteDetails = () => {
   useEffect(() => {
     let cancelled = false;
     const customerId = onboarding?.gatewayCustomerId;
-    if (!loanOpen || !customerId) {
+    if (!customerId) {
       setLoanProducts([]);
       setLoanProductsLoading(false);
+      setLoanProductsReady(false);
       return () => {
         cancelled = true;
       };
@@ -241,14 +243,24 @@ const InviteDetails = () => {
         const data = await getGwLoanEligibilityForCustomer(customerId, {});
         if (cancelled) return;
         const items = Array.isArray(data?.eligibleProducts) ? data.eligibleProducts : [];
-        setLoanProducts(items.filter((item) => item?.productCode));
+        const normalizedItems = items.filter((item) => item?.productCode);
+        setLoanProducts(normalizedItems);
+        setLoanProductsReady(true);
         setLoanForm((prev) => {
-          const stillExists = items.some((item) => String(item?.productCode || '') === String(prev.productCode || ''));
-          return stillExists ? prev : { ...prev, productCode: '', tenure: '' };
+          const stillExists = normalizedItems.some((item) => String(item?.productCode || '') === String(prev.productCode || ''));
+          const nextProductCode = stillExists
+            ? prev.productCode
+            : (normalizedItems[0]?.productCode ? String(normalizedItems[0].productCode) : '');
+          return {
+            ...prev,
+            productCode: nextProductCode,
+            tenure: stillExists ? prev.tenure : '',
+          };
         });
       } catch {
         if (!cancelled) {
           setLoanProducts([]);
+          setLoanProductsReady(true);
         }
       } finally {
         if (!cancelled) setLoanProductsLoading(false);
@@ -257,7 +269,7 @@ const InviteDetails = () => {
     return () => {
       cancelled = true;
     };
-  }, [loanOpen, onboarding?.gatewayCustomerId]);
+  }, [onboarding?.gatewayCustomerId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -446,6 +458,12 @@ const InviteDetails = () => {
   })).filter((item) => item.id);
 
   const openAcceptModal = () => setAcceptOpen(true);
+  const openLoanModal = () => {
+    if (onboarding?.gatewayCustomerId && !loanProductsReady && !loanProductsLoading) {
+      setLoanProductsReady(false);
+    }
+    setLoanOpen(true);
+  };
 
   const submitAcceptOnBehalf = async (e) => {
     e?.preventDefault?.();
@@ -582,7 +600,7 @@ const InviteDetails = () => {
           </Can>
           <Can any={['CREATE_LOAN']}>
             {canApplyLoan ? (
-              <Button onClick={() => setLoanOpen(true)} disabled={loading || saving || loanSaving}>
+              <Button onClick={openLoanModal} disabled={loading || saving || loanSaving || (canApplyLoan && loanProductsLoading && !loanProducts.length)}>
                 Apply Loan On Behalf
               </Button>
             ) : null}
@@ -831,6 +849,11 @@ const InviteDetails = () => {
             options={loanProductOptions}
             placeholder={loanProductsLoading ? 'Loading eligible products...' : 'Select product'}
           />
+          {!loanProductsLoading && !loanProducts.length ? (
+            <div className="text-xs text-amber-600 dark:text-amber-300">
+              No eligible loan offers were found for this customer.
+            </div>
+          ) : null}
           <SearchableSelectField
             label="Loan Purpose"
             value={loanForm.loanPurposeId}

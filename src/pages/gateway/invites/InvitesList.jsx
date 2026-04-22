@@ -13,6 +13,7 @@ import useInviteCatalog from '../../../hooks/useInviteCatalog';
 import useStaff from '../../../hooks/useStaff';
 import { createInvite, deleteInvite, patchInvite, listInvites } from '../../../api/gateway/invites';
 import { useToast } from '../../../context/ToastContext';
+import { useAuth } from '../../../context/AuthContext';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
 const INVITE_READ_PERMISSIONS = ['READ_CLIENT', 'CREATE_CLIENT', 'UPDATE_CLIENT', 'DELETE_CLIENT'];
@@ -77,6 +78,7 @@ const inviteFormInit = {
 const InvitesList = () => {
   const navigate = useNavigate();
   const { addToast } = useToast();
+  const { user } = useAuth();
   const { catalog, loading: catalogLoading } = useInviteCatalog();
   const { staff, loading: staffLoading } = useStaff({ activeOnly: true });
 
@@ -181,20 +183,24 @@ const InvitesList = () => {
     () => (catalog?.channels || []).map((item) => ({ id: item.code, label: `${item.name || item.code} (${item.code})` })),
     [catalog],
   );
+  const loggedInStaffId = String(user?.staffId || '');
+  const isLoanOfficerUser = Boolean(user?.isGatewayOnlyLoanOfficer || user?.linkedStaffIsLoanOfficer || user?.isLoanOfficer);
 
   useEffect(() => {
     if (!inviteOpen || editingInvite) return;
     setInviteForm((prev) => ({
       ...prev,
+      referrerId: prev.referrerId || loggedInStaffId,
       campaignCode: prev.campaignCode || String(campaignOptions[0]?.id || ''),
       channel: prev.channel || String(channelOptions[0]?.id || ''),
     }));
-  }, [inviteOpen, editingInvite, campaignOptions, channelOptions]);
+  }, [inviteOpen, editingInvite, campaignOptions, channelOptions, loggedInStaffId]);
 
   const openCreateModal = () => {
     setEditingInvite(null);
     setInviteForm({
       ...inviteFormInit,
+      referrerId: loggedInStaffId,
       campaignCode: String(campaignOptions[0]?.id || ''),
       channel: String(channelOptions[0]?.id || ''),
     });
@@ -204,8 +210,9 @@ const InvitesList = () => {
   const openEditModal = (invite, e) => {
     e?.stopPropagation?.();
     setEditingInvite(invite);
+    const lockedReferrerId = isLoanOfficerUser && loggedInStaffId ? loggedInStaffId : String(invite?.referrerId || '');
     setInviteForm({
-      referrerId: String(invite?.referrerId || ''),
+      referrerId: lockedReferrerId,
       campaignCode: String(invite?.campaignCode || campaignOptions[0]?.id || ''),
       channel: String(invite?.channel || channelOptions[0]?.id || ''),
       maxUses: String(invite?.maxUses ?? 1),
@@ -221,8 +228,9 @@ const InvitesList = () => {
     e?.preventDefault?.();
     setSavingInvite(true);
     try {
+      const effectiveStaffId = isLoanOfficerUser && loggedInStaffId ? loggedInStaffId : inviteForm.referrerId;
       const payload = {
-        referrerId: inviteForm.referrerId ? String(inviteForm.referrerId) : null,
+        referrerId: effectiveStaffId ? String(effectiveStaffId) : null,
         campaignCode: inviteForm.campaignCode.trim(),
         channel: inviteForm.channel.trim(),
         maxUses: inviteForm.multiUse ? 0 : (Number(inviteForm.maxUses) || 1),
@@ -450,13 +458,15 @@ const InvitesList = () => {
         <form className="grid gap-4 sm:grid-cols-2" onSubmit={submitInvite}>
           <div className="sm:col-span-2">
             <SearchableSelectField
-              label="Referrer Id"
+              label="Staff"
               value={inviteForm.referrerId}
               onChange={(value) => setInviteForm((prev) => ({ ...prev, referrerId: String(value || '') }))}
               options={staffOptions}
               placeholder="Search staff"
-              disabled={staffLoading}
-              helperText="Select the staff member acting as the referrer."
+              disabled={staffLoading || (isLoanOfficerUser && !!loggedInStaffId)}
+              helperText={isLoanOfficerUser
+                ? 'Your linked staff profile is used automatically for this invite.'
+                : 'Select the staff member responsible for this invite.'}
             />
           </div>
           <div>
