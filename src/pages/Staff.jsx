@@ -25,7 +25,6 @@ const Staff = () => {
     const [uploadBusy, setUploadBusy] = useState(false);
     const [uploadFile, setUploadFile] = useState(null);
 
-    // Normalize any incoming date to "YYYY-MM-DD"
     const normalizeToDateInput = (v) => {
         if (!v) return '';
         if (Array.isArray(v) && v.length >= 3) {
@@ -53,15 +52,14 @@ const Staff = () => {
     };
 
     const formatDateForCell = (yyyyMMdd) => {
-        if (!yyyyMMdd) return '—';
-        // Keep it simple and consistent; you can localize if needed
+        if (!yyyyMMdd) return '-';
         return yyyyMMdd;
     };
 
     const load = async () => {
         setLoading(true);
         try {
-            const r = await api.get('/staff');
+            const r = await api.get('/staff', { params: { status: 'ALL' } });
             const list = Array.isArray(r?.data) ? r.data : (r?.data?.pageItems || []);
             const norm = list.map((s) => ({
                 id: s.id,
@@ -76,7 +74,7 @@ const Staff = () => {
                 joiningDate: normalizeToDateInput(
                     s.joiningDate ?? s.joinedDate ?? s.dateOfJoining ?? s.joiningdate
                 ),
-                isActive: s.isActive ?? true,
+                isActive: s.isActive ?? s.active ?? true,
             }));
             setItems(norm);
         } catch (e) {
@@ -96,7 +94,7 @@ const Staff = () => {
         const t = q.trim().toLowerCase();
         if (!t) return list;
         return list.filter((s) =>
-            [s.id, s.firstname, s.lastname, s.displayName, s.officeName, s.mobileNo, s.externalId, s.joiningDate]
+            [s.id, s.firstname, s.lastname, s.displayName, s.officeName, s.mobileNo, s.externalId, s.joiningDate, s.isActive ? 'active' : 'inactive']
                 .map((v) => String(v ?? '').toLowerCase())
                 .some((h) => h.includes(t))
         );
@@ -148,7 +146,6 @@ const Staff = () => {
 
     return (
         <div className="space-y-6">
-            {/* Header */}
             <div className="flex items-center justify-between">
                 <h1 className="text-2xl font-bold">Staff</h1>
                 <div className="space-x-2">
@@ -161,7 +158,6 @@ const Staff = () => {
                 </div>
             </div>
 
-            {/* Filters */}
             <Card>
                 <div className="grid md:grid-cols-3 gap-3">
                     <div className="md:col-span-2">
@@ -169,7 +165,7 @@ const Staff = () => {
                         <input
                             value={q}
                             onChange={(e) => setQ(e.target.value)}
-                            placeholder="Name, office, mobile, Emp. ID, joining date…"
+                            placeholder="Name, office, mobile, status, employee ID, joining date..."
                             className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                         />
                     </div>
@@ -186,7 +182,6 @@ const Staff = () => {
                 </div>
             </Card>
 
-            {/* Table */}
             <Card>
                 {loading ? (
                     <Skeleton height="12rem" />
@@ -201,6 +196,7 @@ const Staff = () => {
                                 <th className="py-2 pr-4">Name</th>
                                 <th className="py-2 pr-4">Office</th>
                                 <th className="py-2 pr-4">Role</th>
+                                <th className="py-2 pr-4">Status</th>
                                 <th className="py-2 pr-4">Mobile</th>
                                 <th className="py-2 pr-4">Joining Date</th>
                                 <th className="py-2 pr-4">Emp. ID</th>
@@ -212,23 +208,34 @@ const Staff = () => {
                                 <tr key={s.id} className="border-t border-gray-200 dark:border-gray-700 text-sm">
                                     <td className="py-2 pr-4">{s.id}</td>
                                     <td className="py-2 pr-4">{s.displayName}</td>
-                                    <td className="py-2 pr-4">{s.officeName || '—'}</td>
+                                    <td className="py-2 pr-4">{s.officeName || '-'}</td>
                                     <td className="py-2 pr-4">
                                         {s.isLoanOfficer ? (
                                             <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-200">
-                          Loan Officer
-                        </span>
+                                                Loan Officer
+                                            </span>
                                         ) : (
                                             <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300">
-                          Staff
-                        </span>
+                                                Staff
+                                            </span>
                                         )}
                                     </td>
-                                    <td className="py-2 pr-4">{s.mobileNo || '—'}</td>
+                                    <td className="py-2 pr-4">
+                                        {s.isActive ? (
+                                            <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200">
+                                                Active
+                                            </span>
+                                        ) : (
+                                            <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-200">
+                                                Inactive
+                                            </span>
+                                        )}
+                                    </td>
+                                    <td className="py-2 pr-4">{s.mobileNo || '-'}</td>
                                     <td className="py-2 pr-4">{formatDateForCell(s.joiningDate)}</td>
-                                    <td className="py-2 pr-4">{s.externalId || '—'}</td>
+                                    <td className="py-2 pr-4">{s.externalId || '-'}</td>
                                     <td className="py-2 pr-4 whitespace-nowrap">
-                                        <Button variant="secondary" onClick={() => navigate(`/config/staff/${s.id}`)}>
+                                        <Button variant="secondary" onClick={() => navigate(`/staff/${s.id}`)}>
                                             View / Edit
                                         </Button>
                                     </td>
@@ -240,7 +247,6 @@ const Staff = () => {
                 )}
             </Card>
 
-            {/* Create Modal — wider & prettier */}
             <Modal
                 open={createOpen}
                 onClose={() => setCreateOpen(false)}
@@ -260,7 +266,6 @@ const Staff = () => {
                 </div>
             </Modal>
 
-            {/* Upload Template modal */}
             <Modal
                 open={uploadOpen}
                 onClose={() => setUploadOpen(false)}
@@ -270,7 +275,7 @@ const Staff = () => {
                     <>
                         <Button variant="secondary" onClick={() => setUploadOpen(false)}>Cancel</Button>
                         <Button onClick={uploadTemplate} disabled={uploadBusy}>
-                            {uploadBusy ? 'Uploading…' : 'Upload'}
+                            {uploadBusy ? 'Uploading...' : 'Upload'}
                         </Button>
                     </>
                 }

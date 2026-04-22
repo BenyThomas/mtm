@@ -19,6 +19,7 @@ const StaffForm = ({ initial, onSubmit, submitting }) => {
     const [firstname, setFirstname] = useState('');
     const [lastname, setLastname] = useState('');
     const [isLoanOfficer, setIsLoanOfficer] = useState(false);
+    const [isActive, setIsActive] = useState(true);
     const [mobileNo, setMobileNo] = useState('');
     const [externalId, setExternalId] = useState('');
     const [emailAddress, setEmailAddress] = useState('');
@@ -68,6 +69,7 @@ const StaffForm = ({ initial, onSubmit, submitting }) => {
             setFirstname('');
             setLastname('');
             setIsLoanOfficer(false);
+            setIsActive(true);
             setMobileNo('');
             setExternalId('');
             setEmailAddress('');
@@ -79,6 +81,7 @@ const StaffForm = ({ initial, onSubmit, submitting }) => {
         setFirstname(initial.firstname || initial.firstName || '');
         setLastname(initial.lastname || initial.lastName || '');
         setIsLoanOfficer(Boolean(initial.isLoanOfficer));
+        setIsActive(initial.isActive ?? initial.active ?? true);
         setMobileNo(initial.mobileNo || '');
         setExternalId(initial.externalId || '');
         setEmailAddress(initial.emailAddress || initial.email || '');
@@ -110,6 +113,7 @@ const StaffForm = ({ initial, onSubmit, submitting }) => {
             firstname: firstname.trim(),
             lastname: lastname.trim(),
             isLoanOfficer: Boolean(isLoanOfficer),
+            isActive: Boolean(isActive),
             ...(mobileNo.trim() ? { mobileNo: mobileNo.trim() } : {}),
             ...(externalId.trim() ? { externalId: externalId.trim() } : {}),
             ...(emailAddress.trim() ? { emailAddress: emailAddress.trim() } : {}),
@@ -195,6 +199,18 @@ const StaffForm = ({ initial, onSubmit, submitting }) => {
                             />
                             <label htmlFor="isLoanOfficer" className="text-sm">
                                 Is Loan Officer
+                            </label>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                            <input
+                                id="isActive"
+                                type="checkbox"
+                                checked={isActive}
+                                onChange={(e) => setIsActive(e.target.checked)}
+                            />
+                            <label htmlFor="isActive" className="text-sm">
+                                Active Staff
                             </label>
                         </div>
 
