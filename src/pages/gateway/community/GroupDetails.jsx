@@ -57,6 +57,41 @@ const customerLabelFromDoc = (item) => {
   return `${fullName || item?.username || '-'}${phone ? ` - ${phone}` : ''}`;
 };
 
+const customerLabelFromMember = (item) => {
+  const name = String(item?.customerName || '').trim();
+  const phone = String(item?.customerPhone || '').trim();
+  return `${name || '-'}${name && phone ? ` - ${phone}` : ''}`;
+};
+
+const customerLookupKeys = (item) => (
+  [
+    item?.platformCustomerId,
+    item?.gatewayCustomerId,
+    item?.customerId,
+    item?.id,
+  ]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+);
+
+const resolveCustomerDoc = async (id) => {
+  const lookupId = String(id || '').trim();
+  if (!lookupId) return null;
+  try {
+    return await getOpsResource('customers', lookupId);
+  } catch (_) {
+    const response = await listOpsResources('customers', {
+      q: lookupId,
+      limit: 20,
+      offset: 0,
+      orderBy: 'createdAt',
+      sortOrder: 'desc',
+    });
+    const items = Array.isArray(response?.items) ? response.items : [];
+    return items.find((item) => customerLookupKeys(item).includes(lookupId)) || null;
+  }
+};
+
 const formatDateTime = (value) => {
   if (!value) return '-';
   const date = new Date(value);
@@ -231,12 +266,13 @@ const GroupDetails = () => {
     (async () => {
       const next = {};
       await Promise.all(Array.from(ids).map(async (id) => {
-        try {
-          const doc = await getOpsResource('customers', id);
-          next[id] = doc || null;
-        } catch (_) {
+        const doc = await resolveCustomerDoc(id);
+        if (!doc) {
           next[id] = null;
+          return;
         }
+        for (const key of customerLookupKeys(doc)) next[key] = doc;
+        if (!next[id]) next[id] = doc;
       }));
       if (cancelled) return;
       setCustomerById(next);
@@ -599,10 +635,12 @@ const GroupDetails = () => {
       sortable: false,
       render: (row) => {
         const customer = customerById[String(row?.customerId || '')] || null;
+        const label = customer ? customerLabelFromDoc(customer) : customerLabelFromMember(row);
+        const email = String(customer?.profile?.email || row?.customerEmail || '').trim() || 'No email';
         return (
           <div className="min-w-[180px]">
-            <div className="font-medium text-slate-900 dark:text-slate-50">{customer ? customerLabelFromDoc(customer) : '-'}</div>
-            <div className="text-[11px] text-slate-500 dark:text-slate-400">{String(customer?.profile?.email || '').trim() || 'No email'}</div>
+            <div className="font-medium text-slate-900 dark:text-slate-50">{label}</div>
+            <div className="text-[11px] text-slate-500 dark:text-slate-400">{email}</div>
           </div>
         );
       },
@@ -660,7 +698,7 @@ const GroupDetails = () => {
       const customer = customerById[String(item?.customerId || '')] || null;
       return {
         id: String(item?.customerId || ''),
-        label: customer ? customerLabelFromDoc(customer) : String(item?.customerId || ''),
+        label: customer ? customerLabelFromDoc(customer) : customerLabelFromMember(item),
       };
     })
     .filter((item) => item.id);
@@ -672,7 +710,7 @@ const GroupDetails = () => {
       sortable: false,
       render: (row) => {
         const customer = customerById[String(row?.customerId || '')] || null;
-        return customer ? customerLabelFromDoc(customer) : '-';
+        return customer ? customerLabelFromDoc(customer) : customerLabelFromMember(row);
       },
     },
     {

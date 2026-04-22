@@ -18,7 +18,6 @@ import { useToast } from '../../../context/ToastContext';
 const groupFormInit = {
   name: '',
   invitedByStaffId: '',
-  groupAdminCustomerId: '',
   maxMembers: '',
   active: true,
 };
@@ -59,7 +58,6 @@ const CommunityCenterDetails = () => {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deletingGroup, setDeletingGroup] = useState(false);
   const [groupForm, setGroupForm] = useState(groupFormInit);
-  const [selectedGroupAdminLabel, setSelectedGroupAdminLabel] = useState('');
   const [selectedEditGroupAdminLabel, setSelectedEditGroupAdminLabel] = useState('');
   const [customerById, setCustomerById] = useState({});
 
@@ -118,13 +116,11 @@ const CommunityCenterDetails = () => {
       await createGroup(centerId, {
         name: groupForm.name.trim(),
         invitedByStaffId: Number(groupForm.invitedByStaffId),
-        groupAdminCustomerId: groupForm.groupAdminCustomerId.trim(),
         maxMembers: groupForm.maxMembers ? Number(groupForm.maxMembers) : null,
         active: !!groupForm.active,
       });
       setGroupOpen(false);
       setGroupForm(groupFormInit);
-      setSelectedGroupAdminLabel('');
       await load();
       addToast('Group created', 'success');
     } catch (e2) {
@@ -346,7 +342,7 @@ const CommunityCenterDetails = () => {
           <div className="flex flex-wrap items-center gap-2">
             <Link to="/gateway/centers"><Button variant="secondary">Back</Button></Link>
             <Button variant="secondary" onClick={load} disabled={loading || savingGroup}>Refresh</Button>
-            <Button onClick={() => { setGroupForm((prev) => ({ ...groupFormInit, invitedByStaffId: String(data.center?.invitedByStaffId || '') })); setSelectedGroupAdminLabel(''); setGroupOpen(true); }} disabled={loading}>
+            <Button onClick={() => { setGroupForm((prev) => ({ ...groupFormInit, invitedByStaffId: String(data.center?.invitedByStaffId || '') })); setGroupOpen(true); }} disabled={loading}>
               <Plus size={16} /> Create Group
             </Button>
           </div>
@@ -483,20 +479,6 @@ const CommunityCenterDetails = () => {
             <label className="block text-sm font-medium">Max Members</label>
             <input className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={groupForm.maxMembers}
               onChange={(e) => setGroupForm((prev) => ({ ...prev, maxMembers: e.target.value }))} placeholder="Optional" />
-          </div>
-          <div className="sm:col-span-2">
-            <AsyncSearchableSelectField
-              label="Group Admin Customer Id"
-              value={groupForm.groupAdminCustomerId}
-              onChange={(value, option) => {
-                setGroupForm((prev) => ({ ...prev, groupAdminCustomerId: String(value || '') }));
-                setSelectedGroupAdminLabel(option?.label || '');
-              }}
-              loadOptions={searchCustomerOptions}
-              selectedLabel={selectedGroupAdminLabel}
-              placeholder="Search customer"
-              required
-            />
           </div>
           <label className="sm:col-span-2 flex items-center gap-3 text-sm">
             <input type="checkbox" checked={groupForm.active} onChange={(e) => setGroupForm((prev) => ({ ...prev, active: e.target.checked }))} />
