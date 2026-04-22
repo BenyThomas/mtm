@@ -97,6 +97,7 @@ import TaxComponentEdit from "./pages/taxes/TaxComponentEdit";
 import Funds from "./pages/funds/Funds";
 import Users from "./pages/users/Users";
 import Roles from "./pages/admin/Roles";
+import RoleDetails from "./pages/admin/RoleDetails";
 import Permissions from "./pages/admin/Permissions";
 import CollectionSheet from "./pages/funds/CollectionSheet";
 import Search from "./pages/search/Search";
@@ -104,6 +105,7 @@ import GatewayDashboard from "./pages/gateway/GatewayDashboard";
 import GatewayProductCatalog from "./pages/gateway/ProductCatalog";
 import GatewayLoanAutomationConfig from "./pages/gateway/LoanAutomationConfig";
 import GatewayBankNamesConfig from "./pages/gateway/BankNamesConfig";
+import GatewayLoanPurposesConfig from "./pages/gateway/LoanPurposesConfig";
 import GatewayAccessMappings from "./pages/gateway/AccessMappings";
 import GatewayKycOps from "./pages/gateway/KycOps";
 import DisbursementOrders from "./pages/gateway/DisbursementOrders";
@@ -118,6 +120,7 @@ import CommunityCenterDetails from "./pages/gateway/community/CommunityCenterDet
 import GroupDetails from "./pages/gateway/community/GroupDetails";
 import GwLoansList from "./pages/gateway/loans/GwLoansList";
 import GwLoanDetails from "./pages/gateway/loans/GwLoanDetails";
+import GwArrearsLoans from "./pages/gateway/loans/GwArrearsLoans";
 import GatewayDataList from "./pages/gateway/data/DataList";
 
 const NotFound = () => (
@@ -283,6 +286,7 @@ const App = () => {
 
                             <Route path="/admin/permissions" element={<Permissions />} />
                             <Route path="/admin/roles" element={<Roles />} />
+                            <Route path="/admin/roles/:id" element={<RoleDetails />} />
                             <Route path="/search" element={<Search />} />
 
                             {/* Gateway back-office */}
@@ -291,6 +295,7 @@ const App = () => {
                             <Route path="/gateway/loan-automation" element={<GatewayLoanAutomationConfig />} />
                             <Route path="/gateway/group-lifecycle" element={<GroupLifecycleConfig />} />
                             <Route path="/gateway/bank-names" element={<GatewayBankNamesConfig />} />
+                            <Route path="/gateway/loan-purposes" element={<GatewayLoanPurposesConfig />} />
                             <Route path="/gateway/access-mappings" element={<GatewayAccessMappings />} />
                             <Route path="/gateway/kyc" element={<GatewayKycOps />} />
                             <Route path="/gateway/disbursements" element={<DisbursementOrders />} />
@@ -303,6 +308,7 @@ const App = () => {
                             <Route path="/gateway/invite-channels" element={<InviteChannels />} />
                             <Route path="/gateway/invites/:inviteId" element={<InviteDetails />} />
                             <Route path="/gateway/loans" element={<GwLoansList />} />
+                            <Route path="/gateway/loans/arrears" element={<GwArrearsLoans />} />
                             <Route path="/gateway/loans/:platformLoanId" element={<GwLoanDetails />} />
                             <Route path="/gateway/data/:resource" element={<GatewayDataList />} />
 

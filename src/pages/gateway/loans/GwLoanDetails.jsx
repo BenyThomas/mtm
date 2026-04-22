@@ -8,14 +8,18 @@ import Badge from '../../../components/Badge';
 import Modal from '../../../components/Modal';
 import Can from '../../../components/Can';
 import ScheduleTable from '../../../components/ScheduleTable';
+import Tabs from '../../../components/Tabs';
 import {
+  adjustGwLoanTransaction,
   approveGwLoan,
   deleteGwLoan,
   disburseGwLoan,
   getGwLoan,
+  getGwLoanTransaction,
+  getGwLoanTransactions,
   getGwLoanWorkflow,
   repayGwLoanMobile,
-  replaceGwLoan,
+  reverseGwLoanTransaction,
   runGwLoanAction,
 } from '../../../api/gateway/loans';
 import { listBankNames } from '../../../api/gateway/bankNames';
@@ -24,7 +28,6 @@ import api from '../../../api/axios';
 import gatewayApi from '../../../api/gatewayAxios';
 import { useToast } from '../../../context/ToastContext';
 
-const pretty = (v) => JSON.stringify(v, null, 2);
 const dateISO = () => new Date().toISOString().slice(0, 10);
 const DISBURSEMENT_TYPES = ['BANK', 'MOBILE_MONEY', 'CASH'];
 const BANK_NAME_TYPE_BY_DISBURSEMENT = {
@@ -135,6 +138,46 @@ const formatMoney = (v) => {
   }
 };
 
+const txDateToISO = (value) => {
+  if (Array.isArray(value) && value.length >= 3) {
+    const [y, m, d] = value;
+    return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  }
+  return normalizeText(value);
+};
+
+const formatDisplayDate = (value, { withTime = false } = {}) => {
+  if (!value) return '';
+  let iso = '';
+  if (Array.isArray(value) && value.length >= 3) {
+    const [y, m, d] = value;
+    iso = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  } else {
+    iso = String(value).trim();
+  }
+  if (!iso) return '';
+  try {
+    const parsed = iso.includes('T') ? new Date(iso) : new Date(`${iso}T00:00:00`);
+    if (Number.isNaN(parsed.getTime())) {
+      return iso;
+    }
+    const options = withTime
+      ? { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }
+      : { year: 'numeric', month: 'short', day: '2-digit' };
+    return new Intl.DateTimeFormat(undefined, options).format(parsed);
+  } catch {
+    return iso;
+  }
+};
+
+const txTypeLabel = (tx) => {
+  const type = tx?.type;
+  if (type && typeof type === 'object') {
+    return String(type?.value || type?.code || '');
+  }
+  return String(type || tx?.transactionType || '');
+};
+
 const firstNumeric = (...values) => {
   for (const value of values) {
     const n = toNumOrNull(value);
@@ -178,17 +221,14 @@ const ChargesTable = ({ items }) => {
         </thead>
         <tbody>
           {rows.map((c, idx) => {
-            const due =
-              c?.dueDate && Array.isArray(c.dueDate) && c.dueDate.length >= 3
-                ? `${c.dueDate[0]}-${String(c.dueDate[1]).padStart(2, '0')}-${String(c.dueDate[2]).padStart(2, '0')}`
-                : c?.dueDate || '';
+            const due = formatDisplayDate(c?.dueDate);
             return (
               <tr key={String(c?.id || c?.chargeId || idx)} className="border-t border-slate-200/60 dark:border-slate-700/60">
                 <td className="px-3 py-2">{String(c?.name || c?.chargeName || '')}</td>
                 <td className="px-3 py-2">{formatMoney(c?.amount)}</td>
                 <td className="px-3 py-2">{formatMoney(c?.amountPaid)}</td>
                 <td className="px-3 py-2">{formatMoney(c?.amountOutstanding)}</td>
-                <td className="px-3 py-2">{due ? String(due) : '-'}</td>
+                <td className="px-3 py-2">{due || '-'}</td>
               </tr>
             );
           })}
@@ -207,8 +247,6 @@ const GwLoanDetails = () => {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const [doc, setDoc] = useState(null);
-  const [editor, setEditor] = useState('');
-  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const [fxLoading, setFxLoading] = useState(false);
   const [fxErr, setFxErr] = useState('');
@@ -220,6 +258,10 @@ const GwLoanDetails = () => {
   const [approvedAmount, setApprovedAmount] = useState('');
   const [approvedTenureMonths, setApprovedTenureMonths] = useState('');
   const [approvedOnDate, setApprovedOnDate] = useState(dateISO());
+  const [simpleActionOpen, setSimpleActionOpen] = useState('');
+  const [simpleActionBusy, setSimpleActionBusy] = useState(false);
+  const [simpleActionDate, setSimpleActionDate] = useState(dateISO());
+  const [simpleActionNote, setSimpleActionNote] = useState('');
 
   const [disburseOpen, setDisburseOpen] = useState(false);
   const [disburseBusy, setDisburseBusy] = useState(false);
@@ -250,6 +292,22 @@ const GwLoanDetails = () => {
   const [workflow, setWorkflow] = useState(null);
   const [workflowLoading, setWorkflowLoading] = useState(false);
   const [workflowErr, setWorkflowErr] = useState('');
+  const [transactions, setTransactions] = useState([]);
+  const [transactionsLoading, setTransactionsLoading] = useState(false);
+  const [transactionsErr, setTransactionsErr] = useState('');
+  const [transactionDetailOpen, setTransactionDetailOpen] = useState(false);
+  const [transactionDetailBusy, setTransactionDetailBusy] = useState(false);
+  const [transactionDetail, setTransactionDetail] = useState(null);
+  const [selectedTransaction, setSelectedTransaction] = useState(null);
+  const [adjustTransactionOpen, setAdjustTransactionOpen] = useState(false);
+  const [adjustTransactionBusy, setAdjustTransactionBusy] = useState(false);
+  const [adjustTransactionDate, setAdjustTransactionDate] = useState(dateISO());
+  const [adjustTransactionAmount, setAdjustTransactionAmount] = useState('');
+  const [adjustTransactionNote, setAdjustTransactionNote] = useState('');
+  const [reverseTransactionOpen, setReverseTransactionOpen] = useState(false);
+  const [reverseTransactionBusy, setReverseTransactionBusy] = useState(false);
+  const [reverseTransactionDate, setReverseTransactionDate] = useState(dateISO());
+  const [reverseTransactionNote, setReverseTransactionNote] = useState('');
 
   const load = async () => {
     setLoading(true);
@@ -257,7 +315,6 @@ const GwLoanDetails = () => {
     try {
       const data = await getGwLoan(platformLoanId);
       setDoc(data);
-      setEditor(pretty(data));
     } catch (e) {
       setErr(e?.response?.data?.message || e?.message || 'Failed to load loan');
     } finally {
@@ -276,6 +333,24 @@ const GwLoanDetails = () => {
       setWorkflowErr(e?.response?.data?.message || e?.message || 'Failed to load workflow');
     } finally {
       setWorkflowLoading(false);
+    }
+  };
+
+  const loadTransactionsData = async () => {
+    if (!platformLoanId) {
+      setTransactions([]);
+      return;
+    }
+    setTransactionsLoading(true);
+    setTransactionsErr('');
+    try {
+      const data = await getGwLoanTransactions(platformLoanId);
+      setTransactions(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setTransactions([]);
+      setTransactionsErr(e?.response?.data?.message || e?.message || 'Failed to load transactions');
+    } finally {
+      setTransactionsLoading(false);
     }
   };
 
@@ -309,6 +384,7 @@ const GwLoanDetails = () => {
       load(),
       loadWorkflowData(),
       loadFineractLoanData(fineractLoanId),
+      loadTransactionsData(),
     ]);
   };
 
@@ -319,6 +395,10 @@ const GwLoanDetails = () => {
 
   useEffect(() => {
     loadWorkflowData();
+  }, [platformLoanId]);
+
+  useEffect(() => {
+    loadTransactionsData();
   }, [platformLoanId]);
 
   useEffect(() => {
@@ -347,32 +427,6 @@ const GwLoanDetails = () => {
       cancelled = true;
     };
   }, [doc?.customerId]);
-
-  const dirty = useMemo(() => {
-    try {
-      return pretty(doc) !== editor;
-    } catch {
-      return true;
-    }
-  }, [doc, editor]);
-
-  const save = async () => {
-    setSaving(true);
-    setErr('');
-    try {
-      const body = JSON.parse(editor);
-      const updated = await replaceGwLoan(platformLoanId, body);
-      setDoc(updated);
-      setEditor(pretty(updated));
-      addToast('Loan saved', 'success');
-    } catch (e) {
-      const msg = e?.response?.data?.message || e?.message || 'Save failed';
-      setErr(msg);
-      addToast(msg, 'error');
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const doDelete = async () => {
     // eslint-disable-next-line no-alert
@@ -439,6 +493,10 @@ const GwLoanDetails = () => {
     (statusUpper === 'APPROVED' || (fxApproved && fxNotDisbursedOrClosed));
   const outstandingAmount = toNumOrNull(doc?.outstandingAmount);
   const workflowActions = Array.isArray(workflow?.availableActions) ? workflow.availableActions : [];
+  const hasWorkflowAction = (action) => workflowActions.includes(action);
+  const canReject = hasFineractLoanId && (hasWorkflowAction('reject') || canApprove);
+  const canUndoApproval = hasFineractLoanId && hasWorkflowAction('undoApproval');
+  const canUndoDisbursement = hasFineractLoanId && hasWorkflowAction('undodisbursal');
   const fineractOverpaid = fxLoan?.status?.overpaid === true || /overpaid/i.test(String(fxStatusText || ''));
   const localOverpaid = statusUpper === 'OVERPAID';
   const overpaidAmount = firstNumeric(
@@ -466,19 +524,75 @@ const GwLoanDetails = () => {
     payerName: normalizeText(customerProfile?.fullName) || normalizeText(doc?.customerFullName),
     payerEmail: normalizeText(customerProfile?.email),
   }), [customerProfile, doc?.customerFullName, doc?.customerPhone]);
+  const customerDisplayName = customerRepaymentIdentity.payerName || normalizeText(doc?.customerId);
   const canRepayViaSelcom =
     hasFineractLoanId &&
     (statusUpper === 'ACTIVE' || statusUpper === 'DISBURSED' || fxStatusUpper.includes('ACTIVE')) &&
     (outstandingAmount == null || outstandingAmount > 0);
-  const nextWorkflowAction = canRefund
-    ? 'refund'
-    : canDisburse
-      ? 'disburse'
-      : canApprove
-        ? 'approve'
-        : canRepayViaSelcom
-          ? 'repay'
-          : '';
+  const canDeleteLoan =
+    !hasFineractLoanId &&
+    statusUpper !== 'SUBMITTED' &&
+    statusUpper !== 'APPROVED' &&
+    statusUpper !== 'ACTIVE' &&
+    statusUpper !== 'DISBURSED' &&
+    statusUpper !== 'CLOSED';
+  const primaryWorkflowActions = [
+    {
+      key: 'approve',
+      label: 'Approve',
+      title: 'Approve loan',
+      onClick: () => setApproveOpen(true),
+      show: canApprove,
+    },
+    {
+      key: 'disburse',
+      label: 'Disburse',
+      title: 'Disburse loan',
+      onClick: openDisburseModal,
+      show: canDisburse,
+    },
+    {
+      key: 'repay',
+      label: 'Repay Loan',
+      title: 'Repay loan via Selcom USSD push',
+      onClick: openRepayModal,
+      show: canRepayViaSelcom,
+    },
+    {
+      key: 'refund',
+      label: 'Refund',
+      title: 'Refund overpaid amount',
+      onClick: openRefundModal,
+      show: canRefund,
+    },
+  ].filter((item) => item.show);
+  const secondaryWorkflowActions = [
+    {
+      key: 'reject',
+      label: 'Reject',
+      title: 'Reject loan',
+      onClick: () => openSimpleActionModal('reject'),
+      show: canReject,
+      variant: 'danger',
+    },
+    {
+      key: 'undo-approval',
+      label: 'Undo Approval',
+      title: 'Undo approval',
+      onClick: () => openSimpleActionModal('undoApproval'),
+      show: canUndoApproval,
+      variant: 'secondary',
+    },
+    {
+      key: 'undo-disbursement',
+      label: 'Undo Disbursement',
+      title: 'Undo disbursement',
+      onClick: () => openSimpleActionModal('undodisbursal'),
+      show: canUndoDisbursement,
+      variant: 'secondary',
+    },
+  ].filter((item) => item.show);
+  const hasAnyWorkflowAction = primaryWorkflowActions.length > 0 || secondaryWorkflowActions.length > 0;
 
   const filteredBankNameOptions = useMemo(() => {
     const requiredType = BANK_NAME_TYPE_BY_DISBURSEMENT[disbursementType];
@@ -512,9 +626,9 @@ const GwLoanDetails = () => {
       };
       const updated = await approveGwLoan(platformLoanId, payload);
       setDoc(updated);
-      setEditor(pretty(updated));
       addToast('Loan approved', 'success');
       setApproveOpen(false);
+      await refreshLoanViews(updated);
     } catch (e) {
       const msg = e?.response?.data?.message || e?.message || 'Approve failed';
       setErr(msg);
@@ -554,7 +668,7 @@ const GwLoanDetails = () => {
         'success'
       );
       setDisburseOpen(false);
-      await load();
+      await refreshLoanViews(doc);
     } catch (e) {
       const msg = extractGatewayErrorMessage(e, 'Disburse failed');
       setErr(msg);
@@ -564,7 +678,59 @@ const GwLoanDetails = () => {
     }
   };
 
-  const openRepayModal = async () => {
+  const simpleActionMeta = {
+    reject: {
+      title: 'Reject Loan',
+      button: 'Reject',
+      success: 'Loan rejected',
+      fallbackError: 'Reject failed',
+      dateLabel: 'Rejected On',
+    },
+    undoApproval: {
+      title: 'Undo Approval',
+      button: 'Undo Approval',
+      success: 'Loan approval undone',
+      fallbackError: 'Undo approval failed',
+      dateLabel: 'Approval Date',
+    },
+    undodisbursal: {
+      title: 'Undo Disbursement',
+      button: 'Undo Disbursement',
+      success: 'Loan disbursement undone',
+      fallbackError: 'Undo disbursement failed',
+      dateLabel: 'Transaction Date',
+    },
+  };
+
+  const openSimpleActionModal = (action) => {
+    setSimpleActionDate(dateISO());
+    setSimpleActionNote('');
+    setSimpleActionOpen(action);
+  };
+
+  const submitSimpleAction = async () => {
+    const action = simpleActionOpen;
+    const meta = simpleActionMeta[action];
+    if (!action || !meta) return;
+    setSimpleActionBusy(true);
+    try {
+      await runGwLoanAction(platformLoanId, action, {
+        date: simpleActionDate || undefined,
+        note: normalizeText(simpleActionNote) || undefined,
+      });
+      addToast(meta.success, 'success');
+      setSimpleActionOpen('');
+      await refreshLoanViews(doc);
+    } catch (e) {
+      const msg = extractGatewayErrorMessage(e, meta.fallbackError);
+      setErr(msg);
+      addToast(msg, 'error');
+    } finally {
+      setSimpleActionBusy(false);
+    }
+  };
+
+  async function openRepayModal() {
     let cfg = loanAutomationCfg;
     if (!cfg) {
       try {
@@ -583,15 +749,15 @@ const GwLoanDetails = () => {
     setRepaymentPayerEmail(customerRepaymentIdentity.payerEmail || '');
     setRepaymentResult(null);
     setRepayOpen(true);
-  };
+  }
 
-  const openRefundModal = () => {
+  function openRefundModal() {
     setRefundAmount(overpaidAmount != null && overpaidAmount > 0 ? String(overpaidAmount) : '');
     setRefundDate(dateISO());
     setRefundExternalId('');
     setRefundNote('');
     setRefundOpen(true);
-  };
+  }
 
   const submitRefund = async () => {
     const amount = overpaidAmount;
@@ -662,6 +828,93 @@ const GwLoanDetails = () => {
     }
   };
 
+  const openTransactionDetail = async (tx) => {
+    if (!tx?.id) return;
+    setSelectedTransaction(tx);
+    setTransactionDetail(null);
+    setTransactionDetailOpen(true);
+    setTransactionDetailBusy(true);
+    try {
+      const data = await getGwLoanTransaction(platformLoanId, tx.id);
+      setTransactionDetail(data || null);
+    } catch (e) {
+      const msg = extractGatewayErrorMessage(e, 'Failed to load transaction details');
+      addToast(msg, 'error');
+    } finally {
+      setTransactionDetailBusy(false);
+    }
+  };
+
+  const openAdjustTransaction = (tx) => {
+    setSelectedTransaction(tx);
+    setAdjustTransactionDate(txDateToISO(tx?.date) || dateISO());
+    setAdjustTransactionAmount(String(tx?.amount ?? tx?.amountPaid ?? ''));
+    setAdjustTransactionNote('');
+    setAdjustTransactionOpen(true);
+  };
+
+  const openReverseTransaction = (tx) => {
+    setSelectedTransaction(tx);
+    setReverseTransactionDate(dateISO());
+    setReverseTransactionNote('');
+    setReverseTransactionOpen(true);
+  };
+
+  const submitAdjustedTransaction = async () => {
+    if (!selectedTransaction?.id) {
+      addToast('Transaction is required', 'error');
+      return;
+    }
+    if (!adjustTransactionDate) {
+      addToast('Transaction date is required', 'error');
+      return;
+    }
+    if (!adjustTransactionAmount || Number(adjustTransactionAmount) <= 0) {
+      addToast('Enter a valid transaction amount', 'error');
+      return;
+    }
+    setAdjustTransactionBusy(true);
+    try {
+      await adjustGwLoanTransaction(platformLoanId, selectedTransaction.id, {
+        transactionDate: adjustTransactionDate,
+        transactionAmount: Number(adjustTransactionAmount),
+        note: normalizeText(adjustTransactionNote) || undefined,
+      });
+      addToast('Transaction adjusted', 'success');
+      setAdjustTransactionOpen(false);
+      await refreshLoanViews(doc);
+    } catch (e) {
+      const msg = extractGatewayErrorMessage(e, 'Adjust transaction failed');
+      setErr(msg);
+      addToast(msg, 'error');
+    } finally {
+      setAdjustTransactionBusy(false);
+    }
+  };
+
+  const submitReverseTransaction = async () => {
+    if (!selectedTransaction?.id) {
+      addToast('Transaction is required', 'error');
+      return;
+    }
+    setReverseTransactionBusy(true);
+    try {
+      await reverseGwLoanTransaction(platformLoanId, selectedTransaction.id, {
+        date: reverseTransactionDate || undefined,
+        note: normalizeText(reverseTransactionNote) || undefined,
+      });
+      addToast('Transaction reversed', 'success');
+      setReverseTransactionOpen(false);
+      await refreshLoanViews(doc);
+    } catch (e) {
+      const msg = extractGatewayErrorMessage(e, 'Reverse transaction failed');
+      setErr(msg);
+      addToast(msg, 'error');
+    } finally {
+      setReverseTransactionBusy(false);
+    }
+  };
+
   const resolveConfigProvider = (cfg) => {
     const preferred = normalizeProvider(cfg?.disbursementAggregatorProvider);
     if (preferred) return preferred;
@@ -694,7 +947,7 @@ const GwLoanDetails = () => {
     return body && typeof body === 'object' && 'data' in body ? body.data : body;
   };
 
-  const openDisburseModal = async () => {
+  async function openDisburseModal() {
     let cfg = loanAutomationCfg;
     let banks = bankNameOptions;
     if (!cfg) {
@@ -758,16 +1011,28 @@ const GwLoanDetails = () => {
     setDisbursementBankName(typeValue === 'CASH' ? '' : initialBankName);
     setDisbursementAccount(customerAccountValue);
     setDisburseOpen(true);
-  };
+  }
 
   return (
     <div className="space-y-4">
       <section>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h1 className="text-2xl font-bold">Gw Loan</h1>
+            <h1 className="text-2xl font-bold">{customerDisplayName || 'Customer'}</h1>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-              <span className="font-mono">{platformLoanId}</span>
+              <span>Phone:</span>
+              <span className="font-mono">{customerRepaymentIdentity.msisdn || '-'}</span>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="px-2"
+                onClick={() => copy('Customer phone', customerRepaymentIdentity.msisdn)}
+                disabled={!customerRepaymentIdentity.msisdn}
+                aria-label="Copy customer phone"
+                title="Copy customer phone"
+              >
+                <Copy size={16} />
+              </Button>
               {doc?.status ? <Badge tone={statusTone(doc.status)}>{doc.status}</Badge> : null}
             </div>
           </div>
@@ -776,23 +1041,36 @@ const GwLoanDetails = () => {
               Back
             </Button>
             <Can any={['GW_OPS_WRITE']}>
-              <Button
-                variant="secondary"
-                onClick={() => setShowAdvanced((s) => !s)}
-                title="Toggle Advanced JSON Editor"
-              >
-                {showAdvanced ? 'Hide JSON' : 'Advanced JSON'}
-              </Button>
-              <Button onClick={save} disabled={!dirty || saving}>
-                {saving ? 'Saving...' : 'Save'}
-              </Button>
-              <Button
-                variant="danger"
-                onClick={doDelete}
-                disabled={saving}
-              >
-                Delete
-              </Button>
+              {doc ? primaryWorkflowActions.map((action) => (
+                <Button
+                  key={action.key}
+                  size="sm"
+                  onClick={action.onClick}
+                  title={action.title}
+                >
+                  {action.label}
+                </Button>
+              )) : null}
+              {doc ? secondaryWorkflowActions.map((action) => (
+                <Button
+                  key={action.key}
+                  size="sm"
+                  variant={action.variant || 'secondary'}
+                  onClick={action.onClick}
+                  title={action.title}
+                >
+                  {action.label}
+                </Button>
+              )) : null}
+              {doc && canDeleteLoan ? (
+                <Button
+                  variant="danger"
+                  onClick={doDelete}
+                  disabled={saving}
+                >
+                  Delete
+                </Button>
+              ) : null}
             </Can>
           </div>
         </div>
@@ -851,182 +1129,381 @@ const GwLoanDetails = () => {
           <div className="text-sm text-slate-600 dark:text-slate-300">Loan not found</div>
         </Card>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-4">
           <Card>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="text-sm font-semibold">Summary</div>
-              <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="px-2"
-                  onClick={() => copy('Platform loan id', doc?.platformLoanId)}
-                  disabled={!doc?.platformLoanId}
-                  aria-label="Copy platform loan id"
-                  title="Copy platform loan id"
-                >
-                  <Copy size={16} />
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="px-2"
-                  onClick={() => copy('Fineract loan id', doc?.fineractLoanId)}
-                  disabled={!doc?.fineractLoanId}
-                  aria-label="Copy fineract loan id"
-                  title="Copy fineract loan id"
-                >
-                  <Copy size={16} />
-                </Button>
+              <div>
+                <div className="text-sm font-semibold">Workflow</div>
+                <div className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                  Loan status and disbursement details from GW and Fineract.
+                </div>
               </div>
             </div>
 
-            <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="mt-3 grid gap-2 rounded-lg border border-slate-200/70 bg-slate-50/60 px-3 py-2 dark:border-slate-700/60 dark:bg-slate-900/30 sm:grid-cols-2 lg:grid-cols-4">
+              <Field label="Current Status" value={doc?.status} />
+              <Field label="Fineract Status" value={fxStatusText || (fxLoading ? 'Loading...' : '')} />
+              <Field label="Expected Disbursement" value={formatDisplayDate(doc?.expectedDisbursementDate)} />
+              <Field label="Overpaid Amount" value={overpaidAmount != null ? formatMoney(overpaidAmount) : ''} />
+            </div>
+
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <Field label="Platform Loan ID" value={doc?.platformLoanId} mono />
               <Field label="Fineract Loan ID" value={doc?.fineractLoanId} mono />
-              <Field label="Customer ID" value={doc?.customerId} />
-              <Field label="Fineract Client ID" value={doc?.fineractClientId} />
-              <Field label="Product Code" value={doc?.productCode} />
-              <Field label="Fineract Product ID" value={doc?.fineractProductId != null ? String(doc.fineractProductId) : ''} />
-              <Field label="Principal" value={doc?.principal != null ? String(doc.principal) : ''} />
-              <Field label="Tenure (months)" value={doc?.tenureMonths != null ? String(doc.tenureMonths) : ''} />
-              <Field label="Outstanding" value={doc?.outstandingAmount != null ? String(doc.outstandingAmount) : ''} />
-              <Field label="Total Repaid" value={doc?.totalRepaid != null ? String(doc.totalRepaid) : ''} />
-              <Field label="Applied At" value={doc?.appliedAt} mono />
-              <Field label="Approved At" value={doc?.approvedAt} mono />
-              <Field label="Disbursed At" value={doc?.disbursedAt} mono />
-              <Field label="Closed At" value={doc?.closedAt} mono />
-            </div>
-          </Card>
-
-          <Card>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="text-sm font-semibold">Workflow</div>
-              <Can any={['GW_OPS_WRITE']}>
-                <div className="flex flex-wrap items-center gap-2">
-                  {nextWorkflowAction === 'approve' ? (
-                    <Button
-                      size="sm"
-                      onClick={() => setApproveOpen(true)}
-                      title="Approve loan"
-                    >
-                      Approve
-                    </Button>
-                  ) : null}
-                  {nextWorkflowAction === 'disburse' ? (
-                    <Button
-                      size="sm"
-                      onClick={openDisburseModal}
-                      title="Disburse loan"
-                    >
-                      Disburse
-                    </Button>
-                  ) : null}
-                  {nextWorkflowAction === 'repay' ? (
-                    <Button
-                      size="sm"
-                      onClick={openRepayModal}
-                      title="Repay loan via Selcom USSD push"
-                    >
-                      Repay Loan
-                    </Button>
-                  ) : null}
-                  {nextWorkflowAction === 'refund' ? (
-                    <Button
-                      size="sm"
-                      onClick={openRefundModal}
-                      title="Refund overpaid amount"
-                    >
-                      Refund
-                    </Button>
-                  ) : null}
-                  {!nextWorkflowAction && !workflowLoading ? (
-                    <span className="text-sm text-slate-600 dark:text-slate-300">No workflow action available</span>
-                  ) : null}
-                </div>
-              </Can>
-            </div>
-
-            {workflowErr ? (
-              <div className="mt-3 text-sm text-rose-700 dark:text-rose-300">{workflowErr}</div>
-            ) : null}
-            {workflowLoading ? (
-              <div className="mt-3 text-sm text-slate-600 dark:text-slate-300">Refreshing workflow...</div>
-            ) : null}
-
-            <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field label="Status" value={doc?.status} />
-              <Field label="Fineract Status" value={fxStatusText || (fxLoading ? 'Loading...' : '')} />
-              <Field label="Expected Disbursement" value={doc?.expectedDisbursementDate} mono />
               <Field label="Disbursement Type" value={doc?.disbursementType} />
               <Field label="Provider" value={doc?.disbursementProvider} />
               <Field label="Bank Name" value={doc?.disbursementBankName} />
               <Field label="Destination" value={doc?.disbursementAccount} mono />
               <Field label="Customer Wallet" value={customerRepaymentIdentity.msisdn} mono />
-              <Field label="Overpaid Amount" value={overpaidAmount != null ? formatMoney(overpaidAmount) : ''} />
             </div>
-          </Card>
 
-          <Can any={['GW_OPS_WRITE']}>
-            {showAdvanced ? (
-              <Card className="lg:col-span-2 p-0 overflow-hidden">
-                <div className="border-b border-slate-200/70 px-4 py-3 text-sm font-semibold dark:border-slate-700/60">
-                  Advanced JSON Editor (PUT replace)
-                </div>
-                <textarea
-                  className="h-[60vh] w-full resize-none bg-slate-950 text-slate-100 p-4 font-mono text-xs leading-relaxed"
-                  value={editor}
-                  onChange={(e) => setEditor(e.target.value)}
-                  spellCheck={false}
-                />
-              </Card>
-            ) : null}
-          </Can>
+            <div className="mt-3">
+              <Can any={['GW_OPS_WRITE']}>
+                {!hasAnyWorkflowAction && !workflowLoading ? (
+                  <div className="text-xs text-slate-600 dark:text-slate-300">No workflow action available</div>
+                ) : null}
+              </Can>
 
-          <Card className="lg:col-span-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="text-sm font-semibold">Repayment Schedule</div>
-              {fxLoading ? (
-                <div className="inline-flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                  <Loader2 className="animate-spin" size={14} /> Loading
-                </div>
+              {workflowErr ? (
+                <div className="mt-2 text-xs text-rose-700 dark:text-rose-300">{workflowErr}</div>
+              ) : null}
+              {workflowLoading ? (
+                <div className="mt-2 text-xs text-slate-600 dark:text-slate-300">Refreshing workflow...</div>
               ) : null}
             </div>
-
-            {!doc?.fineractLoanId ? (
-              <div className="mt-3 text-sm text-slate-600 dark:text-slate-300">No Fineract loan id, schedule unavailable.</div>
-            ) : fxErr ? (
-              <div className="mt-3 text-sm text-rose-700 dark:text-rose-300">{fxErr}</div>
-            ) : fxLoan?.repaymentSchedule ? (
-              <div className="mt-3">
-                <ScheduleTable schedule={fxLoan.repaymentSchedule} />
-              </div>
-            ) : (
-              <div className="mt-3 text-sm text-slate-600 dark:text-slate-300">No schedule available.</div>
-            )}
           </Card>
 
-          <Card className="lg:col-span-2">
-            <div className="text-sm font-semibold">Charges and Penalties</div>
-            {!doc?.fineractLoanId ? (
-              <div className="mt-3 text-sm text-slate-600 dark:text-slate-300">No Fineract loan id, charges unavailable.</div>
-            ) : fxErr ? (
-              <div className="mt-3 text-sm text-rose-700 dark:text-rose-300">{fxErr}</div>
-            ) : (
-              <div className="mt-3 grid gap-4 lg:grid-cols-2">
-                <div>
-                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Charges</div>
-                  <ChargesTable items={fxNonPenaltyCharges} />
-                </div>
-                <div>
-                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Penalties</div>
-                  <ChargesTable items={fxPenalties} />
-                </div>
+          <div className="lg:col-span-2">
+            <Tabs
+              tabs={[
+                { key: 'summary', label: 'Summary' },
+                { key: 'schedule', label: 'Schedule' },
+                { key: 'charges', label: 'Charges' },
+                { key: 'transactions', label: 'Transactions' },
+              ]}
+            >
+              <div data-tab="summary">
+                <Card>
+                  <div className="mb-4 text-sm font-semibold">Loan Summary</div>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    <Field label="Customer Name" value={customerDisplayName} />
+                    <Field label="Platform Loan ID" value={doc?.platformLoanId} mono />
+                    <Field label="Fineract Loan ID" value={doc?.fineractLoanId} mono />
+                    <Field label="Product" value={doc?.productCode} />
+                    <Field label="Fineract Client ID" value={doc?.fineractClientId} />
+                    <Field label="Fineract Product ID" value={doc?.fineractProductId != null ? String(doc.fineractProductId) : ''} />
+                    <Field label="Principal" value={doc?.principal != null ? String(doc.principal) : ''} />
+                    <Field label="Tenure (months)" value={doc?.tenureMonths != null ? String(doc.tenureMonths) : ''} />
+                    <Field label="Outstanding" value={doc?.outstandingAmount != null ? String(doc.outstandingAmount) : ''} />
+                    <Field label="Total Repaid" value={doc?.totalRepaid != null ? String(doc.totalRepaid) : ''} />
+                    <Field label="Applied At" value={formatDisplayDate(doc?.appliedAt, { withTime: true })} />
+                    <Field label="Approved At" value={formatDisplayDate(doc?.approvedAt, { withTime: true })} />
+                    <Field label="Disbursed At" value={formatDisplayDate(doc?.disbursedAt, { withTime: true })} />
+                    <Field label="Closed At" value={formatDisplayDate(doc?.closedAt, { withTime: true })} />
+                  </div>
+                </Card>
               </div>
-            )}
-          </Card>
+
+              <div data-tab="schedule">
+                <Card>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-sm font-semibold">Repayment Schedule</div>
+                    {fxLoading ? (
+                      <div className="inline-flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                        <Loader2 className="animate-spin" size={14} /> Loading
+                      </div>
+                    ) : null}
+                  </div>
+                  {!doc?.fineractLoanId ? (
+                    <div className="mt-3 text-sm text-slate-600 dark:text-slate-300">No Fineract loan id, schedule unavailable.</div>
+                  ) : fxErr ? (
+                    <div className="mt-3 text-sm text-rose-700 dark:text-rose-300">{fxErr}</div>
+                  ) : fxLoan?.repaymentSchedule ? (
+                    <div className="mt-3">
+                      <ScheduleTable schedule={fxLoan.repaymentSchedule} />
+                    </div>
+                  ) : (
+                    <div className="mt-3 text-sm text-slate-600 dark:text-slate-300">No schedule available.</div>
+                  )}
+                </Card>
+              </div>
+
+              <div data-tab="charges">
+                <Card>
+                  <div className="text-sm font-semibold">Charges and Penalties</div>
+                  {!doc?.fineractLoanId ? (
+                    <div className="mt-3 text-sm text-slate-600 dark:text-slate-300">No Fineract loan id, charges unavailable.</div>
+                  ) : fxErr ? (
+                    <div className="mt-3 text-sm text-rose-700 dark:text-rose-300">{fxErr}</div>
+                  ) : (
+                    <div className="mt-3 grid gap-4 lg:grid-cols-2">
+                      <div>
+                        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Charges</div>
+                        <ChargesTable items={fxNonPenaltyCharges} />
+                      </div>
+                      <div>
+                        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Penalties</div>
+                        <ChargesTable items={fxPenalties} />
+                      </div>
+                    </div>
+                  )}
+                </Card>
+              </div>
+
+              <div data-tab="transactions">
+                <Card>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-sm font-semibold">Transactions</div>
+                    {transactionsLoading ? (
+                      <div className="inline-flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                        <Loader2 className="animate-spin" size={14} /> Loading
+                      </div>
+                    ) : null}
+                  </div>
+                  {!doc?.fineractLoanId ? (
+                    <div className="mt-3 text-sm text-slate-600 dark:text-slate-300">No Fineract loan id, transactions unavailable.</div>
+                  ) : transactionsErr ? (
+                    <div className="mt-3 text-sm text-rose-700 dark:text-rose-300">{transactionsErr}</div>
+                  ) : !transactions.length ? (
+                    <div className="mt-3 text-sm text-slate-600 dark:text-slate-300">No transactions.</div>
+                  ) : (
+                    <div className="mt-3 overflow-x-auto">
+                      <table className="min-w-full text-sm">
+                        <thead className="bg-slate-50/70 dark:bg-slate-900/40">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-semibold">#</th>
+                            <th className="px-3 py-2 text-left font-semibold">Date</th>
+                            <th className="px-3 py-2 text-left font-semibold">Type</th>
+                            <th className="px-3 py-2 text-left font-semibold">Amount</th>
+                            <th className="px-3 py-2 text-left font-semibold">Running Balance</th>
+                            <th className="px-3 py-2 text-left font-semibold">External ID</th>
+                            <th className="px-3 py-2 text-right font-semibold">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {transactions.map((tx) => (
+                            <tr key={String(tx?.id || `${txTypeLabel(tx)}-${txDateToISO(tx?.date)}`)} className="border-t border-slate-200/60 dark:border-slate-700/60">
+                              <td className="px-3 py-2">{tx?.id ?? '-'}</td>
+                              <td className="px-3 py-2">{formatDisplayDate(tx?.date) || '-'}</td>
+                              <td className="px-3 py-2">{txTypeLabel(tx) || '-'}</td>
+                              <td className="px-3 py-2">{tx?.amount ?? tx?.amountPaid ?? '-'}</td>
+                              <td className="px-3 py-2">{tx?.runningBalance ?? tx?.outstandingLoanBalance ?? '-'}</td>
+                              <td className="px-3 py-2">{tx?.externalId ?? '-'}</td>
+                              <td className="px-3 py-2">
+                                <div className="flex items-center justify-end gap-2">
+                                  <Button size="sm" variant="secondary" onClick={() => openTransactionDetail(tx)}>
+                                    Details
+                                  </Button>
+                                  <Can any={['GW_OPS_WRITE']}>
+                                    <Button
+                                      size="sm"
+                                      variant="secondary"
+                                      onClick={() => openReverseTransaction(tx)}
+                                      disabled={!tx?.id || tx?.manuallyReversed || tx?.reversed}
+                                    >
+                                      Reverse
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="secondary"
+                                      onClick={() => openAdjustTransaction(tx)}
+                                      disabled={!tx?.id || tx?.manuallyReversed || tx?.reversed}
+                                    >
+                                      Adjust
+                                    </Button>
+                                  </Can>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </Card>
+              </div>
+            </Tabs>
+          </div>
         </div>
       )}
+
+      <Modal
+        open={transactionDetailOpen}
+        onClose={() => setTransactionDetailOpen(false)}
+        title={`Transaction${selectedTransaction?.id ? ` #${selectedTransaction.id}` : ''}`}
+        size="lg"
+        footer={
+          <Button variant="secondary" onClick={() => setTransactionDetailOpen(false)}>
+            Close
+          </Button>
+        }
+      >
+        {transactionDetailBusy ? (
+          <div className="inline-flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+            <Loader2 className="animate-spin" size={16} /> Loading transaction details...
+          </div>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Transaction ID" value={transactionDetail?.id ?? selectedTransaction?.id} />
+            <Field label="Date" value={formatDisplayDate(transactionDetail?.date || selectedTransaction?.date)} />
+            <Field label="Type" value={txTypeLabel(transactionDetail || selectedTransaction)} />
+            <Field label="Amount" value={transactionDetail?.amount ?? selectedTransaction?.amount ?? selectedTransaction?.amountPaid} />
+            <Field label="Running Balance" value={transactionDetail?.runningBalance ?? selectedTransaction?.runningBalance ?? selectedTransaction?.outstandingLoanBalance} />
+            <Field label="External ID" value={transactionDetail?.externalId ?? selectedTransaction?.externalId} mono />
+            <Field label="Reversed" value={(transactionDetail?.manuallyReversed || transactionDetail?.reversed || selectedTransaction?.manuallyReversed || selectedTransaction?.reversed) ? 'Yes' : 'No'} />
+            <Field label="Office ID" value={transactionDetail?.officeId} />
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={reverseTransactionOpen}
+        onClose={() => (reverseTransactionBusy ? null : setReverseTransactionOpen(false))}
+        title={`Reverse Transaction${selectedTransaction?.id ? ` #${selectedTransaction.id}` : ''}`}
+        size="lg"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setReverseTransactionOpen(false)} disabled={reverseTransactionBusy}>
+              Cancel
+            </Button>
+            <Button variant="danger" onClick={submitReverseTransaction} disabled={reverseTransactionBusy}>
+              {reverseTransactionBusy ? (
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="animate-spin" size={16} /> Reversing...
+                </span>
+              ) : (
+                'Reverse'
+              )}
+            </Button>
+          </>
+        }
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Transaction Date (optional)</label>
+            <input
+              type="date"
+              value={reverseTransactionDate}
+              onChange={(e) => setReverseTransactionDate(e.target.value)}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Note (optional)</label>
+            <textarea
+              rows={3}
+              value={reverseTransactionNote}
+              onChange={(e) => setReverseTransactionNote(e.target.value)}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+          <div className="sm:col-span-2 text-xs text-slate-500 dark:text-slate-400">
+            Reverse only marks the selected transaction as reversed. Use Adjust when you want reversal plus a replacement transaction with a new amount/date.
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={adjustTransactionOpen}
+        onClose={() => (adjustTransactionBusy ? null : setAdjustTransactionOpen(false))}
+        title={`Adjust Transaction${selectedTransaction?.id ? ` #${selectedTransaction.id}` : ''}`}
+        size="lg"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setAdjustTransactionOpen(false)} disabled={adjustTransactionBusy}>
+              Cancel
+            </Button>
+            <Button onClick={submitAdjustedTransaction} disabled={adjustTransactionBusy}>
+              {adjustTransactionBusy ? (
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="animate-spin" size={16} /> Adjusting...
+                </span>
+              ) : (
+                'Adjust'
+              )}
+            </Button>
+          </>
+        }
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Transaction Date</label>
+            <input
+              type="date"
+              value={adjustTransactionDate}
+              onChange={(e) => setAdjustTransactionDate(e.target.value)}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Transaction Amount</label>
+            <input
+              inputMode="decimal"
+              value={adjustTransactionAmount}
+              onChange={(e) => setAdjustTransactionAmount(e.target.value)}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Note (optional)</label>
+            <textarea
+              rows={3}
+              value={adjustTransactionNote}
+              onChange={(e) => setAdjustTransactionNote(e.target.value)}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+          <div className="sm:col-span-2 text-xs text-slate-500 dark:text-slate-400">
+            Fineract adjustment reverses the selected transaction and posts a replacement transaction with the values entered here.
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={!!simpleActionOpen}
+        onClose={() => (simpleActionBusy ? null : setSimpleActionOpen(''))}
+        title={simpleActionMeta[simpleActionOpen]?.title || 'Loan Action'}
+        size="lg"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setSimpleActionOpen('')} disabled={simpleActionBusy}>
+              Cancel
+            </Button>
+            <Button variant={simpleActionOpen === 'reject' ? 'danger' : 'primary'} onClick={submitSimpleAction} disabled={simpleActionBusy}>
+              {simpleActionBusy ? (
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="animate-spin" size={16} /> Working...
+                </span>
+              ) : (
+                simpleActionMeta[simpleActionOpen]?.button || 'Submit'
+              )}
+            </Button>
+          </>
+        }
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              {simpleActionMeta[simpleActionOpen]?.dateLabel || 'Transaction Date'}
+            </label>
+            <input
+              type="date"
+              value={simpleActionDate}
+              onChange={(e) => setSimpleActionDate(e.target.value)}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Note (optional)</label>
+            <textarea
+              rows={3}
+              value={simpleActionNote}
+              onChange={(e) => setSimpleActionNote(e.target.value)}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+        </div>
+      </Modal>
 
       <Modal
         open={approveOpen}

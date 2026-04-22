@@ -44,6 +44,12 @@ const txDateToISO = (d) => {
 const txTypeLabel = (t) => t?.value || t?.code || '-';
 
 const isISODate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
+const formatValue = (value) => {
+    if (value === null || value === undefined || value === '') return '-';
+    if (Array.isArray(value)) return value.join('-');
+    if (typeof value === 'object') return value.value || value.code || value.name || '-';
+    return String(value);
+};
 
 const LoanDetails = () => {
     const { id } = useParams();
@@ -872,10 +878,30 @@ const LoanDetails = () => {
                 {/* Summary */}
                 <div data-tab="summary" className="space-y-4">
                     <Card>
-                        <div className="grid md:grid-cols-2 gap-4 text-sm">
+                        <div className="grid gap-4 text-sm md:grid-cols-2 xl:grid-cols-3">
+                            <div>
+                                <div className="text-gray-500">Loan ID</div>
+                                <div className="font-medium">{formatValue(loan.id)}</div>
+                            </div>
+                            <div>
+                                <div className="text-gray-500">Account No</div>
+                                <div className="font-medium">{formatValue(loan.accountNo)}</div>
+                            </div>
+                            <div>
+                                <div className="text-gray-500">Status</div>
+                                <div className="font-medium">{formatValue(loan.status)}</div>
+                            </div>
+                            <div>
+                                <div className="text-gray-500">Client</div>
+                                <div className="font-medium">{formatValue(loan.clientName)}</div>
+                            </div>
                             <div>
                                 <div className="text-gray-500">Product</div>
-                                <div className="font-medium">{loan.loanProductName}</div>
+                                <div className="font-medium">{formatValue(loan.loanProductName)}</div>
+                            </div>
+                            <div>
+                                <div className="text-gray-500">Loan Officer</div>
+                                <div className="font-medium">{formatValue(loan.loanOfficerName)}</div>
                             </div>
                             <div>
                                 <div className="text-gray-500">Principal</div>
@@ -884,8 +910,20 @@ const LoanDetails = () => {
                                 </div>
                             </div>
                             <div>
+                                <div className="text-gray-500">Approved Principal</div>
+                                <div className="font-medium">{formatValue(loan.approvedPrincipal)}</div>
+                            </div>
+                            <div>
+                                <div className="text-gray-500">Disbursed Principal</div>
+                                <div className="font-medium">{formatValue(loan.summary?.principalDisbursed)}</div>
+                            </div>
+                            <div>
                                 <div className="text-gray-500">Interest Rate / Period</div>
-                                <div className="font-medium">{loan.interestRatePerPeriod || '-'}</div>
+                                <div className="font-medium">{formatValue(loan.interestRatePerPeriod)}</div>
+                            </div>
+                            <div>
+                                <div className="text-gray-500">Interest Method</div>
+                                <div className="font-medium">{formatValue(loan.interestType)}</div>
                             </div>
                             <div>
                                 <div className="text-gray-500">Term</div>
@@ -905,6 +943,30 @@ const LoanDetails = () => {
                                     className="font-medium">{loan.summary?.currency?.code || loan.currency?.code || '-'}</div>
                             </div>
                             <div>
+                                <div className="text-gray-500">Submitted On</div>
+                                <div className="font-medium">{formatValue(loan.timeline?.submittedOnDate)}</div>
+                            </div>
+                            <div>
+                                <div className="text-gray-500">Approved On</div>
+                                <div className="font-medium">{formatValue(loan.timeline?.approvedOnDate)}</div>
+                            </div>
+                            <div>
+                                <div className="text-gray-500">Expected Disbursement</div>
+                                <div className="font-medium">{formatValue(loan.timeline?.expectedDisbursementDate)}</div>
+                            </div>
+                            <div>
+                                <div className="text-gray-500">Actual Disbursement</div>
+                                <div className="font-medium">{formatValue(loan.timeline?.actualDisbursementDate)}</div>
+                            </div>
+                            <div>
+                                <div className="text-gray-500">Maturity Date</div>
+                                <div className="font-medium">{formatValue(loan.timeline?.expectedMaturityDate || loan.timeline?.actualMaturityDate)}</div>
+                            </div>
+                            <div>
+                                <div className="text-gray-500">Days in Arrears</div>
+                                <div className="font-medium">{formatValue(loan.summary?.totalOverdue)}</div>
+                            </div>
+                            <div>
                                 <div className="text-gray-500">Principal (Total / Paid / Outstanding)</div>
                                 <div className="font-medium">
                                     {loan.summary?.totalPrincipal ?? '-'} / {loan.summary?.principalPaid ?? '-'} / {loan.summary?.principalOutstanding ?? '-'}
@@ -920,6 +982,18 @@ const LoanDetails = () => {
                                 <div className="text-gray-500">Total (Expected / Repaid / Outstanding)</div>
                                 <div className="font-medium">
                                     {loan.summary?.totalRepaymentExpected ?? '-'} / {loan.summary?.totalRepayment ?? '-'} / {loan.summary?.totalOutstanding ?? '-'}
+                                </div>
+                            </div>
+                            <div>
+                                <div className="text-gray-500">Fees (Charged / Paid / Outstanding)</div>
+                                <div className="font-medium">
+                                    {loan.summary?.feeChargesCharged ?? '-'} / {loan.summary?.feeChargesPaid ?? '-'} / {loan.summary?.feeChargesOutstanding ?? '-'}
+                                </div>
+                            </div>
+                            <div>
+                                <div className="text-gray-500">Penalties (Charged / Paid / Outstanding)</div>
+                                <div className="font-medium">
+                                    {loan.summary?.penaltyChargesCharged ?? '-'} / {loan.summary?.penaltyChargesPaid ?? '-'} / {loan.summary?.penaltyChargesOutstanding ?? '-'}
                                 </div>
                             </div>
                         </div>

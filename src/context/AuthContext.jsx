@@ -8,6 +8,7 @@ import React, {
 } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api/axios';
+import gatewayApi from '../api/gatewayAxios';
 import { useToast } from './ToastContext';
 import { DEFAULT_TENANT, ENV_TENANT, persistTenant, resolveTenant, TENANT_EDITABLE } from '../config/runtime';
 
@@ -169,6 +170,18 @@ export const AuthProvider = ({ children }) => {
         }
     }, []);
 
+    const findStaffById = useCallback(async (staffId) => {
+        const id = Number(staffId);
+        if (!Number.isFinite(id) || id <= 0) return null;
+        try {
+            const r = await gatewayApi.get(`/ops/session/staff/${id}`);
+            return r?.data?.data || r?.data || null;
+        } catch (e) {
+            if (import.meta.env.DEV) console.warn(`[Auth] Failed to load staff ${id}:`, e);
+            return null;
+        }
+    }, []);
+
     /** Load role permissions for a set of role IDs via /roles/{id}/permissions */
     const loadPermissionsForRoles = useCallback(async (roleIds = []) => {
         const codes = new Set();
@@ -235,10 +248,15 @@ export const AuthProvider = ({ children }) => {
                 // Build initial user object from auth response
                 let userObj = {
                     username: res.data.username,
+                    userId: res.data.userId,
                     officeName: res.data.officeName,
+                    officeId: res.data.officeId,
                     staffDisplayName: res.data.staffDisplayName,
+                    staffId: res.data.staffId || null,
                     roles: res.data.roles || [],
                     permissionsRaw: res.data.permissions || '', // may be empty/undefined
+                    isLoanOfficer: false,
+                    isGatewayOnlyLoanOfficer: false,
                 };
 
                 // If no permissions in /authentication, hydrate:
@@ -264,6 +282,8 @@ export const AuthProvider = ({ children }) => {
                         roles: userObj.roles?.length ? userObj.roles : (u?.roles || u?.selectedRoles || []),
                         // store as array for normalizePermissions()
                         permissionsRaw: codes,
+                        isLoanOfficer: Boolean(u?.isLoanOfficer),
+                        staffId: u?.staffId || u?.staff?.id || null,
                     };
 
                     if (import.meta.env.DEV) {
@@ -273,6 +293,46 @@ export const AuthProvider = ({ children }) => {
                         console.debug('codes:', codes);
                         console.groupEnd();
                     }
+                }
+
+                if (!userObj.isLoanOfficer) {
+                    const hydratedUser = await findUserByUsername(userObj.username);
+                    if (hydratedUser) {
+                        userObj = {
+                            ...userObj,
+                            isLoanOfficer: Boolean(hydratedUser?.isLoanOfficer),
+                            staffId: userObj.staffId || hydratedUser?.staffId || hydratedUser?.staff?.id || null,
+                        };
+                    }
+                }
+
+                const linkedStaffId = userObj.staffId;
+                if (linkedStaffId) {
+                    const linkedStaff = await findStaffById(linkedStaffId);
+                    if (linkedStaff) {
+                        userObj = {
+                            ...userObj,
+                            staffId: linkedStaffId,
+                            staffDisplayName: linkedStaff?.displayName || userObj.staffDisplayName,
+                            linkedStaffName: linkedStaff?.displayName || userObj.staffDisplayName || '',
+                            linkedStaffPhone: linkedStaff?.mobileNo || '',
+                            linkedStaffEmail: linkedStaff?.email || '',
+                            linkedStaffOfficeId: linkedStaff?.officeId || userObj.officeId || null,
+                            linkedStaffOfficeName: linkedStaff?.officeName || userObj.officeName || '',
+                            linkedStaffIsLoanOfficer: Boolean(linkedStaff?.isLoanOfficer),
+                            isGatewayOnlyLoanOfficer: Boolean(userObj.isLoanOfficer || linkedStaff?.isLoanOfficer),
+                        };
+                    } else {
+                        userObj = {
+                            ...userObj,
+                            isGatewayOnlyLoanOfficer: Boolean(userObj.isLoanOfficer),
+                        };
+                    }
+                } else {
+                    userObj = {
+                        ...userObj,
+                        isGatewayOnlyLoanOfficer: Boolean(userObj.isLoanOfficer),
+                    };
                 }
 
                 // Persist & set state
@@ -313,6 +373,31 @@ export const AuthProvider = ({ children }) => {
         });
         return base;
     }, [user?.permissionsRaw, user?.roles]);
+
+    useEffect(() => {
+        if (!isAuthenticated) return;
+        const permissions = Array.from(permSet).sort();
+        console.groupCollapsed('[MTM Auth] Effective permissions');
+        console.log('username:', user?.username || '-');
+        console.log('staffDisplayName:', user?.staffDisplayName || '-');
+        console.log('staffId:', user?.staffId || '-');
+        console.log('isLoanOfficer(user):', Boolean(user?.isLoanOfficer));
+        console.log('isLoanOfficer(linkedStaff):', Boolean(user?.linkedStaffIsLoanOfficer));
+        console.log('isGatewayOnlyLoanOfficer:', Boolean(user?.isGatewayOnlyLoanOfficer));
+        console.log('roles:', Array.isArray(user?.roles) ? user.roles.map((r) => r?.name || r?.code || r?.id).filter(Boolean) : []);
+        console.log('permissions:', permissions);
+        console.groupEnd();
+    }, [
+        isAuthenticated,
+        permSet,
+        user?.username,
+        user?.staffDisplayName,
+        user?.staffId,
+        user?.isLoanOfficer,
+        user?.linkedStaffIsLoanOfficer,
+        user?.isGatewayOnlyLoanOfficer,
+        user?.roles,
+    ]);
 
     // Wildcards
     const hasAll = useMemo(() => permSet.has('ALL_FUNCTIONS'), [permSet]);

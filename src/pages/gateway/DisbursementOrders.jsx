@@ -15,6 +15,7 @@ import {
   refreshDisbursementOrderStatus,
   retryDisbursementOrder,
 } from '../../api/gateway/disbursementOrders';
+import { getGwLoan } from '../../api/gateway/loans';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
 
@@ -43,23 +44,36 @@ const money = (v) => {
   return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(n);
 };
 
-const JsonBlock = ({ value }) => (
-  <pre className="max-h-60 overflow-auto rounded-xl border border-slate-200/70 bg-slate-50/80 p-3 text-xs dark:border-slate-700/70 dark:bg-slate-900/50">
-    {value ? JSON.stringify(value, null, 2) : '{}'}
-  </pre>
-);
+const fmtDateTime = (iso) => {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  return new Intl.DateTimeFormat(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(d);
+};
 
-const Stage = ({ title, at, data }) => (
-  <div className="rounded-xl border border-slate-200/70 bg-white/70 p-3 dark:border-slate-700/70 dark:bg-slate-900/40">
-    <div className="flex items-center justify-between gap-2">
-      <div className="text-sm font-semibold">{title}</div>
-      <div className="text-xs text-slate-500 dark:text-slate-400">{at ? timeAgo(at) : '-'}</div>
-    </div>
-    <div className="mt-2">
-      <JsonBlock value={data} />
-    </div>
-  </div>
-);
+const csvEscape = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+
+const toDateInputValue = (date) => {
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toISOString().slice(0, 10);
+};
+
+const getDefaultDateRange = () => {
+  const today = new Date();
+  const monthAgo = new Date(today);
+  monthAgo.setMonth(monthAgo.getMonth() - 1);
+  return {
+    dateFrom: toDateInputValue(monthAgo),
+    dateTo: toDateInputValue(today),
+  };
+};
 
 const Metric = ({ label, value, tone = 'blue' }) => (
   <div className="rounded-xl border border-slate-200/70 bg-white/75 p-3 dark:border-slate-700/70 dark:bg-slate-900/45">
@@ -70,8 +84,31 @@ const Metric = ({ label, value, tone = 'blue' }) => (
   </div>
 );
 
+const DetailItem = ({ label, value, mono = false }) => (
+  <div className="rounded-xl border border-slate-200/70 bg-white/70 p-3 dark:border-slate-700/70 dark:bg-slate-900/40">
+    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</div>
+    <div className={`mt-1 text-sm ${mono ? 'font-mono break-all text-xs' : 'font-medium text-slate-900 dark:text-slate-50'}`}>
+      {value || '-'}
+    </div>
+  </div>
+);
+
+const TimelineItem = ({ title, at, tone = 'blue', detail }) => (
+  <div className="flex gap-3">
+    <div className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-current text-slate-400" />
+    <div className="min-w-0 flex-1 rounded-xl border border-slate-200/70 bg-white/70 p-3 dark:border-slate-700/70 dark:bg-slate-900/40">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-sm font-semibold text-slate-900 dark:text-slate-50">{title}</div>
+        <Badge tone={tone}>{at ? fmtDateTime(at) : 'Pending'}</Badge>
+      </div>
+      {detail ? <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{detail}</div> : null}
+    </div>
+  </div>
+);
+
 const DisbursementOrders = () => {
   const { addToast } = useToast();
+  const defaultDateRange = useMemo(() => getDefaultDateRange(), []);
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -79,11 +116,15 @@ const DisbursementOrders = () => {
 
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebouncedValue(search, 450);
-  const [status, setStatus] = useState('');
+  const [status, setStatus] = useState('DISBURSED');
+  const [provider, setProvider] = useState('');
+  const [dateFrom, setDateFrom] = useState(defaultDateRange.dateFrom);
+  const [dateTo, setDateTo] = useState(defaultDateRange.dateTo);
   const [sortBy, setSortBy] = useState('createdAt');
   const [sortDir, setSortDir] = useState('desc');
   const [page, setPage] = useState(0);
   const [limit, setLimit] = useState(10);
+  const [loanByPlatformId, setLoanByPlatformId] = useState({});
 
   const [selected, setSelected] = useState(null);
   const [selectedStatus, setSelectedStatus] = useState(null);
@@ -100,6 +141,9 @@ const DisbursementOrders = () => {
         const data = await listDisbursementOrders({
           q: debouncedSearch || undefined,
           status: status || undefined,
+          provider: provider || undefined,
+          dateFrom: dateFrom || undefined,
+          dateTo: dateTo || undefined,
           offset: page * limit,
           limit,
           orderBy: sortBy,
@@ -122,7 +166,31 @@ const DisbursementOrders = () => {
     return () => {
       cancelled = true;
     };
-  }, [debouncedSearch, status, page, limit, sortBy, sortDir, refreshTick, addToast]);
+  }, [debouncedSearch, status, provider, dateFrom, dateTo, page, limit, sortBy, sortDir, refreshTick, addToast]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const ids = Array.from(new Set((rows || []).map((row) => String(row?.platformLoanId || '').trim()).filter(Boolean)));
+    if (!ids.length) {
+      setLoanByPlatformId({});
+      return () => {};
+    }
+    (async () => {
+      const entries = await Promise.all(ids.map(async (id) => {
+        try {
+          const loan = await getGwLoan(id);
+          return [id, loan];
+        } catch (_) {
+          return [id, null];
+        }
+      }));
+      if (cancelled) return;
+      setLoanByPlatformId(Object.fromEntries(entries));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [rows]);
 
   const onSort = (key) => {
     if (sortBy === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
@@ -201,18 +269,96 @@ const DisbursementOrders = () => {
       disbursed: source.filter((x) => String(x?.status || '').toUpperCase().includes('DISBURSED')).length,
       inProgress: source.filter((x) => String(x?.status || '').toUpperCase().includes('REQUEST') || String(x?.status || '').toUpperCase().includes('SUCCESS')).length,
       failed: source.filter((x) => String(x?.status || '').toUpperCase().includes('FAILED')).length,
+      amount: source.reduce((sum, row) => sum + (Number(row?.amount) || 0), 0),
     };
     return counts;
   }, [rows]);
 
+  const exportCsv = () => {
+    const header = [
+      'Disbursed At',
+      'Requested Date',
+      'Customer Name',
+      'Customer Phone',
+      'Platform Loan ID',
+      'Fineract Loan ID',
+      'Fineract Txn ID',
+      'Amount',
+      'Currency',
+      'Provider',
+      'Type',
+      'Destination',
+      'Reference',
+      'Status',
+    ];
+    const lines = rows.map((row) => {
+      const loan = loanByPlatformId[String(row?.platformLoanId || '')] || {};
+      const destination = row?.payout?.msisdn || row?.payout?.accountNumber || '';
+      return [
+        row?.disbursedAt || '',
+        row?.requestedDisbursementDate || '',
+        loan?.customerFullName || '',
+        loan?.customerPhone || '',
+        row?.platformLoanId || '',
+        row?.fineractLoanId || '',
+        row?.fineractTransactionId || '',
+        row?.amount ?? '',
+        row?.currency || '',
+        row?.aggregatorProvider || '',
+        row?.payout?.type || '',
+        destination,
+        row?.aggregatorReferenceId || '',
+        row?.status || '',
+      ].map(csvEscape).join(',');
+    });
+    const blob = new Blob([[header.map(csvEscape).join(','), ...lines].join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `disbursement_report_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const columns = useMemo(
     () => [
-      { key: 'orderId', header: 'Order', sortable: true, render: (r) => <span className="font-mono text-xs">{r?.orderId || '-'}</span> },
-      { key: 'platformLoanId', header: 'Loan', sortable: true, render: (r) => r?.platformLoanId || '-' },
+      {
+        key: 'disbursedAt',
+        header: 'Disbursed At',
+        sortable: true,
+        render: (r) => fmtDateTime(r?.disbursedAt || r?.updatedAt || r?.createdAt),
+      },
+      {
+        key: 'customer',
+        header: 'Customer',
+        sortable: false,
+        render: (r) => {
+          const loan = loanByPlatformId[String(r?.platformLoanId || '')] || {};
+          return (
+            <div className="min-w-[180px]">
+              <div className="font-medium text-slate-900 dark:text-slate-50">{loan?.customerFullName || '-'}</div>
+              <div className="text-[11px] text-slate-500 dark:text-slate-400">{loan?.customerPhone || '-'}</div>
+            </div>
+          );
+        },
+      },
+      { key: 'fineractLoanId', header: 'Fineract Loan', sortable: false, render: (r) => r?.fineractLoanId || '-' },
+      { key: 'platformLoanId', header: 'Platform Loan', sortable: true, render: (r) => r?.platformLoanId || '-' },
       { key: 'amount', header: 'Amount', sortable: true, render: (r) => `${money(r?.amount)} ${r?.currency || ''}`.trim() || '-' },
+      { key: 'requestedDisbursementDate', header: 'Requested Date', sortable: false, render: (r) => r?.requestedDisbursementDate || '-' },
       { key: 'aggregatorProvider', header: 'Provider', sortable: true, render: (r) => r?.aggregatorProvider || '-' },
+      { key: 'payoutType', header: 'Type', sortable: false, render: (r) => r?.payout?.type || '-' },
+      {
+        key: 'destination',
+        header: 'Destination',
+        sortable: false,
+        render: (r) => r?.payout?.msisdn || r?.payout?.accountNumber || '-',
+      },
+      { key: 'aggregatorReferenceId', header: 'Reference', sortable: false, render: (r) => r?.aggregatorReferenceId || '-' },
       { key: 'status', header: 'Status', sortable: true, render: (r) => <Badge tone={toneForStatus(r?.status)}>{r?.status || '-'}</Badge> },
-      { key: 'updatedAt', header: 'Updated', sortable: true, render: (r) => timeAgo(r?.updatedAt || r?.createdAt) },
+      { key: 'fineractTransactionId', header: 'Fineract Txn', sortable: false, render: (r) => r?.fineractTransactionId || '-' },
       {
         key: 'actions',
         header: 'Actions',
@@ -250,51 +396,162 @@ const DisbursementOrders = () => {
         ),
       },
     ],
-    [retryBusyByOrderId]
+    [retryBusyByOrderId, loanByPlatformId]
   );
 
   const journey = selected?.journey || {};
+  const selectedLoan = selected?.platformLoanId ? loanByPlatformId[String(selected.platformLoanId)] : null;
+  const payoutDestination = selected?.payout?.msisdn || selected?.payout?.accountNumber || '';
+  const activityTimeline = useMemo(() => {
+    if (!selected) return [];
+    const items = [
+      {
+        key: 'requested',
+        title: 'Order created',
+        at: selected.createdAt,
+        tone: 'blue',
+        detail: 'Disbursement request was created in Gateway.',
+      },
+      {
+        key: 'aggregator',
+        title: 'Sent to payout provider',
+        at: journey.disburseRequestedAt || journey.disburseRespondedAt,
+        tone: String(selected.status || '').toUpperCase().includes('FAILED') ? 'red' : 'yellow',
+        detail: selected.aggregatorProvider ? `Provider: ${selected.aggregatorProvider}` : 'Awaiting provider dispatch.',
+      },
+      {
+        key: 'callback',
+        title: 'Provider status received',
+        at: journey.callbackAt || selected.aggregatorCallbackAt,
+        tone: toneForStatus(selected.aggregatorCallbackStatus || selected.status),
+        detail: selected.aggregatorCallbackStatus || 'No provider callback/status received yet.',
+      },
+      {
+        key: 'fineract',
+        title: 'Posted to Fineract',
+        at: journey.fineractRespondedAt || selected.disbursedAt,
+        tone: String(selected.status || '').toUpperCase().includes('DISBURSED') ? 'green' : 'blue',
+        detail: selected.fineractTransactionId ? `Transaction ID: ${selected.fineractTransactionId}` : 'Awaiting Fineract posting.',
+      },
+    ];
+    const auditItems = Array.isArray(selected.auditTrail)
+      ? selected.auditTrail
+          .filter((event) => event?.at || event?.message || event?.status)
+          .map((event, index) => ({
+            key: `audit-${index}`,
+            title: event?.step || event?.status || 'Update',
+            at: event?.at,
+            tone: toneForStatus(event?.status),
+            detail: event?.message || '',
+          }))
+      : [];
+    return [...items, ...auditItems];
+  }, [journey, selected]);
 
   return (
     <div className="space-y-4">
       <section className="relative overflow-hidden rounded-2xl border border-slate-200/70 bg-gradient-to-br from-cyan-50 via-emerald-50 to-teal-100 p-5 dark:border-slate-700/70 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800">
         <div className="absolute -right-14 -top-14 h-40 w-40 rounded-full bg-cyan-300/30 blur-3xl dark:bg-cyan-700/20" />
         <div className="absolute -left-10 -bottom-10 h-36 w-36 rounded-full bg-emerald-300/30 blur-3xl dark:bg-emerald-700/20" />
-        <h1 className="text-2xl font-bold">Disbursement Orders</h1>
+        <h1 className="text-2xl font-bold">Disbursement Report</h1>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-          Monitor payout progress from lookup to aggregator, callback, and Fineract posting.
+          Fineract-aligned operational report for loan disbursements, payout channel, and posting outcome.
         </p>
       </section>
 
-      <div className="grid gap-3 md:grid-cols-4">
+      <div className="grid gap-3 md:grid-cols-5">
         <Metric label="Loaded Orders" value={String(metrics.total)} tone="blue" />
         <Metric label="Disbursed" value={String(metrics.disbursed)} tone="green" />
         <Metric label="In Progress" value={String(metrics.inProgress)} tone="yellow" />
         <Metric label="Failed" value={String(metrics.failed)} tone="red" />
+        <Metric label="Loaded Amount" value={money(metrics.amount)} tone="blue" />
       </div>
 
       <Card>
-        <div className="grid gap-3 md:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-6">
           <div className="md:col-span-2">
             <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search</label>
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Order id, loan id, status, provider..."
+              placeholder="Customer, loan id, provider, reference..."
               className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
             />
           </div>
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Status</label>
-            <input
+            <select
               value={status}
               onChange={(e) => {
                 setStatus(e.target.value);
                 setPage(0);
               }}
-              placeholder="optional"
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            >
+              <option value="">All</option>
+              <option value="DISBURSED">Disbursed</option>
+              <option value="AGGREGATOR_REQUEST_SENT">Aggregator Sent</option>
+              <option value="AGGREGATOR_SUCCESS">Aggregator Success</option>
+              <option value="AGGREGATOR_FAILED">Aggregator Failed</option>
+              <option value="FINERACT_FAILED">Fineract Failed</option>
+              <option value="UNDONE">Undone</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Provider</label>
+            <input
+              value={provider}
+              onChange={(e) => {
+                setProvider(e.target.value);
+                setPage(0);
+              }}
+              placeholder="AZAMPAY, SELCOM..."
               className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
             />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Date From</label>
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => {
+                setDateFrom(e.target.value);
+                setPage(0);
+              }}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Date To</label>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => {
+                setDateTo(e.target.value);
+                setPage(0);
+              }}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+        </div>
+        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setSearch('');
+                setStatus('DISBURSED');
+                setProvider('');
+                setDateFrom(defaultDateRange.dateFrom);
+                setDateTo(defaultDateRange.dateTo);
+                setPage(0);
+              }}
+            >
+              Clear
+            </Button>
+            <Button variant="secondary" onClick={exportCsv} disabled={!rows.length}>
+              Export CSV
+            </Button>
           </div>
           <div className="flex items-end justify-end gap-2">
             <label className="text-sm text-slate-600 dark:text-slate-300">Rows</label>
@@ -336,7 +593,7 @@ const DisbursementOrders = () => {
       <Modal
         open={detailsOpen}
         onClose={() => (statusBusy ? null : setDetailsOpen(false))}
-        title="Disbursement Journey"
+        title="Disbursement Details"
         size="5xl"
         footer={
           <>
@@ -372,37 +629,85 @@ const DisbursementOrders = () => {
         ) : (
           <div className="space-y-4">
             <div className="grid gap-3 md:grid-cols-4">
-              <div className="rounded-xl border border-slate-200/70 p-3 dark:border-slate-700/70">
-                <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Order</div>
-                <div className="mt-1 font-mono text-xs break-all">{selected.orderId}</div>
-              </div>
-              <div className="rounded-xl border border-slate-200/70 p-3 dark:border-slate-700/70">
-                <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Status</div>
-                <div className="mt-1"><Badge tone={toneForStatus(selectedStatus?.status || selected.status)}>{selectedStatus?.status || selected.status || '-'}</Badge></div>
-              </div>
-              <div className="rounded-xl border border-slate-200/70 p-3 dark:border-slate-700/70">
-                <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Amount</div>
-                <div className="mt-1 text-sm font-semibold">{money(selected.amount)} {selected.currency || ''}</div>
-              </div>
-              <div className="rounded-xl border border-slate-200/70 p-3 dark:border-slate-700/70">
-                <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Provider Ref</div>
-                <div className="mt-1 text-xs font-mono break-all">{selected.aggregatorReferenceId || '-'}</div>
+              <DetailItem label="Customer Name" value={selectedLoan?.customerFullName} />
+              <DetailItem label="Customer Phone" value={selectedLoan?.customerPhone} />
+              <DetailItem label="Amount" value={`${money(selected.amount)} ${selected.currency || ''}`.trim()} />
+              <div className="rounded-xl border border-slate-200/70 bg-white/70 p-3 dark:border-slate-700/70 dark:bg-slate-900/40">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Current Status</div>
+                <div className="mt-1">
+                  <Badge tone={toneForStatus(selectedStatus?.status || selected.status)}>
+                    {selectedStatus?.status || selected.status || '-'}
+                  </Badge>
+                </div>
               </div>
             </div>
 
+            {selected.lastError ? (
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200">
+                {selected.lastError}
+              </div>
+            ) : null}
+
             <div className="grid gap-3 lg:grid-cols-2">
-              <Stage title="1. Name Lookup" at={journey.lookupAt} data={{ request: journey.lookupRequest, response: journey.lookupResponse }} />
-              <Stage
-                title="2. Disbursement Request"
-                at={journey.disburseRespondedAt || journey.disburseRequestedAt}
-                data={{ request: journey.disburseRequest, response: journey.disburseResponse }}
-              />
-              <Stage title="3. Callback / Status" at={journey.callbackAt} data={journey.callbackPayload} />
-              <Stage
-                title="4. Fineract Posting"
-                at={journey.fineractRespondedAt || journey.fineractRequestedAt}
-                data={{ request: journey.fineractRequest, response: journey.fineractResponse }}
-              />
+              <Card title="Order Summary">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <DetailItem label="Requested Date" value={selected.requestedDisbursementDate} />
+                  <DetailItem label="Disbursed At" value={fmtDateTime(selected.disbursedAt)} />
+                  <DetailItem label="Provider" value={selected.aggregatorProvider} />
+                  <DetailItem label="Payout Type" value={selected.payout?.type} />
+                  <DetailItem label="Destination" value={payoutDestination} mono />
+                  <DetailItem label="Provider Status" value={selected.aggregatorCallbackStatus} />
+                </div>
+              </Card>
+
+              <Card title="References">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <DetailItem label="Order ID" value={selected.orderId} mono />
+                  <DetailItem label="Platform Loan ID" value={selected.platformLoanId} mono />
+                  <DetailItem label="Fineract Loan ID" value={selected.fineractLoanId} mono />
+                  <DetailItem label="Fineract Transaction ID" value={selected.fineractTransactionId} mono />
+                  <DetailItem label="Provider Reference" value={selected.aggregatorReferenceId} mono />
+                  <DetailItem label="Last Updated" value={fmtDateTime(selected.updatedAt)} />
+                </div>
+              </Card>
+            </div>
+
+            <Card title="Processing Timeline">
+              <div className="space-y-3">
+                {activityTimeline.map((item) => (
+                  <TimelineItem
+                    key={item.key}
+                    title={item.title}
+                    at={item.at}
+                    tone={item.tone}
+                    detail={item.detail}
+                  />
+                ))}
+              </div>
+            </Card>
+
+            <div className="grid gap-3 lg:grid-cols-2">
+              <Card title="Destination Details">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <DetailItem label="Account Name" value={selected.payout?.accountName} />
+                  <DetailItem label="Bank Name" value={selected.payout?.bankName} />
+                  <DetailItem label="Bank Code" value={selected.payout?.bankCode} />
+                  <DetailItem label="Mobile Provider" value={selected.payout?.provider} />
+                  <DetailItem label="MSISDN" value={selected.payout?.msisdn} mono />
+                  <DetailItem label="Account Number" value={selected.payout?.accountNumber} mono />
+                </div>
+              </Card>
+
+              <Card title="System Timestamps">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <DetailItem label="Created At" value={fmtDateTime(selected.createdAt)} />
+                  <DetailItem label="Updated At" value={fmtDateTime(selected.updatedAt)} />
+                  <DetailItem label="Provider Callback At" value={fmtDateTime(selected.aggregatorCallbackAt)} />
+                  <DetailItem label="Lookup Time" value={fmtDateTime(journey.lookupAt)} />
+                  <DetailItem label="Provider Request Time" value={fmtDateTime(journey.disburseRequestedAt || journey.disburseRespondedAt)} />
+                  <DetailItem label="Fineract Posting Time" value={fmtDateTime(journey.fineractRespondedAt || journey.fineractRequestedAt)} />
+                </div>
+              </Card>
             </div>
           </div>
         )}

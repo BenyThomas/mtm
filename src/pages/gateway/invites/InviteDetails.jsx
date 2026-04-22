@@ -11,9 +11,9 @@ import { useToast } from '../../../context/ToastContext';
 import Can from '../../../components/Can';
 import { getCenter, getGroup } from '../../../api/gateway/community';
 import useStaff from '../../../hooks/useStaff';
-import { listLoanProductsOps } from '../../../api/gateway/loanProducts';
 import { applyGwLoanOnBehalf, getGwLoanEligibilityForCustomer } from '../../../api/gateway/loans';
 import { listBankNames } from '../../../api/gateway/bankNames';
+import { listLoanPurposesOps } from '../../../api/gateway/loanPurposes';
 
 const GENDER_OPTIONS = [
   { value: '', label: 'Select gender' },
@@ -38,6 +38,7 @@ const EMPLOYMENT_TYPE_OPTIONS = [
   { value: 'UNEMPLOYED', label: 'Unemployed' },
   { value: 'OTHER', label: 'Other' },
 ];
+const INVITE_READ_PERMISSIONS = ['READ_CLIENT', 'CREATE_CLIENT', 'UPDATE_CLIENT', 'DELETE_CLIENT'];
 
 const normalizeText = (value) => String(value || '').trim().toUpperCase();
 
@@ -138,7 +139,10 @@ const InviteDetails = () => {
   const [acceptOpen, setAcceptOpen] = useState(false);
   const [loanOpen, setLoanOpen] = useState(false);
   const [loanProducts, setLoanProducts] = useState([]);
+  const [loanPurposes, setLoanPurposes] = useState([]);
   const [bankOptions, setBankOptions] = useState([]);
+  const [loanProductsLoading, setLoanProductsLoading] = useState(false);
+  const [loanProductsReady, setLoanProductsReady] = useState(false);
   const [acceptSaving, setAcceptSaving] = useState(false);
   const [loanSaving, setLoanSaving] = useState(false);
   const [acceptForm, setAcceptForm] = useState({
@@ -162,7 +166,7 @@ const InviteDetails = () => {
     bankAccount: '',
     walletMsisdn: '',
   });
-  const [loanForm, setLoanForm] = useState({ productCode: '', amount: '', tenure: '' });
+  const [loanForm, setLoanForm] = useState({ productCode: '', amount: '', tenure: '', loanPurposeId: '' });
   const [loanEligibility, setLoanEligibility] = useState(null);
   const [loanEligibilityLoading, setLoanEligibilityLoading] = useState(false);
 
@@ -223,15 +227,67 @@ const InviteDetails = () => {
 
   useEffect(() => {
     let cancelled = false;
+    const customerId = onboarding?.gatewayCustomerId;
+    if (!customerId) {
+      setLoanProducts([]);
+      setLoanProductsLoading(false);
+      setLoanProductsReady(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setLoanProductsLoading(true);
     (async () => {
       try {
-        const items = await listLoanProductsOps();
+        const data = await getGwLoanEligibilityForCustomer(customerId, {});
+        if (cancelled) return;
+        const items = Array.isArray(data?.eligibleProducts) ? data.eligibleProducts : [];
+        const normalizedItems = items.filter((item) => item?.productCode);
+        setLoanProducts(normalizedItems);
+        setLoanProductsReady(true);
+        setLoanForm((prev) => {
+          const stillExists = normalizedItems.some((item) => String(item?.productCode || '') === String(prev.productCode || ''));
+          const nextProductCode = stillExists
+            ? prev.productCode
+            : (normalizedItems[0]?.productCode ? String(normalizedItems[0].productCode) : '');
+          return {
+            ...prev,
+            productCode: nextProductCode,
+            tenure: stillExists ? prev.tenure : '',
+          };
+        });
+      } catch {
         if (!cancelled) {
-          const normalized = Array.isArray(items) ? items : Array.isArray(items?.items) ? items.items : [];
-          setLoanProducts(normalized.filter(Boolean));
+          setLoanProducts([]);
+          setLoanProductsReady(true);
+        }
+      } finally {
+        if (!cancelled) setLoanProductsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [onboarding?.gatewayCustomerId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await listLoanPurposesOps({
+          active: true,
+          limit: 500,
+          offset: 0,
+          orderBy: 'name',
+          sortOrder: 'asc',
+        });
+        const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+        if (!cancelled) {
+          setLoanPurposes(items.filter((item) => item?.fineractCodeValueId || item?.loanPurposeId));
         }
       } catch {
-        if (!cancelled) setLoanProducts([]);
+        if (!cancelled) setLoanPurposes([]);
       }
     })();
     return () => {
@@ -389,15 +445,27 @@ const InviteDetails = () => {
   const referrerContact = doc?.referrerId ? (staffContactById[String(doc.referrerId)] || '') : '';
   const invitedByStaffName = doc?.invitedByStaffId ? (staffNameById[String(doc.invitedByStaffId)] || '') : '';
   const invitedByStaffContact = doc?.invitedByStaffId ? (staffContactById[String(doc.invitedByStaffId)] || '') : '';
+  const agentName = referrerName || invitedByStaffName;
+  const agentContact = referrerContact || invitedByStaffContact;
   const inviteLabel = doc?.campaignCode || doc?.channel || 'Invite';
   const canAcceptOnBehalf = !!doc?.inviteId && !['ACCEPTED', 'CANCELLED', 'EXPIRED'].includes(String(doc?.status || '').toUpperCase());
   const canApplyLoan = !!(onboarding?.gatewayCustomerId || onboarding?.fineractClientId);
   const loanProductOptions = loanProducts.map((item) => ({
     id: String(item?.productCode || ''),
-    label: `${item?.name || item?.productCode || 'Product'}${item?.productCode ? ` (${item.productCode})` : ''}`,
+    label: `${item?.productName || item?.name || item?.productCode || 'Product'}${item?.productCode ? ` (${item.productCode})` : ''}`,
+  })).filter((item) => item.id);
+  const loanPurposeOptions = loanPurposes.map((item) => ({
+    id: String(item?.fineractCodeValueId || item?.loanPurposeId || ''),
+    label: `${item?.name || item?.code || 'Purpose'}${item?.code ? ` (${item.code})` : ''}`,
   })).filter((item) => item.id);
 
   const openAcceptModal = () => setAcceptOpen(true);
+  const openLoanModal = () => {
+    if (onboarding?.gatewayCustomerId && !loanProductsReady && !loanProductsLoading) {
+      setLoanProductsReady(false);
+    }
+    setLoanOpen(true);
+  };
 
   const submitAcceptOnBehalf = async (e) => {
     e?.preventDefault?.();
@@ -482,6 +550,7 @@ const InviteDetails = () => {
         amount: Number(loanForm.amount),
         tenure: requestedTenure,
         tenureUnit: resolvedEligibility?.tenureUnit || loanEligibility?.tenureUnit || undefined,
+        loanPurposeId: loanForm.loanPurposeId ? Number(loanForm.loanPurposeId) : undefined,
       });
       setLoanOpen(false);
       addToast('Loan application submitted', 'success');
@@ -519,25 +588,31 @@ const InviteDetails = () => {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="secondary" onClick={load} disabled={loading || saving}>
-            Refresh
-          </Button>
-          <Can any={['GW_OPS_WRITE']}>
+          <Can any={INVITE_READ_PERMISSIONS}>
+            <Button variant="secondary" onClick={load} disabled={loading || saving}>
+              Refresh
+            </Button>
+          </Can>
+          <Can any={['UPDATE_CLIENT']}>
             {canAcceptOnBehalf ? (
               <Button onClick={openAcceptModal} disabled={loading || saving || acceptSaving}>
                 Accept On Behalf
               </Button>
             ) : null}
+          </Can>
+          <Can any={['CREATE_LOAN']}>
             {canApplyLoan ? (
-              <Button onClick={() => setLoanOpen(true)} disabled={loading || saving || loanSaving}>
+              <Button onClick={openLoanModal} disabled={loading || saving || loanSaving || (canApplyLoan && loanProductsLoading && !loanProducts.length)}>
                 Apply Loan On Behalf
               </Button>
             ) : null}
           </Can>
-          <Can any={['GW_OPS_WRITE']}>
+          <Can any={['UPDATE_CLIENT']}>
             <Button variant="secondary" onClick={doCancel} disabled={loading || saving}>
               Cancel Invite
             </Button>
+          </Can>
+          <Can any={['DELETE_CLIENT']}>
             <Button variant="danger" onClick={doDelete} disabled={loading || saving}>
               Delete
             </Button>
@@ -564,7 +639,7 @@ const InviteDetails = () => {
                     {inviteLabel}
                   </div>
                   <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-                    Agent: <strong>{referrerName || 'Unassigned'}</strong> | Status: <strong>{doc?.status || '-'}</strong>
+                    Agent: <strong>{agentName || 'Unassigned'}</strong> | Status: <strong>{doc?.status || '-'}</strong>
                   </div>
                 </div>
                 <div className="text-right text-xs text-slate-500 dark:text-slate-400">
@@ -599,7 +674,7 @@ const InviteDetails = () => {
                 <Field label="Campaign" value={doc?.campaignCode} />
                 <Field label="Uses" value={`${Number(doc?.uses || 0)} / ${Number(doc?.maxUses || 0) === 0 ? 'Unlimited' : Number(doc?.maxUses || 0)}`} />
                 <Field label="Expires At" value={doc?.expiresAt} />
-                <Field label="Agent Contact" value={referrerContact} />
+                <Field label="Agent Contact" value={agentContact} />
               </div>
 
               <div className="mt-4">
@@ -774,7 +849,19 @@ const InviteDetails = () => {
             value={loanForm.productCode}
             onChange={(value) => setLoanForm((prev) => ({ ...prev, productCode: value, tenure: '' }))}
             options={loanProductOptions}
-            placeholder="Select product"
+            placeholder={loanProductsLoading ? 'Loading eligible products...' : 'Select product'}
+          />
+          {!loanProductsLoading && !loanProducts.length ? (
+            <div className="text-xs text-amber-600 dark:text-amber-300">
+              No eligible loan offers were found for this customer.
+            </div>
+          ) : null}
+          <SearchableSelectField
+            label="Loan Purpose"
+            value={loanForm.loanPurposeId}
+            onChange={(value) => setLoanForm((prev) => ({ ...prev, loanPurposeId: String(value || '') }))}
+            options={loanPurposeOptions}
+            placeholder="Select purpose"
           />
           <label className="block text-sm text-slate-700 dark:text-slate-200">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Amount</span>

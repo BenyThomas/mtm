@@ -36,16 +36,18 @@ const NAV_GROUPS = [
     title: 'Gateway',
     items: [
       { to: '/gateway', label: 'Overview', icon: 'G', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
-      { to: '/gateway/invites', label: 'Invites', icon: 'I', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CLIENT'] },
+      { to: '/gateway/invites', label: 'Invites', icon: 'I', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CLIENT', 'CREATE_CLIENT', 'UPDATE_CLIENT', 'DELETE_CLIENT'] },
       { to: '/gateway/invite-campaigns', label: 'Invite Campaigns', icon: 'IC', any: ['GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
       { to: '/gateway/invite-channels', label: 'Invite Channels', icon: 'CH', any: ['GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
       { to: '/gateway/loans', label: 'Gw Loans', icon: 'GL', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_LOAN'] },
+      { to: '/gateway/loans/arrears', label: 'Arrears Loans', icon: 'AR', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_LOAN'] },
       { to: '/gateway/product-catalog', label: 'Product Catalog', icon: 'P', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
       { to: '/gateway/access-mappings', label: 'Access Mappings', icon: 'AM', perm: ['READ_CONFIGURATION','GW_OPS_ALL'] },
       { to: '/gateway/loan-automation', label: 'Loan Automation', icon: 'A', any: ['GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
       { to: '/gateway/group-lifecycle', label: 'Group Lifecycle', icon: 'GL', any: ['GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
       { to: '/gateway/centers', label: 'Centers', icon: 'C', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CENTER', 'READ_GROUP'] },
       { to: '/gateway/bank-names', label: 'Bank Names', icon: 'B', any: ['GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION', 'UPDATE_CONFIGURATION'] },
+      { to: '/gateway/loan-purposes', label: 'Loan Purposes', icon: 'LP', any: ['GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION', 'UPDATE_CONFIGURATION', 'READ_LOANPRODUCT'] },
       { to: '/gateway/disbursements', label: 'Disbursements', icon: 'D', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
       { to: '/gateway/kyc', label: 'KYC Ops', icon: 'K', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
     ],
@@ -151,20 +153,22 @@ const NAV_GROUPS = [
 
 const Layout = () => {
   const [open, setOpen] = useState(false);
-  const { can } = useAuth();
+  const { can, user } = useAuth();
+  const isGatewayOnlyLoanOfficer = Boolean(user?.isGatewayOnlyLoanOfficer);
 
   // filter items by single 'perm' or permission groups
   const visibleGroups = useMemo(() => {
     return NAV_GROUPS.map(g => ({
       ...g,
+      hidden: isGatewayOnlyLoanOfficer && !g.title.startsWith('Gateway'),
       items: g.items.filter((it) => {
         if (Array.isArray(it.all) && it.all.length > 0) return it.all.every((code) => can(code));
         if (Array.isArray(it.any) && it.any.length > 0) return it.any.some((code) => can(code));
         if (it.perm) return can(it.perm);
         return true;
       }),
-    })).filter(g => g.items.length > 0);
-  }, [can]);
+    })).filter(g => !g.hidden && g.items.length > 0);
+  }, [can, isGatewayOnlyLoanOfficer]);
 
   return (
       <div className="min-h-screen text-slate-900 dark:text-slate-100">

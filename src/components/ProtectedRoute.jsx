@@ -4,8 +4,11 @@ import { useAuth } from '../context/AuthContext';
 import Skeleton from './Skeleton';
 
 const ProtectedRoute = ({ children }) => {
-    const { isAuthenticated, checking } = useAuth();
+    const { isAuthenticated, checking, user } = useAuth();
     const location = useLocation();
+    const isGatewayOnlyLoanOfficer = Boolean(user?.isGatewayOnlyLoanOfficer);
+    const path = location.pathname || '/';
+    const isGatewayPath = path === '/gateway' || path.startsWith('/gateway/');
 
     if (checking) {
         return (
@@ -18,6 +21,10 @@ const ProtectedRoute = ({ children }) => {
 
     if (!isAuthenticated) {
         return <Navigate to="/login" state={{ from: location }} replace />;
+    }
+
+    if (isGatewayOnlyLoanOfficer && !isGatewayPath) {
+        return <Navigate to="/gateway" replace />;
     }
 
     return children;

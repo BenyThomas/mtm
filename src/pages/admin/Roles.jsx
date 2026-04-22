@@ -1,61 +1,38 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+    Pencil,
+    Plus,
+    RefreshCw,
+    Search,
+    Shield,
+    ToggleLeft,
+    ToggleRight,
+    Trash2,
+} from 'lucide-react';
 import Card from '../../components/Card';
 import Button from '../../components/Button';
 import Skeleton from '../../components/Skeleton';
 import Modal from '../../components/Modal';
 import RoleForm from '../../components/RoleForm';
 import { useToast } from '../../context/ToastContext';
-import {
-    listRoles,
-    createRole,
-    updateRole,
-    deleteRole,
-    setRoleEnabled,
-    getRolePermissions,
-    updateRolePermissions,
-} from '../../api/roles';
-import { listPermissions } from '../../api/permissions';
-import {
-    Plus,
-    Pencil,
-    Trash2,
-    Shield,
-    ToggleLeft,
-    ToggleRight,
-    RefreshCw,
-    KeyRound,
-    Eye,
-} from 'lucide-react';
-import MultiSelect from "../../components/MultiSelect";
+import { createRole, deleteRole, listRoles, setRoleEnabled, updateRole } from '../../api/roles';
 
 const Roles = () => {
+    const navigate = useNavigate();
     const { addToast } = useToast();
 
     const [loading, setLoading] = useState(true);
     const [items, setItems] = useState([]);
     const [q, setQ] = useState('');
 
-    // create
     const [createOpen, setCreateOpen] = useState(false);
     const [createBusy, setCreateBusy] = useState(false);
 
-    // edit
     const [editOpen, setEditOpen] = useState(false);
     const [editBusy, setEditBusy] = useState(false);
     const [editing, setEditing] = useState(null);
 
-    // permissions assign
-    const [permOpen, setPermOpen] = useState(false);
-    const [permBusy, setPermBusy] = useState(false);
-    const [permRole, setPermRole] = useState(null);
-    const [permOptions, setPermOptions] = useState([]);   // [{ id, code, name }]
-    const [permSelected, setPermSelected] = useState([]); // number[] of permission IDs
-    const [viewPermOpen, setViewPermOpen] = useState(false);
-    const [viewPermBusy, setViewPermBusy] = useState(false);
-    const [viewPermRole, setViewPermRole] = useState(null);
-    const [viewPermItems, setViewPermItems] = useState([]);
-
-    // delete
     const [deleting, setDeleting] = useState(null);
     const [deleteBusy, setDeleteBusy] = useState(false);
 
@@ -81,11 +58,12 @@ const Roles = () => {
         const t = q.trim().toLowerCase();
         if (!t) return items;
         return items.filter((r) =>
-            [r.id, r.name, r.description].map((v) => String(v ?? '').toLowerCase()).some((h) => h.includes(t))
+            [r.id, r.name, r.description]
+                .map((v) => String(v ?? '').toLowerCase())
+                .some((h) => h.includes(t))
         );
     }, [items, q]);
 
-    // Create
     const doCreate = async (payload) => {
         if (!payload?.name) {
             addToast('Name is required', 'error');
@@ -104,12 +82,6 @@ const Roles = () => {
         }
     };
 
-    // Edit
-    const openEdit = (role) => {
-        setEditing(role);
-        setEditOpen(true);
-    };
-
     const doUpdate = async (payload) => {
         if (!editing?.id) return;
         setEditBusy(true);
@@ -126,7 +98,6 @@ const Roles = () => {
         }
     };
 
-    // Enable/Disable
     const toggleEnable = async (role) => {
         try {
             await setRoleEnabled(role.id, !role.enabled);
@@ -136,81 +107,6 @@ const Roles = () => {
             addToast(e?.response?.data?.defaultUserMessage || 'Toggle failed', 'error');
         }
     };
-
-    // Assign permissions
-    const openPerms = async (role) => {
-        setPermRole(role);
-        setPermOpen(true);
-        setPermBusy(true);
-        try {
-            const [allPerms, rolePerms] = await Promise.all([listPermissions(), getRolePermissions(role.id)]);
-            // Show a friendly label + keep the raw code for PUT mapping
-            const opts = allPerms.map((p) => ({
-                id: p.id,
-                code: p.code, // e.g., 'CLIENT_CREATE'
-                name: `${p.entityName}:${p.actionName} · ${p.code}`,
-            }));
-            setPermOptions(opts);
-            // pre-select IDs that the role currently has
-            setPermSelected(rolePerms.filter((p) => p.selected).map((p) => p.id));
-        } catch (e) {
-            addToast(e?.response?.data?.defaultUserMessage || 'Failed to load permissions', 'error');
-            setPermOptions([]);
-            setPermSelected([]);
-        } finally {
-            setPermBusy(false);
-        }
-    };
-
-    const savePerms = async () => {
-        if (!permRole?.id) return;
-        setPermBusy(true);
-        try {
-            // Build { [permissionCode]: boolean } for ALL known permissions
-            const selectedSet = new Set(permSelected);
-            const permissionsMap = {};
-            for (const opt of permOptions) {
-                permissionsMap[opt.code] = selectedSet.has(opt.id);
-            }
-            await updateRolePermissions(permRole.id, permissionsMap);
-            addToast('Role permissions updated', 'success');
-            setPermOpen(false);
-            setPermRole(null);
-        } catch (e) {
-            addToast(e?.response?.data?.defaultUserMessage || 'Update failed', 'error');
-        } finally {
-            setPermBusy(false);
-        }
-    };
-
-    const openViewPerms = async (role) => {
-        setViewPermRole(role);
-        setViewPermOpen(true);
-        setViewPermBusy(true);
-        try {
-            const rolePerms = await getRolePermissions(role.id);
-            setViewPermItems(rolePerms.filter((p) => p.selected));
-        } catch (e) {
-            addToast(e?.response?.data?.defaultUserMessage || 'Failed to load permissions', 'error');
-            setViewPermItems([]);
-        } finally {
-            setViewPermBusy(false);
-        }
-    };
-
-    const viewPermGroups = useMemo(() => {
-        const groups = new Map();
-        for (const item of viewPermItems) {
-            const key = item.entityName || 'Other';
-            const bucket = groups.get(key) || [];
-            bucket.push(item);
-            groups.set(key, bucket);
-        }
-        return Array.from(groups.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-    }, [viewPermItems]);
-
-    // Delete
-    const askDelete = (role) => setDeleting(role);
 
     const doDelete = async () => {
         if (!deleting?.id) return;
@@ -227,35 +123,39 @@ const Roles = () => {
         }
     };
 
+    const openDetails = (role) => {
+        navigate(`/admin/roles/${role.id}`, { state: { role } });
+    };
+
     return (
         <div className="space-y-6">
-            {/* Header */}
             <div className="flex items-center justify-between">
-                <h1 className="text-2xl font-bold inline-flex items-center gap-2">
-                    <Shield className="w-5 h-5" /> Roles
+                <h1 className="inline-flex items-center gap-2 text-2xl font-bold">
+                    <Shield className="h-5 w-5" /> Roles
                 </h1>
                 <div className="space-x-2">
                     <Button variant="secondary" onClick={load}>
-                        <RefreshCw className="w-4 h-4 mr-1" /> Refresh
+                        <RefreshCw className="mr-1 h-4 w-4" /> Refresh
                     </Button>
                     <Button onClick={() => setCreateOpen(true)}>
-                        <Plus className="w-4 h-4 mr-1" /> New Role
+                        <Plus className="mr-1 h-4 w-4" /> New Role
                     </Button>
                 </div>
             </div>
 
-            {/* Filters */}
             <Card>
                 <label className="block text-sm font-medium">Search</label>
-                <input
-                    value={q}
-                    onChange={(e) => setQ(e.target.value)}
-                    placeholder="Name, description…"
-                    className="mt-1 w-full border rounded-md p-2"
-                />
+                <div className="relative mt-1">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    <input
+                        value={q}
+                        onChange={(e) => setQ(e.target.value)}
+                        placeholder="Name, description..."
+                        className="w-full rounded-md border p-2 pl-9"
+                    />
+                </div>
             </Card>
 
-            {/* Table */}
             <Card>
                 {loading ? (
                     <Skeleton height="12rem" />
@@ -265,65 +165,89 @@ const Roles = () => {
                     <div className="overflow-x-auto">
                         <table className="min-w-full">
                             <thead>
-                            <tr className="text-left text-sm text-gray-500">
-                                <th className="py-2 pr-4">#</th>
-                                <th className="py-2 pr-4">Name</th>
-                                <th className="py-2 pr-4">Description</th>
-                                <th className="py-2 pr-4">Status</th>
-                                <th className="py-2 pr-4"></th>
-                            </tr>
+                                <tr className="text-left text-sm text-gray-500">
+                                    <th className="py-2 pr-4">#</th>
+                                    <th className="py-2 pr-4">Name</th>
+                                    <th className="py-2 pr-4">Description</th>
+                                    <th className="py-2 pr-4">Status</th>
+                                    <th className="py-2 pr-4"></th>
+                                </tr>
                             </thead>
                             <tbody>
-                            {filtered.map((r) => (
-                                <tr key={r.id} className="border-t text-sm">
-                                    <td className="py-2 pr-4">{r.id}</td>
-                                    <td className="py-2 pr-4">{r.name}</td>
-                                    <td className="py-2 pr-4">{r.description || '—'}</td>
-                                    <td className="py-2 pr-4">{r.enabled ? 'Enabled' : 'Disabled'}</td>
-                                    <td className="py-2 pr-4 whitespace-nowrap space-x-2">
-                                        <Button variant="secondary" onClick={() => openViewPerms(r)}>
-                                            <Eye className="w-4 h-4 mr-1" /> View
-                                        </Button>
-                                        <Button variant="secondary" onClick={() => openPerms(r)}>
-                                            <KeyRound className="w-4 h-4 mr-1" /> Permissions
-                                        </Button>
-                                        <Button variant="secondary" onClick={() => openEdit(r)}>
-                                            <Pencil className="w-4 h-4 mr-1" /> Edit
-                                        </Button>
-                                        <Button variant="secondary" onClick={() => toggleEnable(r)}>
-                                            {r.enabled ? (
-                                                <ToggleLeft className="w-4 h-4 mr-1" />
-                                            ) : (
-                                                <ToggleRight className="w-4 h-4 mr-1" />
-                                            )}
-                                            {r.enabled ? 'Disable' : 'Enable'}
-                                        </Button>
-                                        <Button variant="secondary" onClick={() => askDelete(r)}>
-                                            <Trash2 className="w-4 h-4 mr-1" /> Delete
-                                        </Button>
-                                    </td>
-                                </tr>
-                            ))}
+                                {filtered.map((r) => (
+                                    <tr
+                                        key={r.id}
+                                        className="cursor-pointer border-t text-sm transition hover:bg-slate-50"
+                                        onClick={() => openDetails(r)}
+                                    >
+                                        <td className="py-2 pr-4">{r.id}</td>
+                                        <td className="py-2 pr-4 font-medium text-slate-900">{r.name}</td>
+                                        <td className="py-2 pr-4">{r.description || '-'}</td>
+                                        <td className="py-2 pr-4">{r.enabled ? 'Enabled' : 'Disabled'}</td>
+                                        <td className="space-x-2 whitespace-nowrap py-2 pr-4">
+                                            <Button
+                                                variant="secondary"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    openDetails(r);
+                                                }}
+                                            >
+                                                Manage
+                                            </Button>
+                                            <Button
+                                                variant="secondary"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setEditing(r);
+                                                    setEditOpen(true);
+                                                }}
+                                            >
+                                                <Pencil className="mr-1 h-4 w-4" /> Edit
+                                            </Button>
+                                            <Button
+                                                variant="secondary"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    toggleEnable(r);
+                                                }}
+                                            >
+                                                {r.enabled ? (
+                                                    <ToggleLeft className="mr-1 h-4 w-4" />
+                                                ) : (
+                                                    <ToggleRight className="mr-1 h-4 w-4" />
+                                                )}
+                                                {r.enabled ? 'Disable' : 'Enable'}
+                                            </Button>
+                                            <Button
+                                                variant="secondary"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setDeleting(r);
+                                                }}
+                                            >
+                                                <Trash2 className="mr-1 h-4 w-4" /> Delete
+                                            </Button>
+                                        </td>
+                                    </tr>
+                                ))}
                             </tbody>
                         </table>
                     </div>
                 )}
             </Card>
 
-            {/* Create */}
             <Modal
                 open={createOpen}
                 onClose={() => setCreateOpen(false)}
                 title="New Role"
                 size="lg"
                 panelClassName="shadow-2xl"
-                bodyClassName="pt-4 pb-1"
+                bodyClassName="pb-1 pt-4"
                 footer={null}
             >
                 <RoleForm onSubmit={doCreate} submitting={createBusy} />
             </Modal>
 
-            {/* Edit */}
             <Modal
                 open={editOpen}
                 onClose={() => {
@@ -335,101 +259,12 @@ const Roles = () => {
                 title="Edit Role"
                 size="lg"
                 panelClassName="shadow-2xl"
-                bodyClassName="pt-4 pb-1"
+                bodyClassName="pb-1 pt-4"
                 footer={null}
             >
                 <RoleForm initial={editing} onSubmit={doUpdate} submitting={editBusy} />
             </Modal>
 
-            {/* Assign Permissions */}
-            <Modal
-                open={permOpen}
-                onClose={() => {
-                    if (!permBusy) {
-                        setPermOpen(false);
-                        setPermRole(null);
-                    }
-                }}
-                title={permRole ? `Permissions: ${permRole.name}` : 'Permissions'}
-                size="5xl"
-                panelClassName="shadow-2xl sm:!max-h-[92vh] sm:!max-h-[92dvh]"
-                bodyClassName="pt-4 pb-1"
-                footer={
-                    <>
-                        <Button variant="secondary" onClick={() => setPermOpen(false)} disabled={permBusy}>
-                            Cancel
-                        </Button>
-                        <Button onClick={savePerms} disabled={permBusy}>
-                            {permBusy ? 'Saving…' : 'Save'}
-                        </Button>
-                    </>
-                }
-            >
-                {permBusy ? (
-                    <Skeleton height="10rem" />
-                ) : (
-                    <MultiSelect
-                        label="Select permissions"
-                        options={permOptions}      // [{ id, code, name }]
-                        value={permSelected}       // number[]
-                        onChange={setPermSelected}
-                        disabled={permBusy}
-                        required
-                    />
-                )}
-            </Modal>
-
-            <Modal
-                open={viewPermOpen}
-                onClose={() => {
-                    if (!viewPermBusy) {
-                        setViewPermOpen(false);
-                        setViewPermRole(null);
-                        setViewPermItems([]);
-                    }
-                }}
-                title={viewPermRole ? `Role Permissions: ${viewPermRole.name}` : 'Role Permissions'}
-                size="4xl"
-                panelClassName="shadow-2xl sm:!max-h-[90vh] sm:!max-h-[90dvh]"
-                footer={
-                    <Button variant="secondary" onClick={() => setViewPermOpen(false)} disabled={viewPermBusy}>
-                        Close
-                    </Button>
-                }
-            >
-                {viewPermBusy ? (
-                    <Skeleton height="10rem" />
-                ) : viewPermItems.length === 0 ? (
-                    <div className="text-sm text-gray-600">This role has no assigned permissions.</div>
-                ) : (
-                    <div className="space-y-5">
-                        <div className="text-sm text-gray-600">
-                            {viewPermItems.length} permission{viewPermItems.length === 1 ? '' : 's'} assigned
-                        </div>
-                        {viewPermGroups.map(([groupName, groupItems]) => (
-                            <div key={groupName} className="space-y-2">
-                                <div className="text-sm font-semibold text-gray-900">{groupName}</div>
-                                <div className="flex flex-wrap gap-2">
-                                    {groupItems
-                                        .slice()
-                                        .sort((a, b) => `${a.actionName} ${a.code}`.localeCompare(`${b.actionName} ${b.code}`))
-                                        .map((item) => (
-                                            <span
-                                                key={`${item.code}-${item.id}`}
-                                                className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700"
-                                            >
-                                                {item.actionName || item.code}
-                                                {item.code ? ` - ${item.code}` : ''}
-                                            </span>
-                                        ))}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
-            </Modal>
-
-            {/* Delete confirm */}
             <Modal
                 open={Boolean(deleting)}
                 onClose={() => {
@@ -437,16 +272,16 @@ const Roles = () => {
                 }}
                 title="Delete Role"
                 size="sm"
-                footer={
+                footer={(
                     <>
                         <Button variant="secondary" onClick={() => setDeleting(null)} disabled={deleteBusy}>
                             Cancel
                         </Button>
                         <Button onClick={doDelete} disabled={deleteBusy}>
-                            {deleteBusy ? 'Deleting…' : 'Delete'}
+                            {deleteBusy ? 'Deleting...' : 'Delete'}
                         </Button>
                     </>
-                }
+                )}
             >
                 <p className="text-sm">
                     Delete role <span className="font-semibold">{deleting?.name}</span>?

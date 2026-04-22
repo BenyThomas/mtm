@@ -9,7 +9,7 @@ import DataTable from '../../../components/DataTable';
 import Modal from '../../../components/Modal';
 import SearchableSelectField from '../../../components/SearchableSelectField';
 import Skeleton from '../../../components/Skeleton';
-import { assignCenterAdmin, createGroup, deactivateGroup as deactivateGroupRequest, deleteGroup as deleteGroupRequest, getCenter, updateGroup as updateGroupRequest } from '../../../api/gateway/community';
+import { createGroup, deactivateGroup as deactivateGroupRequest, deleteGroup as deleteGroupRequest, getCenter, updateGroup as updateGroupRequest } from '../../../api/gateway/community';
 import { getOpsResource, listOpsResources } from '../../../api/gateway/opsResources';
 import useOffices from '../../../hooks/useOffices';
 import useStaff from '../../../hooks/useStaff';
@@ -18,7 +18,6 @@ import { useToast } from '../../../context/ToastContext';
 const groupFormInit = {
   name: '',
   invitedByStaffId: '',
-  groupAdminCustomerId: '',
   maxMembers: '',
   active: true,
 };
@@ -47,9 +46,7 @@ const CommunityCenterDetails = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [data, setData] = useState({ center: null, groups: [] });
-  const [adminOpen, setAdminOpen] = useState(false);
   const [groupOpen, setGroupOpen] = useState(false);
-  const [savingAdmin, setSavingAdmin] = useState(false);
   const [savingGroup, setSavingGroup] = useState(false);
   const [editingGroup, setEditingGroup] = useState(null);
   const [editGroupOpen, setEditGroupOpen] = useState(false);
@@ -60,12 +57,8 @@ const CommunityCenterDetails = () => {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deletingGroup, setDeletingGroup] = useState(false);
-  const [centerAdminCustomerId, setCenterAdminCustomerId] = useState('');
   const [groupForm, setGroupForm] = useState(groupFormInit);
-  const [selectedCenterAdminLabel, setSelectedCenterAdminLabel] = useState('');
-  const [selectedGroupAdminLabel, setSelectedGroupAdminLabel] = useState('');
   const [selectedEditGroupAdminLabel, setSelectedEditGroupAdminLabel] = useState('');
-  const [centerAdminDoc, setCenterAdminDoc] = useState(null);
   const [customerById, setCustomerById] = useState({});
 
   const load = async () => {
@@ -77,7 +70,6 @@ const CommunityCenterDetails = () => {
         center: response?.center || null,
         groups: Array.isArray(response?.groups) ? response.groups.map((item) => ({ ...item, id: item?.platformGroupId })) : [],
       });
-      setCenterAdminCustomerId(response?.center?.centerAdminCustomerId || '');
     } catch (e) {
       setError(e?.response?.data?.message || e?.message || 'Failed to load center');
     } finally {
@@ -92,7 +84,6 @@ const CommunityCenterDetails = () => {
   useEffect(() => {
     let cancelled = false;
     const ids = new Set();
-    if (data.center?.centerAdminCustomerId) ids.add(String(data.center.centerAdminCustomerId));
     for (const group of data.groups || []) {
       if (group?.groupAdminCustomerId) ids.add(String(group.groupAdminCustomerId));
     }
@@ -115,36 +106,7 @@ const CommunityCenterDetails = () => {
     return () => {
       cancelled = true;
     };
-  }, [data.center?.centerAdminCustomerId, data.groups]);
-
-  useEffect(() => {
-    const customerId = String(data.center?.centerAdminCustomerId || '').trim();
-    if (!customerId) {
-      setCenterAdminDoc(null);
-      setSelectedCenterAdminLabel('');
-      return;
-    }
-    const doc = customerById[customerId] || null;
-    setCenterAdminDoc(doc);
-    setSelectedCenterAdminLabel(doc ? customerLabelFromDoc(doc) : customerId);
-  }, [data.center?.centerAdminCustomerId, customerById]);
-
-  const saveAdmin = async () => {
-    setSavingAdmin(true);
-    setError('');
-    try {
-      await assignCenterAdmin(centerId, { customerId: centerAdminCustomerId.trim() });
-      setAdminOpen(false);
-      await load();
-      addToast('Center admin updated', 'success');
-    } catch (e) {
-      const msg = e?.response?.data?.errors?.[0]?.details || e?.response?.data?.message || e?.message || 'Update failed';
-      setError(msg);
-      addToast(msg, 'error');
-    } finally {
-      setSavingAdmin(false);
-    }
-  };
+  }, [data.groups]);
 
   const submitGroup = async (e) => {
     e?.preventDefault?.();
@@ -154,13 +116,11 @@ const CommunityCenterDetails = () => {
       await createGroup(centerId, {
         name: groupForm.name.trim(),
         invitedByStaffId: Number(groupForm.invitedByStaffId),
-        groupAdminCustomerId: groupForm.groupAdminCustomerId.trim(),
         maxMembers: groupForm.maxMembers ? Number(groupForm.maxMembers) : null,
         active: !!groupForm.active,
       });
       setGroupOpen(false);
       setGroupForm(groupFormInit);
-      setSelectedGroupAdminLabel('');
       await load();
       addToast('Group created', 'success');
     } catch (e2) {
@@ -284,7 +244,18 @@ const CommunityCenterDetails = () => {
   };
 
   const inviterStaff = staff.find((item) => String(item.id) === String(data.center?.invitedByStaffId || ''));
-  const officeName = offices.find((office) => String(office.id) === String(data.center?.officeId || ''))?.name || '-';
+  const officeDoc = offices.find((office) => String(office.id) === String(data.center?.officeId || '')) || null;
+  const officeLabel = data.center?.invitedByStaffOfficeName
+    || (officeDoc
+    ? `${officeDoc.name}${officeDoc.parentName ? ` - ${officeDoc.parentName}` : ''}`
+    : data.center?.officeId
+    ? `Office ${data.center.officeId}`
+    : '-');
+  const invitedByStaffLabel = data.center?.invitedByStaffName
+    || inviterStaff?.displayName
+    || (data.center?.invitedByStaffId ? `Staff ${data.center.invitedByStaffId}` : '-');
+  const invitedByStaffPhone = data.center?.invitedByStaffPhone || inviterStaff?.mobileNo || '-';
+  const invitedByStaffEmail = data.center?.invitedByStaffEmail || inviterStaff?.email || '-';
 
   const groupColumns = useMemo(() => [
     {
@@ -370,11 +341,8 @@ const CommunityCenterDetails = () => {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Link to="/gateway/centers"><Button variant="secondary">Back</Button></Link>
-            <Button variant="secondary" onClick={load} disabled={loading || savingAdmin || savingGroup}>Refresh</Button>
-            <Button variant="secondary" onClick={() => setAdminOpen(true)} disabled={loading}>
-              <SquarePen size={16} /> Update Center
-            </Button>
-            <Button onClick={() => { setGroupForm((prev) => ({ ...groupFormInit, invitedByStaffId: String(data.center?.invitedByStaffId || '') })); setSelectedGroupAdminLabel(''); setGroupOpen(true); }} disabled={loading}>
+            <Button variant="secondary" onClick={load} disabled={loading || savingGroup}>Refresh</Button>
+            <Button onClick={() => { setGroupForm((prev) => ({ ...groupFormInit, invitedByStaffId: String(data.center?.invitedByStaffId || '') })); setGroupOpen(true); }} disabled={loading}>
               <Plus size={16} /> Create Group
             </Button>
           </div>
@@ -389,12 +357,10 @@ const CommunityCenterDetails = () => {
         ) : (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <div><div className="text-xs text-slate-500">Status</div><div className="mt-1 text-sm"><Badge tone={statusTone(data.center?.status)}>{data.center?.status || '-'}</Badge></div></div>
-            <div><div className="text-xs text-slate-500">Office</div><div className="mt-1 text-sm">{officeName}</div></div>
-            <div><div className="text-xs text-slate-500">Center Admin</div><div className="mt-1 text-sm">{centerAdminDoc ? customerLabelFromDoc(centerAdminDoc) : '-'}</div></div>
-            <div><div className="text-xs text-slate-500">Center Admin Phone</div><div className="mt-1 text-sm">{String(centerAdminDoc?.profile?.phone || '').trim() || '-'}</div></div>
-            <div><div className="text-xs text-slate-500">Invited By Staff</div><div className="mt-1 text-sm">{inviterStaff?.displayName || '-'}</div></div>
-            <div><div className="text-xs text-slate-500">Staff Phone</div><div className="mt-1 text-sm">{inviterStaff?.mobileNo || '-'}</div></div>
-            <div><div className="text-xs text-slate-500">Staff Email</div><div className="mt-1 text-sm">{inviterStaff?.email || '-'}</div></div>
+            <div><div className="text-xs text-slate-500">Office</div><div className="mt-1 text-sm">{officeLabel}</div></div>
+            <div><div className="text-xs text-slate-500">Invited By Staff</div><div className="mt-1 text-sm">{invitedByStaffLabel}</div></div>
+            <div><div className="text-xs text-slate-500">Staff Phone</div><div className="mt-1 text-sm">{invitedByStaffPhone}</div></div>
+            <div><div className="text-xs text-slate-500">Staff Email</div><div className="mt-1 text-sm">{invitedByStaffEmail}</div></div>
             <div><div className="text-xs text-slate-500">Capacity</div><div className="mt-1 text-sm">{data.center?.groupCount || 0}/{data.center?.maxGroups || '-'} groups | {data.center?.memberCount || 0}/{data.center?.maxMembers || '-'} members</div></div>
           </div>
         )}
@@ -424,38 +390,6 @@ const CommunityCenterDetails = () => {
           />
         </div>
       </Card>
-
-      <Modal
-        open={adminOpen}
-        onClose={() => (savingAdmin ? null : setAdminOpen(false))}
-        title="Update Center Admin"
-        size="lg"
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setAdminOpen(false)} disabled={savingAdmin}>Cancel</Button>
-            <Button onClick={saveAdmin} disabled={savingAdmin}>{savingAdmin ? 'Saving...' : 'Save'}</Button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <AsyncSearchableSelectField
-            label="Center Admin Customer Id"
-            value={centerAdminCustomerId}
-            onChange={(value, option) => {
-              setCenterAdminCustomerId(String(value || ''));
-              setSelectedCenterAdminLabel(option?.label || '');
-            }}
-            loadOptions={searchCustomerOptions}
-            selectedLabel={selectedCenterAdminLabel}
-            placeholder="Search customer"
-            required
-            helperText="Search by customer name, phone, or customer id."
-          />
-          <div className="rounded-xl border border-slate-200/70 bg-slate-50 px-3 py-3 text-xs text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/50 dark:text-slate-300">
-            Updating the center admin changes the local management role used for group admin oversight and member management.
-          </div>
-        </div>
-      </Modal>
 
       <Modal
         open={editGroupOpen}
@@ -545,20 +479,6 @@ const CommunityCenterDetails = () => {
             <label className="block text-sm font-medium">Max Members</label>
             <input className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={groupForm.maxMembers}
               onChange={(e) => setGroupForm((prev) => ({ ...prev, maxMembers: e.target.value }))} placeholder="Optional" />
-          </div>
-          <div className="sm:col-span-2">
-            <AsyncSearchableSelectField
-              label="Group Admin Customer Id"
-              value={groupForm.groupAdminCustomerId}
-              onChange={(value, option) => {
-                setGroupForm((prev) => ({ ...prev, groupAdminCustomerId: String(value || '') }));
-                setSelectedGroupAdminLabel(option?.label || '');
-              }}
-              loadOptions={searchCustomerOptions}
-              selectedLabel={selectedGroupAdminLabel}
-              placeholder="Search customer"
-              required
-            />
           </div>
           <label className="sm:col-span-2 flex items-center gap-3 text-sm">
             <input type="checkbox" checked={groupForm.active} onChange={(e) => setGroupForm((prev) => ({ ...prev, active: e.target.checked }))} />

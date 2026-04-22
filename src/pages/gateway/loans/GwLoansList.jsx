@@ -7,7 +7,7 @@ import DataTable from '../../../components/DataTable';
 import Badge from '../../../components/Badge';
 import Can from '../../../components/Can';
 import useDebouncedValue from '../../../hooks/useDebouncedValue';
-import { deleteGwLoan, listGwLoans } from '../../../api/gateway/loans';
+import { deleteGwLoan, listGwArrearsLoans, listGwLoans } from '../../../api/gateway/loans';
 import gatewayApi from '../../../api/gatewayAxios';
 import api from '../../../api/axios';
 import { useToast } from '../../../context/ToastContext';
@@ -16,21 +16,34 @@ const PAGE_SIZE_OPTIONS = [10, 25, 50];
 
 const STATUS_OPTIONS = [
   { value: '', label: 'All' },
-  { value: 'SUBMITTED', label: 'Submitted' },
-  { value: 'APPROVED', label: 'Approved' },
-  { value: 'DISBURSED', label: 'Disbursed' },
+  { value: 'PENDING_APPROVAL', label: 'Pending Approval' },
+  { value: 'PENDING_DISBURSEMENT', label: 'Pending Disbursement' },
+  { value: 'ACTIVE', label: 'Active' },
+  { value: 'OVERDUE', label: 'Overdue' },
+  { value: 'OVERPAID', label: 'Overpaid' },
   { value: 'CLOSED', label: 'Closed' },
-  { value: 'CREATED_IN_FINERACT', label: 'CREATED' },
-  { value: 'UPSTREAM_FAILED', label: 'FAILED' },
+  { value: 'UPSTREAM_FAILED', label: 'Failed' },
 ];
+
+const statusLabel = (value) => {
+  const v = String(value || '').toUpperCase();
+  if (['SUBMITTED', 'CREATED_IN_FINERACT', 'PENDING', 'PENDING_UPSTREAM'].includes(v)) return 'Pending Approval';
+  if (v === 'APPROVED') return 'Pending Disbursement';
+  if (v === 'ACTIVE' || v === 'DISBURSED') return 'Active';
+  if (v === 'OVERPAID') return 'Overpaid';
+  if (v === 'CLOSED') return 'Closed';
+  if (v === 'UPSTREAM_FAILED') return 'Failed';
+  return value || '-';
+};
 
 const statusTone = (s) => {
   const v = String(s || '').toUpperCase();
-  if (v === 'APPROVED') return 'green';
-  if (v === 'DISBURSED') return 'blue';
-  if (v === 'SUBMITTED') return 'yellow';
+  if (['SUBMITTED', 'CREATED_IN_FINERACT', 'PENDING', 'PENDING_UPSTREAM'].includes(v)) return 'yellow';
+  if (v === 'APPROVED') return 'cyan';
+  if (v === 'ACTIVE' || v === 'DISBURSED') return 'green';
+  if (v === 'OVERDUE') return 'red';
+  if (v === 'OVERPAID') return 'emerald';
   if (v === 'CLOSED') return 'gray';
-  if (v === 'CREATED_IN_FINERACT') return 'yellow';
   if (v === 'UPSTREAM_FAILED') return 'red';
   return 'blue';
 };
@@ -160,7 +173,7 @@ const GwLoansList = () => {
     const load = async () => {
       setLoading(true);
       try {
-        const data = await listGwLoans({
+        const request = {
           q: debouncedSearch || undefined,
           status: status || undefined,
           customerId: customerId || undefined,
@@ -169,7 +182,18 @@ const GwLoansList = () => {
           limit,
           orderBy: sortBy,
           sortOrder: sortDir,
-        });
+        };
+        const data = status === 'OVERDUE'
+          ? await listGwArrearsLoans({
+            q: request.q,
+            customerId: request.customerId,
+            productCode: request.productCode,
+            offset: request.offset,
+            limit: request.limit,
+            orderBy: sortBy === 'status' ? 'daysInArrears' : request.orderBy,
+            sortOrder: request.sortOrder,
+          })
+          : await listGwLoans(request);
         if (cancelled) return;
         const items = Array.isArray(data?.items) ? data.items : [];
         setRows(items.map((x) => ({ ...x, id: x?.platformLoanId })));
@@ -372,7 +396,10 @@ const GwLoansList = () => {
         key: 'status',
         header: 'Status',
         sortable: true,
-        render: (r) => <Badge tone={statusTone(r?.status)}>{r?.status || '-'}</Badge>,
+        render: (r) => {
+          const displayStatus = status === 'OVERDUE' ? 'OVERDUE' : statusLabel(r?.status);
+          return <Badge tone={statusTone(displayStatus)}>{displayStatus === 'OVERDUE' ? 'Overdue' : displayStatus}</Badge>;
+        },
       },
       {
         key: 'actions',
