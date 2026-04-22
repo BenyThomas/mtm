@@ -445,6 +445,8 @@ const InviteDetails = () => {
   const referrerContact = doc?.referrerId ? (staffContactById[String(doc.referrerId)] || '') : '';
   const invitedByStaffName = doc?.invitedByStaffId ? (staffNameById[String(doc.invitedByStaffId)] || '') : '';
   const invitedByStaffContact = doc?.invitedByStaffId ? (staffContactById[String(doc.invitedByStaffId)] || '') : '';
+  const agentName = referrerName || invitedByStaffName;
+  const agentContact = referrerContact || invitedByStaffContact;
   const inviteLabel = doc?.campaignCode || doc?.channel || 'Invite';
   const canAcceptOnBehalf = !!doc?.inviteId && !['ACCEPTED', 'CANCELLED', 'EXPIRED'].includes(String(doc?.status || '').toUpperCase());
   const canApplyLoan = !!(onboarding?.gatewayCustomerId || onboarding?.fineractClientId);
@@ -637,7 +639,7 @@ const InviteDetails = () => {
                     {inviteLabel}
                   </div>
                   <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-                    Agent: <strong>{referrerName || 'Unassigned'}</strong> | Status: <strong>{doc?.status || '-'}</strong>
+                    Agent: <strong>{agentName || 'Unassigned'}</strong> | Status: <strong>{doc?.status || '-'}</strong>
                   </div>
                 </div>
                 <div className="text-right text-xs text-slate-500 dark:text-slate-400">
@@ -672,7 +674,7 @@ const InviteDetails = () => {
                 <Field label="Campaign" value={doc?.campaignCode} />
                 <Field label="Uses" value={`${Number(doc?.uses || 0)} / ${Number(doc?.maxUses || 0) === 0 ? 'Unlimited' : Number(doc?.maxUses || 0)}`} />
                 <Field label="Expires At" value={doc?.expiresAt} />
-                <Field label="Agent Contact" value={referrerContact} />
+                <Field label="Agent Contact" value={agentContact} />
               </div>
 
               <div className="mt-4">
