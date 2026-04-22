@@ -21,7 +21,7 @@ import { getOpsResource, listOpsResources } from '../../../api/gateway/opsResour
 import useInviteCatalog from '../../../hooks/useInviteCatalog';
 import useStaff from '../../../hooks/useStaff';
 import { useToast } from '../../../context/ToastContext';
-import { approveGwLoan, disburseGwLoan, listGwLoans } from '../../../api/gateway/loans';
+import { approveGwLoan, disburseGwLoan, getGwLoanSchedule, listGwLoans } from '../../../api/gateway/loans';
 
 const inviteInit = {
   campaignCode: '',
@@ -62,6 +62,78 @@ const formatDateTime = (value) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
   return date.toLocaleString();
+};
+
+const formatDate = (value) => {
+  if (!value) return '-';
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit',
+    }).format(new Date(`${String(value).trim()}T00:00:00`));
+  } catch {
+    return String(value);
+  }
+};
+
+const formatMoney = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return '-';
+  try {
+    return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(num);
+  } catch {
+    return String(num);
+  }
+};
+
+const parseDateArrayToIso = (value) => {
+  if (Array.isArray(value) && value.length >= 3) {
+    const [y, m, d] = value;
+    return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  }
+  const v = String(value || '').trim();
+  return v || '';
+};
+
+const deriveNextDueFromSchedule = (schedule) => {
+  const periods = Array.isArray(schedule?.repaymentSchedule?.periods)
+    ? schedule.repaymentSchedule.periods
+    : Array.isArray(schedule?.periods)
+      ? schedule.periods
+      : [];
+  const todayIso = new Date().toISOString().slice(0, 10);
+  let overdue = null;
+  let upcoming = null;
+
+  for (const period of periods) {
+    const installment = Number(period?.period || 0);
+    if (!Number.isFinite(installment) || installment <= 0) continue;
+    const dueDate = parseDateArrayToIso(period?.dueDate);
+    if (!dueDate) continue;
+    const outstanding = [
+      period?.totalOutstandingForPeriod,
+      period?.totalDueForPeriod,
+      period?.totalInstallmentAmountForPeriod,
+    ].map((v) => Number(v)).find((v) => Number.isFinite(v) && v > 0);
+    if (!Number.isFinite(outstanding) || outstanding <= 0) continue;
+    const candidate = { dueDate, amount: outstanding };
+    if (dueDate <= todayIso) {
+      if (!overdue || dueDate < overdue.dueDate) overdue = candidate;
+    } else if (!upcoming || dueDate < upcoming.dueDate) {
+      upcoming = candidate;
+    }
+  }
+
+  const next = overdue || upcoming;
+  if (!next) return null;
+  const diffDays = Math.round((new Date(`${next.dueDate}T00:00:00`).getTime() - new Date(`${todayIso}T00:00:00`).getTime()) / 86400000);
+  return {
+    nextDueDate: next.dueDate,
+    nextDueAmount: next.amount,
+    dueInDays: diffDays,
+    dueBucket: diffDays < 0 ? 'overdue' : diffDays === 0 ? 'today' : diffDays <= 7 ? 'next7' : diffDays <= 30 ? 'next30' : 'later',
+  };
 };
 
 const memberActionId = (customerId, action) => `${customerId}:${action}`;
@@ -116,6 +188,7 @@ const GroupDetails = () => {
   const [loanStatusFilter, setLoanStatusFilter] = useState('ACTIVE');
   const [loanSearch, setLoanSearch] = useState('');
   const [groupLoans, setGroupLoans] = useState([]);
+  const [groupLoanDueMeta, setGroupLoanDueMeta] = useState({});
   const [memberLoansLoading, setMemberLoansLoading] = useState(false);
   const [actingOnLoanId, setActingOnLoanId] = useState('');
 
@@ -274,6 +347,30 @@ const GroupDetails = () => {
       cancelled = true;
     };
   }, [activeMembers]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const mappedLoans = (groupLoans || []).filter((loan) => loan?.platformLoanId && loan?.fineractLoanId);
+    if (!mappedLoans.length) {
+      setGroupLoanDueMeta({});
+      return () => {};
+    }
+    (async () => {
+      const entries = await Promise.all(mappedLoans.map(async (loan) => {
+        try {
+          const schedule = await getGwLoanSchedule(String(loan.platformLoanId));
+          return [String(loan.platformLoanId), deriveNextDueFromSchedule(schedule)];
+        } catch (_) {
+          return [String(loan.platformLoanId), null];
+        }
+      }));
+      if (cancelled) return;
+      setGroupLoanDueMeta(Object.fromEntries(entries));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [groupLoans]);
 
   const refreshGroupLoans = async () => {
     const memberIds = activeMembers
@@ -594,13 +691,31 @@ const GroupDetails = () => {
       key: 'principal',
       header: 'Principal',
       sortable: false,
-      render: (row) => row?.principal ?? '-',
+      render: (row) => formatMoney(row?.principal),
     },
     {
       key: 'outstandingAmount',
       header: 'Outstanding',
       sortable: false,
-      render: (row) => row?.outstandingAmount ?? '-',
+      render: (row) => formatMoney(row?.outstandingAmount),
+    },
+    {
+      key: 'nextDueDate',
+      header: 'Next Due',
+      sortable: false,
+      render: (row) => {
+        const meta = groupLoanDueMeta[String(row?.platformLoanId || '')];
+        return formatDate(meta?.nextDueDate);
+      },
+    },
+    {
+      key: 'nextDueAmount',
+      header: 'Due Amount',
+      sortable: false,
+      render: (row) => {
+        const meta = groupLoanDueMeta[String(row?.platformLoanId || '')];
+        return formatMoney(meta?.nextDueAmount);
+      },
     },
     {
       key: 'appliedAt',
@@ -637,7 +752,7 @@ const GroupDetails = () => {
         );
       },
     },
-  ], [actingOnLoanId, customerById]);
+  ], [actingOnLoanId, customerById, groupLoanDueMeta]);
 
   const filteredGroupLoans = useMemo(() => {
     let items = Array.isArray(groupLoans) ? [...groupLoans] : [];
@@ -661,8 +776,31 @@ const GroupDetails = () => {
         ].some((value) => String(value || '').toLowerCase().includes(q));
       });
     }
-    return items.sort((a, b) => String(b?.appliedAt || '').localeCompare(String(a?.appliedAt || '')));
-  }, [groupLoans, loanMemberFilter, loanSearch, loanStatusFilter, customerById]);
+    return items.sort((a, b) => {
+      const aDue = groupLoanDueMeta[String(a?.platformLoanId || '')]?.nextDueDate || '9999-12-31';
+      const bDue = groupLoanDueMeta[String(b?.platformLoanId || '')]?.nextDueDate || '9999-12-31';
+      if (aDue !== bDue) return aDue.localeCompare(bDue);
+      return String(b?.appliedAt || '').localeCompare(String(a?.appliedAt || ''));
+    });
+  }, [groupLoans, loanMemberFilter, loanSearch, loanStatusFilter, customerById, groupLoanDueMeta]);
+
+  const dueDashboard = useMemo(() => {
+    const summary = {
+      overdue: { count: 0, amount: 0 },
+      today: { count: 0, amount: 0 },
+      next7: { count: 0, amount: 0 },
+      next30: { count: 0, amount: 0 },
+      later: { count: 0, amount: 0 },
+    };
+    for (const loan of filteredGroupLoans) {
+      const meta = groupLoanDueMeta[String(loan?.platformLoanId || '')];
+      const bucket = meta?.dueBucket;
+      if (!bucket || !summary[bucket]) continue;
+      summary[bucket].count += 1;
+      summary[bucket].amount += Number(meta?.nextDueAmount || 0);
+    }
+    return summary;
+  }, [filteredGroupLoans, groupLoanDueMeta]);
 
   return (
     <div>
@@ -781,6 +919,33 @@ const GroupDetails = () => {
                         placeholder="Product, member, status..."
                         className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
                       />
+                    </div>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                    <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 dark:border-rose-900/40 dark:bg-rose-900/20">
+                      <div className="text-xs uppercase tracking-wide text-rose-700 dark:text-rose-300">Overdue</div>
+                      <div className="mt-2 text-xl font-semibold text-rose-900 dark:text-rose-100">{dueDashboard.overdue.count}</div>
+                      <div className="mt-1 text-xs text-rose-700 dark:text-rose-300">{formatMoney(dueDashboard.overdue.amount)}</div>
+                    </div>
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-900/40 dark:bg-amber-900/20">
+                      <div className="text-xs uppercase tracking-wide text-amber-700 dark:text-amber-300">Due Today</div>
+                      <div className="mt-2 text-xl font-semibold text-amber-900 dark:text-amber-100">{dueDashboard.today.count}</div>
+                      <div className="mt-1 text-xs text-amber-700 dark:text-amber-300">{formatMoney(dueDashboard.today.amount)}</div>
+                    </div>
+                    <div className="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-3 dark:border-cyan-900/40 dark:bg-cyan-900/20">
+                      <div className="text-xs uppercase tracking-wide text-cyan-700 dark:text-cyan-300">Next 7 Days</div>
+                      <div className="mt-2 text-xl font-semibold text-cyan-900 dark:text-cyan-100">{dueDashboard.next7.count}</div>
+                      <div className="mt-1 text-xs text-cyan-700 dark:text-cyan-300">{formatMoney(dueDashboard.next7.amount)}</div>
+                    </div>
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 dark:border-emerald-900/40 dark:bg-emerald-900/20">
+                      <div className="text-xs uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Next 30 Days</div>
+                      <div className="mt-2 text-xl font-semibold text-emerald-900 dark:text-emerald-100">{dueDashboard.next30.count}</div>
+                      <div className="mt-1 text-xs text-emerald-700 dark:text-emerald-300">{formatMoney(dueDashboard.next30.amount)}</div>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/60">
+                      <div className="text-xs uppercase tracking-wide text-slate-600 dark:text-slate-300">Later</div>
+                      <div className="mt-2 text-xl font-semibold text-slate-900 dark:text-slate-100">{dueDashboard.later.count}</div>
+                      <div className="mt-1 text-xs text-slate-600 dark:text-slate-300">{formatMoney(dueDashboard.later.amount)}</div>
                     </div>
                   </div>
                   <DataTable
