@@ -41,6 +41,7 @@ const NAV_GROUPS = [
       { to: '/gateway/invite-channels', label: 'Invite Channels', icon: 'CH', any: ['GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
       { to: '/gateway/loans', label: 'Gw Loans', icon: 'GL', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_LOAN'] },
       { to: '/gateway/loans/arrears', label: 'Arrears Loans', icon: 'AR', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_LOAN'] },
+      { to: '/gateway/reports', label: 'Gateway Reports', icon: 'GR', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_LOAN'] },
       { to: '/gateway/product-catalog', label: 'Product Catalog', icon: 'P', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
       { to: '/gateway/access-mappings', label: 'Access Mappings', icon: 'AM', perm: ['READ_CONFIGURATION','GW_OPS_ALL'] },
       { to: '/gateway/loan-automation', label: 'Loan Automation', icon: 'A', any: ['GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },

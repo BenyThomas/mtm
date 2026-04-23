@@ -147,6 +147,7 @@ const InviteDetails = () => {
   const [loanSaving, setLoanSaving] = useState(false);
   const [acceptForm, setAcceptForm] = useState({
     firstName: '',
+    middleName: '',
     lastName: '',
     phone: '',
     email: '',
@@ -469,6 +470,10 @@ const InviteDetails = () => {
 
   const submitAcceptOnBehalf = async (e) => {
     e?.preventDefault?.();
+    if (!String(acceptForm.firstName || '').trim() || !String(acceptForm.middleName || '').trim() || !String(acceptForm.lastName || '').trim()) {
+      addToast('First name, middle name, and last name are required', 'error');
+      return;
+    }
     setAcceptSaving(true);
     setErr('');
     try {
@@ -476,6 +481,7 @@ const InviteDetails = () => {
         authenticationMode: 'PASSWORD',
         profile: {
           firstName: acceptForm.firstName || null,
+          middleName: acceptForm.middleName || null,
           lastName: acceptForm.lastName || null,
           phone: acceptForm.phone || null,
           email: acceptForm.email || null,
@@ -753,6 +759,7 @@ const InviteDetails = () => {
         <form className="grid grid-cols-1 gap-4 md:grid-cols-2" onSubmit={submitAcceptOnBehalf}>
           {[
             ['First Name', 'firstName'],
+            ['Middle Name', 'middleName'],
             ['Last Name', 'lastName'],
             ['Phone', 'phone'],
             ['Email', 'email'],
@@ -772,6 +779,7 @@ const InviteDetails = () => {
               <input
                 value={acceptForm[key]}
                 onChange={(e) => setAcceptForm((prev) => ({ ...prev, [key]: e.target.value }))}
+                required={['firstName', 'middleName', 'lastName'].includes(key)}
                 className="w-full rounded-xl border p-2.5 dark:border-gray-600 dark:bg-gray-700"
               />
             </label>
