@@ -6,7 +6,7 @@ import Button from '../../../components/Button';
 import DataTable from '../../../components/DataTable';
 import Badge from '../../../components/Badge';
 import useDebouncedValue from '../../../hooks/useDebouncedValue';
-import { listGwArrearsLoans } from '../../../api/gateway/loans';
+import { listGwArrearsLoans, listGwBotArrearsLoans } from '../../../api/gateway/loans';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
 
@@ -53,6 +53,8 @@ const GwArrearsLoans = () => {
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState('operational');
+  const [summary, setSummary] = useState(null);
 
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebouncedValue(search, 450);
@@ -69,6 +71,7 @@ const GwArrearsLoans = () => {
     setProductCode('');
     setSortBy('daysInArrears');
     setSortDir('desc');
+    setSummary(null);
     setPage(0);
   };
 
@@ -77,7 +80,8 @@ const GwArrearsLoans = () => {
     const load = async () => {
       setLoading(true);
       try {
-        const data = await listGwArrearsLoans({
+        const listFn = mode === 'bot' ? listGwBotArrearsLoans : listGwArrearsLoans;
+        const data = await listFn({
           q: debouncedSearch || undefined,
           customerId: customerId || undefined,
           productCode: productCode || undefined,
@@ -90,10 +94,12 @@ const GwArrearsLoans = () => {
         const items = Array.isArray(data?.items) ? data.items : [];
         setRows(items.map((item) => ({ ...item, id: item?.platformLoanId })));
         setTotal(Number(data?.total || items.length || 0));
+        setSummary(data?.summary || null);
       } catch (_) {
         if (!cancelled) {
           setRows([]);
           setTotal(0);
+          setSummary(null);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -103,7 +109,7 @@ const GwArrearsLoans = () => {
     return () => {
       cancelled = true;
     };
-  }, [debouncedSearch, customerId, productCode, sortBy, sortDir, page, limit]);
+  }, [mode, debouncedSearch, customerId, productCode, sortBy, sortDir, page, limit]);
 
   const onSort = (key) => {
     if (sortBy === key) {
@@ -151,6 +157,36 @@ const GwArrearsLoans = () => {
         sortable: true,
         render: (r) => formatMoney(r?.overdueAmount),
       },
+      ...(mode === 'bot'
+        ? [
+            {
+              key: 'botClassification',
+              header: 'BOT Classification',
+              sortable: true,
+              render: (r) => {
+                const value = String(r?.botClassification || '-').replace(/_/g, ' ');
+                const upper = String(r?.botClassification || '').toUpperCase();
+                const tone = upper === 'LOSS' ? 'red' : upper === 'DOUBTFUL' ? 'yellow' : upper === 'SUBSTANDARD' ? 'yellow' : upper === 'ESPECIALLY_MENTIONED' ? 'blue' : 'green';
+                return <Badge tone={tone}>{value}</Badge>;
+              },
+            },
+            {
+              key: 'requiredProvisionAmount',
+              header: 'Provision',
+              sortable: true,
+              render: (r) => formatMoney(r?.requiredProvisionAmount),
+            },
+            {
+              key: 'requiredProvisionRate',
+              header: 'Provision Rate',
+              sortable: false,
+              render: (r) => {
+                const rate = toNumOrNull(r?.requiredProvisionRate);
+                return rate == null ? '-' : `${(rate * 100).toFixed(0)}%`;
+              },
+            },
+          ]
+        : []),
       {
         key: 'nextDueDate',
         header: 'Due Date',
@@ -178,7 +214,7 @@ const GwArrearsLoans = () => {
         ),
       },
     ],
-    []
+    [mode]
   );
 
   const onRowClick = (row) => {
@@ -192,14 +228,68 @@ const GwArrearsLoans = () => {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold">Arrears Loans</h1>
-            <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">Loans currently in arrears based on Fineract overdue state.</div>
+            <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+              {mode === 'bot'
+                ? 'BOT arrears, classification and provisioning report.'
+                : 'Loans currently in arrears based on Fineract overdue state.'}
+            </div>
           </div>
-          <div className="hidden sm:block text-right">
-            <div className="text-xs text-slate-500 dark:text-slate-400">Page</div>
-            <div className="text-base font-semibold">{page + 1}</div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant={mode === 'operational' ? 'primary' : 'secondary'}
+              onClick={() => {
+                setMode('operational');
+                setSortBy('daysInArrears');
+                setSortDir('desc');
+                setPage(0);
+              }}
+            >
+              Operational
+            </Button>
+            <Button
+              variant={mode === 'bot' ? 'primary' : 'secondary'}
+              onClick={() => {
+                setMode('bot');
+                setSortBy('daysInArrears');
+                setSortDir('desc');
+                setPage(0);
+              }}
+            >
+              BOT Report
+            </Button>
           </div>
         </div>
       </section>
+
+      {mode === 'bot' && summary ? (
+        <Card>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Loans</div>
+              <div className="mt-1 text-xl font-semibold">{summary?.totalLoans ?? total}</div>
+            </div>
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Outstanding</div>
+              <div className="mt-1 text-xl font-semibold">{formatMoney(summary?.totalOutstanding)}</div>
+            </div>
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Overdue</div>
+              <div className="mt-1 text-xl font-semibold">{formatMoney(summary?.totalOverdueAmount)}</div>
+            </div>
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Provision Required</div>
+              <div className="mt-1 text-xl font-semibold">{formatMoney(summary?.totalRequiredProvision)}</div>
+            </div>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {Object.entries(summary?.classifications || {}).map(([key, count]) => (
+              <Badge key={key} tone="blue">
+                {String(key).replace(/_/g, ' ')}: {count}
+              </Badge>
+            ))}
+          </div>
+        </Card>
+      ) : null}
 
       <Card>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">

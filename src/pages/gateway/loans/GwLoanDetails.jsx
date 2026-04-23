@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Copy, Loader2 } from 'lucide-react';
+import { Copy, Download, FileSpreadsheet, FileText, Loader2 } from 'lucide-react';
 import Button from '../../../components/Button';
 import Card from '../../../components/Card';
 import Skeleton from '../../../components/Skeleton';
@@ -17,6 +17,7 @@ import {
   getGwLoan,
   getGwLoanTransaction,
   getGwLoanTransactions,
+  downloadGwLoanSchedule,
   getGwLoanWorkflow,
   repayGwLoanMobile,
   reverseGwLoanTransaction,
@@ -61,6 +62,17 @@ const copyToClipboard = async (text) => {
   } catch (_) {
     return false;
   }
+};
+
+const triggerDownload = (blob, filename) => {
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
 };
 
 const statusTone = (s) => {
@@ -251,6 +263,7 @@ const GwLoanDetails = () => {
   const [fxLoading, setFxLoading] = useState(false);
   const [fxErr, setFxErr] = useState('');
   const [fxLoan, setFxLoan] = useState(null);
+  const [scheduleExporting, setScheduleExporting] = useState('');
 
   // workflow modals
   const [approveOpen, setApproveOpen] = useState(false);
@@ -450,6 +463,27 @@ const GwLoanDetails = () => {
     const ok = await copyToClipboard(value);
     if (ok) addToast(`${label} copied`, 'success');
     else addToast(`Failed to copy ${label}`, 'error');
+  };
+
+  const exportSchedule = async (format) => {
+    if (!platformLoanId) return;
+    setScheduleExporting(format);
+    try {
+      const res = await downloadGwLoanSchedule(platformLoanId, format);
+      const contentType = res?.headers?.['content-type'] || (format === 'xlsx'
+        ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        : 'application/pdf');
+      const blob = new Blob([res.data], { type: contentType });
+      const fallbackName = `${platformLoanId}-repayment-schedule.${format === 'xlsx' ? 'xlsx' : 'pdf'}`;
+      const disposition = String(res?.headers?.['content-disposition'] || '');
+      const match = disposition.match(/filename="?([^"]+)"?/i);
+      triggerDownload(blob, match?.[1] || fallbackName);
+      addToast(`Schedule downloaded as ${format.toUpperCase()}`, 'success');
+    } catch (e) {
+      addToast(e?.response?.data?.message || e?.message || 'Schedule download failed', 'error');
+    } finally {
+      setScheduleExporting('');
+    }
   };
 
   const fxStatusText = useMemo(() => {
@@ -1208,11 +1242,35 @@ const GwLoanDetails = () => {
                 <Card>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="text-sm font-semibold">Repayment Schedule</div>
-                    {fxLoading ? (
-                      <div className="inline-flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                        <Loader2 className="animate-spin" size={14} /> Loading
-                      </div>
-                    ) : null}
+                    <div className="flex flex-wrap items-center gap-2">
+                      {doc?.fineractLoanId ? (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => exportSchedule('pdf')}
+                            disabled={!!scheduleExporting}
+                          >
+                            {scheduleExporting === 'pdf' ? <Loader2 className="animate-spin" size={14} /> : <FileText size={14} />}
+                            PDF
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => exportSchedule('xlsx')}
+                            disabled={!!scheduleExporting}
+                          >
+                            {scheduleExporting === 'xlsx' ? <Loader2 className="animate-spin" size={14} /> : <FileSpreadsheet size={14} />}
+                            Excel
+                          </Button>
+                        </>
+                      ) : null}
+                      {fxLoading ? (
+                        <div className="inline-flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                          <Loader2 className="animate-spin" size={14} /> Loading
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                   {!doc?.fineractLoanId ? (
                     <div className="mt-3 text-sm text-slate-600 dark:text-slate-300">No Fineract loan id, schedule unavailable.</div>

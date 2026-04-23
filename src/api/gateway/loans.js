@@ -15,6 +15,11 @@ export async function listGwArrearsLoans(params) {
   return unwrap(r);
 }
 
+export async function listGwBotArrearsLoans(params) {
+  const r = await gatewayApi.get('/ops/loans/arrears/bot', { params });
+  return unwrap(r);
+}
+
 export async function getGwLoan(platformLoanId) {
   const r = await gatewayApi.get(`/ops/loans/${encodeURIComponent(platformLoanId)}`);
   return unwrap(r);
@@ -67,6 +72,14 @@ export async function getGwLoanWorkflow(platformLoanId) {
 export async function getGwLoanSchedule(platformLoanId) {
   const r = await gatewayApi.get(`/ops/loans/${encodeURIComponent(platformLoanId)}/schedule`);
   return unwrap(r);
+}
+
+export async function downloadGwLoanSchedule(platformLoanId, format = 'pdf') {
+  const r = await gatewayApi.get(`/ops/loans/${encodeURIComponent(platformLoanId)}/schedule/export`, {
+    params: { format },
+    responseType: 'blob',
+  });
+  return r;
 }
 
 export async function getGwLoanTransactions(platformLoanId) {
