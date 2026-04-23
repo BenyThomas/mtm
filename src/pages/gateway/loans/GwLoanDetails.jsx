@@ -1038,7 +1038,6 @@ const GwLoanDetails = () => {
     const initialBankName = allowedNames.includes(customerBankName)
       ? customerBankName
       : (allowedNames.includes(bankNameValue) ? bankNameValue : '');
-
     setActualDisbursementDate(dateISO());
     setDisbursementType(typeValue);
     setDisbursementProvider(providerValue);
