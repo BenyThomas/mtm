@@ -122,6 +122,10 @@ import GwLoansList from "./pages/gateway/loans/GwLoansList";
 import GwLoanDetails from "./pages/gateway/loans/GwLoanDetails";
 import GwArrearsLoans from "./pages/gateway/loans/GwArrearsLoans";
 import GatewayDataList from "./pages/gateway/data/DataList";
+import MerchantCompanies from "./pages/gateway/merchant/MerchantCompanies";
+import MerchantCompanyDetails from "./pages/gateway/merchant/MerchantCompanyDetails";
+import MerchantCustomers from "./pages/gateway/merchant/MerchantCustomers";
+import MerchantCustomerDetails from "./pages/gateway/merchant/MerchantCustomerDetails";
 
 const NotFound = () => (
     <div>
@@ -302,6 +306,10 @@ const App = () => {
                             <Route path="/gateway/centers" element={<CommunityCenters />} />
                             <Route path="/gateway/centers/:centerId" element={<CommunityCenterDetails />} />
                             <Route path="/gateway/groups/:groupId" element={<GroupDetails />} />
+                            <Route path="/gateway/merchant/companies" element={<MerchantCompanies />} />
+                            <Route path="/gateway/merchant/companies/:merchantCompanyId" element={<MerchantCompanyDetails />} />
+                            <Route path="/gateway/merchant/customers" element={<MerchantCustomers />} />
+                            <Route path="/gateway/merchant/customers/:customerId" element={<MerchantCustomerDetails />} />
                             <Route path="/gateway/invites" element={<InvitesList />} />
                             <Route path="/gateway/invites/new" element={<InviteNew />} />
                             <Route path="/gateway/invite-campaigns" element={<InviteCampaigns />} />

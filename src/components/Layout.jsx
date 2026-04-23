@@ -46,6 +46,8 @@ const NAV_GROUPS = [
       { to: '/gateway/loan-automation', label: 'Loan Automation', icon: 'A', any: ['GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
       { to: '/gateway/group-lifecycle', label: 'Group Lifecycle', icon: 'GL', any: ['GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
       { to: '/gateway/centers', label: 'Centers', icon: 'C', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CENTER', 'READ_GROUP'] },
+      { to: '/gateway/merchant/companies', label: 'Merchant Companies', icon: 'MC', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION', 'READ_CLIENT'] },
+      { to: '/gateway/merchant/customers', label: 'Merchant Customers', icon: 'MU', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION', 'READ_CLIENT'] },
       { to: '/gateway/bank-names', label: 'Bank Names', icon: 'B', any: ['GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION', 'UPDATE_CONFIGURATION'] },
       { to: '/gateway/loan-purposes', label: 'Loan Purposes', icon: 'LP', any: ['GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION', 'UPDATE_CONFIGURATION', 'READ_LOANPRODUCT'] },
       { to: '/gateway/disbursements', label: 'Disbursements', icon: 'D', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
