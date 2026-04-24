@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Download, FileSpreadsheet, FileText, Loader2 } from 'lucide-react';
-import { Link } from 'react-router-dom';
 import Card from '../../../components/Card';
 import Button from '../../../components/Button';
 import DataTable from '../../../components/DataTable';
@@ -50,6 +49,39 @@ const WINDOW_OPTIONS = [
 ];
 
 const DATE_RANGE_REPORTS = new Set(['disbursements', 'writeOffs', 'collectionEfficiency', 'writeOffRecoveries']);
+const HIDDEN_REPORT_FIELDS = new Set([
+  'platformLoanId',
+  'customerId',
+  'orderId',
+  'paymentEventId',
+  'externalId',
+  'reference',
+  'fineractClientId',
+  'fineractLoanId',
+]);
+const MONEY_FIELD_HINTS = ['amount', 'portfolio', 'outstanding', 'overdue', 'provision', 'inflow', 'collections', 'recoveries'];
+const PERCENT_FIELD_HINTS = ['ratio', 'rate'];
+const COUNT_FIELD_HINTS = ['count', 'loans', 'customers', 'borrowers', 'officers', 'exceptions', 'transactions', 'events', 'rows', 'days', 'installment'];
+const LABEL_BY_KEY = {
+  loanAccount: 'Loan Account',
+  customerName: 'Customer Name',
+  customerPhone: 'Phone Number',
+  accountStatus: 'Account Status',
+  botClassification: 'Classification',
+  dueAmount: 'Due Amount',
+  overdueAmount: 'Overdue Amount',
+  outstandingAmount: 'Outstanding Amount',
+  collectedAmount: 'Collected Amount',
+  projectedCashInflow: 'Projected Cash Inflow',
+  principalAmount: 'Principal Amount',
+  requiredProvisionAmount: 'Required Provision',
+  requiredProvisionRate: 'Provision Rate',
+  disbursedAt: 'Disbursed On',
+  disbursedDate: 'Disbursed On',
+  transactionDate: 'Transaction Date',
+  dueDate: 'Due Date',
+  firstDueDate: 'First Due Date',
+};
 
 const toNumOrNull = (value) => {
   if (value == null || value === '') return null;
@@ -85,10 +117,15 @@ const formatDate = (value) => {
 };
 
 const prettifyLabel = (value) =>
-  String(value || '')
+  LABEL_BY_KEY[value] || String(value || '')
     .replace(/([a-z])([A-Z])/g, '$1 $2')
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (char) => char.toUpperCase());
+
+const lowerKey = (value) => String(value || '').toLowerCase();
+const isPercentKey = (key) => PERCENT_FIELD_HINTS.some((hint) => lowerKey(key).includes(hint));
+const isCountKey = (key) => COUNT_FIELD_HINTS.some((hint) => lowerKey(key).includes(hint));
+const isMoneyKey = (key) => MONEY_FIELD_HINTS.some((hint) => lowerKey(key).includes(hint));
 
 const badgeTone = (value) => {
   const normalized = String(value || '').toUpperCase();
@@ -126,7 +163,7 @@ const triggerDownload = (blob, filename) => {
 
 const buildColumns = (reportKey, rows) => {
   const firstRow = Array.isArray(rows) && rows.length ? rows[0] : null;
-  const keys = firstRow ? Object.keys(firstRow) : [];
+  const keys = firstRow ? Object.keys(firstRow).filter((key) => !HIDDEN_REPORT_FIELDS.has(key)) : [];
 
   return keys.map((key) => ({
     key,
@@ -134,8 +171,8 @@ const buildColumns = (reportKey, rows) => {
     sortable: false,
     render: (row) => {
       const value = row?.[key];
-      if (key === 'platformLoanId' && value) {
-        return <Link className="text-cyan-700 hover:underline dark:text-cyan-300" to={`/gateway/loans/${encodeURIComponent(value)}`}>{value}</Link>;
+      if (key === 'loanAccount' && value) {
+        return <span className="font-medium text-slate-900 dark:text-slate-100">{String(value)}</span>;
       }
       if (['status', 'botClassification', 'exceptionType'].includes(key)) {
         return <Badge tone={badgeTone(value)}>{String(value || '-').replace(/_/g, ' ')}</Badge>;
@@ -143,23 +180,17 @@ const buildColumns = (reportKey, rows) => {
       if (key.toLowerCase().includes('date') || key.endsWith('At')) {
         return formatDate(value);
       }
-      if (key.toLowerCase().includes('ratio') || key.toLowerCase().includes('rate')) {
+      if (isPercentKey(key)) {
         const num = toNumOrNull(value);
         if (num == null) return '-';
-        return key.toLowerCase().includes('rate') && num <= 1 ? formatPercent(num * 100) : formatPercent(num);
+        return lowerKey(key).includes('rate') && num <= 1 ? formatPercent(num * 100) : formatPercent(num);
       }
-      if (
-        key.toLowerCase().includes('amount') ||
-        key.toLowerCase().includes('portfolio') ||
-        key.toLowerCase().includes('outstanding') ||
-        key.toLowerCase().includes('overdue') ||
-        key.toLowerCase().includes('provision') ||
-        key.toLowerCase().includes('inflow')
-      ) {
+      if (isMoneyKey(key)) {
         return formatMoney(value);
       }
       if (typeof value === 'number') {
-        return Number.isInteger(value) ? String(value) : formatMoney(value);
+        if (isCountKey(key) || Number.isInteger(value)) return String(value);
+        return formatMoney(value);
       }
       if (typeof value === 'object' && value !== null) {
         return <code className="text-xs">{JSON.stringify(value)}</code>;
@@ -180,9 +211,11 @@ const SummaryGrid = ({ summary }) => {
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{prettifyLabel(key)}</div>
           <div className="mt-2 text-lg font-semibold text-slate-900 dark:text-slate-50">
             {typeof value === 'number'
-              ? key.toLowerCase().includes('ratio')
+              ? isPercentKey(key)
                 ? formatPercent(value)
-                : formatMoney(value)
+                : isCountKey(key)
+                  ? String(value)
+                  : formatMoney(value)
               : typeof value === 'object' && value !== null
                 ? (
                   <div className="flex flex-wrap gap-1.5">
@@ -255,7 +288,12 @@ const GwReports = () => {
     };
   }, [selectedReport, requestParams]);
 
-  const rows = Array.isArray(result?.items) ? result.items.map((item, index) => ({ id: item?.platformLoanId || item?.loanAccount || item?.paymentEventId || item?.orderId || `${selectedReport}-${index}`, ...item })) : [];
+  const rows = Array.isArray(result?.items)
+    ? result.items.map((item, index) => ({
+        id: item?.loanAccount || item?.customerName || item?.dueDate || item?.transactionDate || `${selectedReport}-${index}`,
+        ...item,
+      }))
+    : [];
   const columns = useMemo(() => {
     const built = buildColumns(selectedReport, rows);
     if (built.length) return built;
@@ -303,11 +341,7 @@ const GwReports = () => {
             {exporting === 'xlsx' ? <Loader2 className="animate-spin" size={16} /> : <FileSpreadsheet size={16} />}
             <span className="ml-2">Excel</span>
           </Button>
-          {selectedReport === 'statement' && filters.platformLoanId ? (
-            <Link to={`/gateway/loans/${encodeURIComponent(filters.platformLoanId)}`}>
-              <Button>Open Loan</Button>
-            </Link>
-          ) : null}
+          {selectedReport === 'statement' && filters.platformLoanId ? <Button disabled>Open Loan</Button> : null}
         </div>
       </section>
 
@@ -395,7 +429,7 @@ const GwReports = () => {
 
             {reportConfig.filters.includes('platformLoanId') ? (
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Platform Loan ID</label>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Loan Record</label>
                 <input
                   value={filters.platformLoanId}
                   onChange={(e) => setFilter('platformLoanId', e.target.value)}
@@ -407,7 +441,7 @@ const GwReports = () => {
 
             {reportConfig.filters.includes('customerId') ? (
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Customer ID</label>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Customer Record</label>
                 <input
                   value={filters.customerId}
                   onChange={(e) => setFilter('customerId', e.target.value)}

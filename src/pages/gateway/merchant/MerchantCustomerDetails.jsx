@@ -31,8 +31,9 @@ const vehicleFormInit = {
 
 const fullName = (customer) => {
   const first = String(customer?.profile?.firstName || '').trim();
+  const middle = String(customer?.profile?.middleName || '').trim();
   const last = String(customer?.profile?.lastName || '').trim();
-  return [first, last].filter(Boolean).join(' ');
+  return [first, middle, last].filter(Boolean).join(' ');
 };
 
 const formatMoney = (value) => {

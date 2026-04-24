@@ -31,8 +31,9 @@ const statusTone = (value) => {
 
 const customerLabelFromDoc = (item) => {
   const first = String(item?.profile?.firstName || '').trim();
+  const middle = String(item?.profile?.middleName || '').trim();
   const last = String(item?.profile?.lastName || '').trim();
-  const fullName = [first, last].filter(Boolean).join(' ');
+  const fullName = [first, middle, last].filter(Boolean).join(' ');
   const phone = String(item?.profile?.phone || '').trim();
   return `${fullName || item?.username || '-'}${phone ? ` - ${phone}` : ''}`;
 };
@@ -231,8 +232,9 @@ const CommunityCenterDetails = () => {
     return items
       .map((item) => {
         const first = String(item?.profile?.firstName || '').trim();
+        const middle = String(item?.profile?.middleName || '').trim();
         const last = String(item?.profile?.lastName || '').trim();
-        const fullName = [first, last].filter(Boolean).join(' ');
+        const fullName = [first, middle, last].filter(Boolean).join(' ');
         const phone = String(item?.profile?.phone || '').trim();
         const id = item?.gatewayCustomerId || item?.platformCustomerId || item?.customerId || item?.id;
         return {

@@ -10,8 +10,9 @@ const PAGE_SIZE_OPTIONS = [10, 25, 50];
 
 const fullName = (customer) => {
   const first = String(customer?.profile?.firstName || '').trim();
+  const middle = String(customer?.profile?.middleName || '').trim();
   const last = String(customer?.profile?.lastName || '').trim();
-  return [first, last].filter(Boolean).join(' ');
+  return [first, middle, last].filter(Boolean).join(' ');
 };
 
 const MerchantCustomers = () => {
