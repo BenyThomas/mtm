@@ -29,6 +29,7 @@ import { getOpsResource } from '../../../api/gateway/opsResources';
 import api from '../../../api/axios';
 import gatewayApi from '../../../api/gatewayAxios';
 import { useToast } from '../../../context/ToastContext';
+import { getGwLoanStatusCode, getGwLoanStatusLabel, getGwLoanStatusTone } from '../../../utils/gwLoanStatus';
 
 const dateISO = () => new Date().toISOString().slice(0, 10);
 const DISBURSEMENT_TYPES = ['BANK', 'MOBILE_MONEY', 'CASH'];
@@ -74,18 +75,6 @@ const triggerDownload = (blob, filename) => {
   a.click();
   a.remove();
   window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
-};
-
-const statusTone = (s) => {
-  const v = String(s || '').toUpperCase();
-  if (v === 'APPROVED') return 'green';
-  if (v === 'ACTIVE') return 'blue';
-  if (v === 'DISBURSED') return 'blue';
-  if (v === 'SUBMITTED') return 'yellow';
-  if (v === 'CLOSED') return 'gray';
-  if (v === 'CREATED_IN_FINERACT') return 'yellow';
-  if (v === 'UPSTREAM_FAILED') return 'red';
-  return 'blue';
 };
 
 const normalizeText = (v) => {
@@ -685,7 +674,8 @@ const GwLoanDetails = () => {
     return String(s || '');
   }, [fxLoan]);
 
-  const statusUpper = String(doc?.status || '').trim().toUpperCase();
+  const statusUpper = getGwLoanStatusCode(doc);
+  const statusDisplay = getGwLoanStatusLabel(doc);
   const fxStatusUpper = String(fxStatusText || '')
     .trim()
     .toUpperCase()
@@ -1402,7 +1392,7 @@ const GwLoanDetails = () => {
               >
                 <Copy size={16} />
               </Button>
-              {doc?.status ? <Badge tone={statusTone(doc.status)}>{doc.status}</Badge> : null}
+              {statusUpper ? <Badge tone={getGwLoanStatusTone(doc)}>{statusDisplay}</Badge> : null}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">

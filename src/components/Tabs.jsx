@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
 
-const Tabs = ({ tabs, initial = tabs?.[0]?.key, children }) => {
-    const [active, setActive] = useState(initial);
+const Tabs = ({ tabs, initial = tabs?.[0]?.key, active: controlledActive, onChange, children }) => {
+    const [internalActive, setInternalActive] = useState(initial);
+    const active = controlledActive ?? internalActive;
     const map = useMemo(() => {
         const obj = {};
         React.Children.forEach(children, (child) => {
@@ -20,7 +21,10 @@ const Tabs = ({ tabs, initial = tabs?.[0]?.key, children }) => {
                     return (
                         <button
                             key={t.key}
-                            onClick={() => setActive(t.key)}
+                            onClick={() => {
+                                if (controlledActive === undefined) setInternalActive(t.key);
+                                onChange?.(t.key);
+                            }}
                             className={`px-3 py-2 text-sm -mb-px border-b-2 ${
                                 isActive
                                     ? 'border-primary text-primary'

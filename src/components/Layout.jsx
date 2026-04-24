@@ -36,7 +36,6 @@ const NAV_GROUPS = [
     title: 'Gateway',
     items: [
       { to: '/gateway', label: 'Overview', icon: 'G', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
-      { to: '/gateway/invites', label: 'Invites', icon: 'I', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CLIENT', 'CREATE_CLIENT', 'UPDATE_CLIENT', 'DELETE_CLIENT'] },
       { to: '/gateway/invite-campaigns', label: 'Invite Campaigns', icon: 'IC', any: ['GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
       { to: '/gateway/invite-channels', label: 'Invite Channels', icon: 'CH', any: ['GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
       { to: '/gateway/data/customers', label: 'Customers', icon: 'Cu', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CLIENT', 'READ_CONFIGURATION'] },
@@ -61,7 +60,6 @@ const NAV_GROUPS = [
     items: [
       { to: '/gateway/data/onboarding_records', label: 'Onboarding', icon: 'O', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
       { to: '/gateway/data/prospects', label: 'Prospects', icon: 'Pr', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
-      { to: '/gateway/data/customers', label: 'Customers', icon: 'Cu', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
       { to: '/gateway/data/auth_accounts', label: 'Auth Accounts', icon: 'AA', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
       { to: '/gateway/data/auth_sessions', label: 'Auth Sessions', icon: 'AS', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
       { to: '/gateway/data/auth_refresh_tokens', label: 'Refresh Tokens', icon: 'RT', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
