@@ -11,9 +11,7 @@ import { useToast } from '../../../context/ToastContext';
 import Can from '../../../components/Can';
 import { getCenter, getGroup } from '../../../api/gateway/community';
 import useStaff from '../../../hooks/useStaff';
-import { applyGwLoanOnBehalf, getGwLoanEligibilityForCustomer } from '../../../api/gateway/loans';
 import { listBankNames } from '../../../api/gateway/bankNames';
-import { listLoanPurposesOps } from '../../../api/gateway/loanPurposes';
 
 const GENDER_OPTIONS = [
   { value: '', label: 'Select gender' },
@@ -39,29 +37,6 @@ const EMPLOYMENT_TYPE_OPTIONS = [
   { value: 'OTHER', label: 'Other' },
 ];
 const INVITE_READ_PERMISSIONS = ['READ_CLIENT', 'CREATE_CLIENT', 'UPDATE_CLIENT', 'DELETE_CLIENT'];
-
-const normalizeText = (value) => String(value || '').trim().toUpperCase();
-
-const resolveEligibilityMatch = (data, productCode) => {
-  const products = Array.isArray(data?.eligibleProducts) ? data.eligibleProducts : [];
-  const normalizedCode = normalizeText(productCode);
-  const match = products.find((item) => normalizeText(item?.productCode) === normalizedCode) || null;
-  if (match) {
-    return match;
-  }
-  if (products.length === 1) {
-    return {
-      ...products[0],
-      allowedTenures: Array.isArray(products[0]?.allowedTenures)
-        ? products[0].allowedTenures
-        : Array.isArray(data?.eligibility?.allowedTenures)
-        ? data.eligibility.allowedTenures
-        : [],
-      tenureUnit: products[0]?.tenureUnit || data?.tenureUnit || data?.eligibility?.tenureUnit,
-    };
-  }
-  return null;
-};
 
 const copyToClipboard = async (text) => {
   const t = String(text || '');
@@ -137,14 +112,8 @@ const InviteDetails = () => {
   const [centerName, setCenterName] = useState('');
   const [groupName, setGroupName] = useState('');
   const [acceptOpen, setAcceptOpen] = useState(false);
-  const [loanOpen, setLoanOpen] = useState(false);
-  const [loanProducts, setLoanProducts] = useState([]);
-  const [loanPurposes, setLoanPurposes] = useState([]);
   const [bankOptions, setBankOptions] = useState([]);
-  const [loanProductsLoading, setLoanProductsLoading] = useState(false);
-  const [loanProductsReady, setLoanProductsReady] = useState(false);
   const [acceptSaving, setAcceptSaving] = useState(false);
-  const [loanSaving, setLoanSaving] = useState(false);
   const [acceptForm, setAcceptForm] = useState({
     firstName: '',
     middleName: '',
@@ -164,12 +133,9 @@ const InviteDetails = () => {
     employmentType: '',
     incomeSource: '',
     bankName: '',
-    bankAccount: '',
-    walletMsisdn: '',
+      bankAccount: '',
+      walletMsisdn: '',
   });
-  const [loanForm, setLoanForm] = useState({ productCode: '', amount: '', tenure: '', loanPurposeId: '' });
-  const [loanEligibility, setLoanEligibility] = useState(null);
-  const [loanEligibilityLoading, setLoanEligibilityLoading] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -228,76 +194,6 @@ const InviteDetails = () => {
 
   useEffect(() => {
     let cancelled = false;
-    const customerId = onboarding?.gatewayCustomerId;
-    if (!customerId) {
-      setLoanProducts([]);
-      setLoanProductsLoading(false);
-      setLoanProductsReady(false);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    setLoanProductsLoading(true);
-    (async () => {
-      try {
-        const data = await getGwLoanEligibilityForCustomer(customerId, {});
-        if (cancelled) return;
-        const items = Array.isArray(data?.eligibleProducts) ? data.eligibleProducts : [];
-        const normalizedItems = items.filter((item) => item?.productCode);
-        setLoanProducts(normalizedItems);
-        setLoanProductsReady(true);
-        setLoanForm((prev) => {
-          const stillExists = normalizedItems.some((item) => String(item?.productCode || '') === String(prev.productCode || ''));
-          const nextProductCode = stillExists
-            ? prev.productCode
-            : (normalizedItems[0]?.productCode ? String(normalizedItems[0].productCode) : '');
-          return {
-            ...prev,
-            productCode: nextProductCode,
-            tenure: stillExists ? prev.tenure : '',
-          };
-        });
-      } catch {
-        if (!cancelled) {
-          setLoanProducts([]);
-          setLoanProductsReady(true);
-        }
-      } finally {
-        if (!cancelled) setLoanProductsLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [onboarding?.gatewayCustomerId]);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const data = await listLoanPurposesOps({
-          active: true,
-          limit: 500,
-          offset: 0,
-          orderBy: 'name',
-          sortOrder: 'asc',
-        });
-        const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
-        if (!cancelled) {
-          setLoanPurposes(items.filter((item) => item?.fineractCodeValueId || item?.loanPurposeId));
-        }
-      } catch {
-        if (!cancelled) setLoanPurposes([]);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
     (async () => {
       try {
         const data = await listBankNames({ active: true, limit: 500, offset: 0, orderBy: 'name', sortOrder: 'asc' });
@@ -321,6 +217,7 @@ const InviteDetails = () => {
   useEffect(() => {
     setAcceptForm({
       firstName: doc?.prefill?.firstName || '',
+      middleName: doc?.prefill?.middleName || '',
       lastName: doc?.prefill?.lastName || '',
       phone: doc?.prefill?.phoneNumber || '',
       email: '',
@@ -340,51 +237,7 @@ const InviteDetails = () => {
       bankAccount: '',
       walletMsisdn: doc?.prefill?.phoneNumber || '',
     });
-  }, [doc?.inviteId, doc?.prefill?.firstName, doc?.prefill?.lastName, doc?.prefill?.phoneNumber]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const customerId = onboarding?.gatewayCustomerId;
-    const amount = Number(loanForm.amount);
-    const productCode = String(loanForm.productCode || '').trim();
-
-    if (!loanOpen || !customerId || !productCode || !(amount > 0)) {
-      setLoanEligibility(null);
-      setLoanEligibilityLoading(false);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    setLoanEligibilityLoading(true);
-    (async () => {
-      try {
-        const requestPayload = {
-          productCode,
-          requestedAmount: amount,
-        };
-        let data = await getGwLoanEligibilityForCustomer(customerId, requestPayload);
-        if (cancelled) return;
-        let resolvedEligibility = resolveEligibilityMatch(data, productCode);
-        if (!resolvedEligibility) {
-          data = await getGwLoanEligibilityForCustomer(customerId, { productCode });
-          if (cancelled) return;
-          resolvedEligibility = resolveEligibilityMatch(data, productCode);
-        }
-        setLoanEligibility(resolvedEligibility);
-      } catch (_) {
-        if (!cancelled) {
-          setLoanEligibility(null);
-        }
-      } finally {
-        if (!cancelled) setLoanEligibilityLoading(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [loanOpen, onboarding?.gatewayCustomerId, loanForm.productCode, loanForm.amount]);
+  }, [doc?.inviteId, doc?.prefill?.firstName, doc?.prefill?.middleName, doc?.prefill?.lastName, doc?.prefill?.phoneNumber]);
 
   const staffNameById = useMemo(() => {
     const map = {};
@@ -451,22 +304,8 @@ const InviteDetails = () => {
   const inviteLabel = doc?.campaignCode || doc?.channel || 'Invite';
   const canAcceptOnBehalf = !!doc?.inviteId && !['ACCEPTED', 'CANCELLED', 'EXPIRED'].includes(String(doc?.status || '').toUpperCase());
   const canApplyLoan = !!(onboarding?.gatewayCustomerId || onboarding?.fineractClientId);
-  const loanProductOptions = loanProducts.map((item) => ({
-    id: String(item?.productCode || ''),
-    label: `${item?.productName || item?.name || item?.productCode || 'Product'}${item?.productCode ? ` (${item.productCode})` : ''}`,
-  })).filter((item) => item.id);
-  const loanPurposeOptions = loanPurposes.map((item) => ({
-    id: String(item?.fineractCodeValueId || item?.loanPurposeId || ''),
-    label: `${item?.name || item?.code || 'Purpose'}${item?.code ? ` (${item.code})` : ''}`,
-  })).filter((item) => item.id);
 
   const openAcceptModal = () => setAcceptOpen(true);
-  const openLoanModal = () => {
-    if (onboarding?.gatewayCustomerId && !loanProductsReady && !loanProductsLoading) {
-      setLoanProductsReady(false);
-    }
-    setLoanOpen(true);
-  };
 
   const submitAcceptOnBehalf = async (e) => {
     e?.preventDefault?.();
@@ -516,73 +355,9 @@ const InviteDetails = () => {
     }
   };
 
-  const submitLoanOnBehalf = async (e) => {
-    e?.preventDefault?.();
-    if (!onboarding?.gatewayCustomerId) {
-      addToast('Customer mapping is missing', 'error');
-      return;
-    }
-    if (!loanForm.productCode || !(Number(loanForm.amount) > 0)) {
-      addToast('Select a product and enter a valid amount', 'error');
-      return;
-    }
-    if (!loanForm.tenure || !(Number(loanForm.tenure) > 0)) {
-      addToast('Enter a valid tenure', 'error');
-      return;
-    }
-    setLoanSaving(true);
-    setErr('');
-    try {
-      const eligibilityData = await getGwLoanEligibilityForCustomer(onboarding.gatewayCustomerId, {
-        productCode: loanForm.productCode,
-        requestedAmount: Number(loanForm.amount),
-      });
-      const resolvedEligibility = resolveEligibilityMatch(eligibilityData, loanForm.productCode)
-        || resolveEligibilityMatch(await getGwLoanEligibilityForCustomer(onboarding.gatewayCustomerId, {
-          productCode: loanForm.productCode,
-        }), loanForm.productCode);
-      const allowedTenures = Array.isArray(resolvedEligibility?.allowedTenures)
-        ? resolvedEligibility.allowedTenures
-            .map((value) => Number(value))
-            .filter((value) => Number.isFinite(value) && value > 0)
-        : [];
-      const requestedTenure = Number(loanForm.tenure);
-      if (allowedTenures.length > 0 && !allowedTenures.includes(requestedTenure)) {
-        addToast(`Tenure ${requestedTenure} is not allowed. Allowed: ${allowedTenures.join(', ')}`, 'error');
-        return;
-      }
-      const loan = await applyGwLoanOnBehalf(onboarding.gatewayCustomerId, {
-        productCode: loanForm.productCode,
-        amount: Number(loanForm.amount),
-        tenure: requestedTenure,
-        tenureUnit: resolvedEligibility?.tenureUnit || loanEligibility?.tenureUnit || undefined,
-        loanPurposeId: loanForm.loanPurposeId ? Number(loanForm.loanPurposeId) : undefined,
-      });
-      setLoanOpen(false);
-      addToast('Loan application submitted', 'success');
-      navigate(`/gateway/loans/${encodeURIComponent(loan?.platformLoanId)}`);
-    } catch (e2) {
-      const msg = e2?.response?.data?.errors?.[0]?.details || e2?.response?.data?.message || e2?.message || 'Loan application failed';
-      setErr(msg);
-      addToast(msg, 'error');
-    } finally {
-      setLoanSaving(false);
-    }
-  };
-
   const setRefreshRequested = () => {
     load();
   };
-
-  const tenureOptions = Array.isArray(loanEligibility?.allowedTenures)
-    ? loanEligibility.allowedTenures
-        .map((value) => Number(value))
-        .filter((value) => Number.isFinite(value) && value > 0)
-        .map((value) => ({
-          value: String(value),
-          label: `${value} ${loanEligibility?.tenureUnit || 'Tenure'}`,
-        }))
-    : [];
 
   return (
     <div>
@@ -603,13 +378,6 @@ const InviteDetails = () => {
             {canAcceptOnBehalf ? (
               <Button onClick={openAcceptModal} disabled={loading || saving || acceptSaving}>
                 Accept On Behalf
-              </Button>
-            ) : null}
-          </Can>
-          <Can any={['CREATE_LOAN']}>
-            {canApplyLoan ? (
-              <Button onClick={openLoanModal} disabled={loading || saving || loanSaving || (canApplyLoan && loanProductsLoading && !loanProducts.length)}>
-                Apply Loan On Behalf
               </Button>
             ) : null}
           </Can>
@@ -714,7 +482,7 @@ const InviteDetails = () => {
               </div>
               <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Phone" value={doc?.prefill?.phoneNumber} />
-                <Field label="Name" value={`${(doc?.prefill?.firstName || '').trim()} ${(doc?.prefill?.lastName || '').trim()}`.trim()} />
+                <Field label="Name" value={`${(doc?.prefill?.firstName || '').trim()} ${(doc?.prefill?.middleName || '').trim()} ${(doc?.prefill?.lastName || '').trim()}`.trim()} />
                 <Field label="Center" value={centerName || (doc?.centerId ? 'Assigned center' : '-')} />
                 <Field label="Group" value={groupName || (doc?.groupId ? 'Assigned group' : '-')} />
                 <Field label="Membership Role" value={doc?.membershipRole} />
@@ -836,75 +604,6 @@ const InviteDetails = () => {
             options={bankOptions}
             placeholder="Search bank"
           />
-        </form>
-      </Modal>
-
-      <Modal
-        open={loanOpen}
-        onClose={() => setLoanOpen(false)}
-        title="Apply Loan On Behalf"
-        size="lg"
-        footer={(
-          <>
-            <Button variant="secondary" onClick={() => setLoanOpen(false)} disabled={loanSaving}>Cancel</Button>
-            <Button onClick={submitLoanOnBehalf} disabled={loanSaving}>{loanSaving ? 'Submitting...' : 'Submit Loan'}</Button>
-          </>
-        )}
-      >
-        <form className="grid grid-cols-1 gap-4" onSubmit={submitLoanOnBehalf}>
-          <SearchableSelectField
-            label="Loan Product"
-            value={loanForm.productCode}
-            onChange={(value) => setLoanForm((prev) => ({ ...prev, productCode: value, tenure: '' }))}
-            options={loanProductOptions}
-            placeholder={loanProductsLoading ? 'Loading eligible products...' : 'Select product'}
-          />
-          {!loanProductsLoading && !loanProducts.length ? (
-            <div className="text-xs text-amber-600 dark:text-amber-300">
-              No eligible loan offers were found for this customer.
-            </div>
-          ) : null}
-          <SearchableSelectField
-            label="Loan Purpose"
-            value={loanForm.loanPurposeId}
-            onChange={(value) => setLoanForm((prev) => ({ ...prev, loanPurposeId: String(value || '') }))}
-            options={loanPurposeOptions}
-            placeholder="Select purpose"
-          />
-          <label className="block text-sm text-slate-700 dark:text-slate-200">
-            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Amount</span>
-            <input
-              type="number"
-              min="1"
-              step="0.01"
-              value={loanForm.amount}
-              onChange={(e) => setLoanForm((prev) => ({ ...prev, amount: e.target.value }))}
-              className="w-full rounded-xl border p-2.5 dark:border-gray-600 dark:bg-gray-700"
-            />
-          </label>
-          <label className="block text-sm text-slate-700 dark:text-slate-200">
-            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Tenure</span>
-            <input
-              type="number"
-              min="1"
-              step="1"
-              value={loanForm.tenure}
-              onChange={(e) => setLoanForm((prev) => ({ ...prev, tenure: e.target.value }))}
-              className="w-full rounded-xl border p-2.5 dark:border-gray-600 dark:bg-gray-700"
-              placeholder={loanEligibilityLoading ? 'Loading tenures...' : 'Enter tenure'}
-            />
-            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              {loanEligibilityLoading
-                ? 'Checking allowed tenures for the selected amount.'
-                : tenureOptions.length
-                ? `Allowed: ${tenureOptions.map((option) => option.value).join(', ')} ${loanEligibility?.tenureUnit || ''}`.trim()
-                : loanEligibility?.recommended?.tenure
-                ? `Recommended: ${loanEligibility.recommended.tenure} ${loanEligibility?.tenureUnit || ''}`.trim()
-                : loanEligibility?.tenureUnit
-                ? `Tenure unit: ${loanEligibility.tenureUnit}`
-                : 'Select product and amount to load allowed tenures.'}
-            </div>
-          </label>
         </form>
       </Modal>
     </div>

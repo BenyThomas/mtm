@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import Card from '../../../components/Card';
 import Button from '../../../components/Button';
 import DataTable from '../../../components/DataTable';
@@ -7,6 +7,8 @@ import Badge from '../../../components/Badge';
 import Modal from '../../../components/Modal';
 import useDebouncedValue from '../../../hooks/useDebouncedValue';
 import { createOpsResource, deleteOpsResource, listOpsResources, updateOpsResource } from '../../../api/gateway/opsResources';
+import { applyGwLoanOnBehalf, getGwLoanEligibilityForCustomer, listGwLoans } from '../../../api/gateway/loans';
+import { listLoanPurposesOps } from '../../../api/gateway/loanPurposes';
 import Can from '../../../components/Can';
 import { Pencil, Trash2 } from 'lucide-react';
 import { useToast } from '../../../context/ToastContext';
@@ -122,6 +124,34 @@ const toneForStatus = (s) => {
   return 'gray';
 };
 
+const normalizeText = (value) => String(value || '').trim().toUpperCase();
+
+const resolveEligibilityMatch = (data, productCode) => {
+  const products = Array.isArray(data?.eligibleProducts) ? data.eligibleProducts : [];
+  const normalizedCode = normalizeText(productCode);
+  const match = products.find((item) => normalizeText(item?.productCode) === normalizedCode) || null;
+  if (match) {
+    return match;
+  }
+  if (products.length === 1) {
+    return {
+      ...products[0],
+      allowedTenures: Array.isArray(products[0]?.allowedTenures)
+        ? products[0].allowedTenures
+        : Array.isArray(data?.eligibility?.allowedTenures)
+        ? data.eligibility.allowedTenures
+        : [],
+      tenureUnit: products[0]?.tenureUnit || data?.tenureUnit || data?.eligibility?.tenureUnit,
+    };
+  }
+  return null;
+};
+
+const isBlockingLoanStatus = (status) => {
+  const normalized = normalizeText(status);
+  return normalized && !['CLOSED', 'REJECTED', 'DECLINED', 'CANCELLED', 'CANCELED', 'WITHDRAWN', 'WITHDRAWN_BY_APPLICANT', 'UPSTREAM_FAILED', 'OVERPAID'].includes(normalized);
+};
+
 const timeAgo = (iso) => {
   if (!iso) return '';
   const t = new Date(iso).getTime();
@@ -144,7 +174,7 @@ const timeAgo = (iso) => {
 };
 
 const customerLabel = (customer) => {
-  const fullName = [customer?.profile?.firstName, customer?.profile?.lastName].filter(Boolean).join(' ').trim();
+  const fullName = [customer?.profile?.firstName, customer?.profile?.middleName, customer?.profile?.lastName].filter(Boolean).join(' ').trim();
   const username = String(customer?.username || '').trim();
   const phone = String(customer?.profile?.phone || customer?.phone || customer?.mobileNo || '').trim();
   const name = fullName || username || 'Customer';
@@ -191,6 +221,7 @@ const RESOURCES = {
 };
 
 const DataList = () => {
+  const navigate = useNavigate();
   const { resource } = useParams();
   const cfg = RESOURCES[resource];
   const { addToast } = useToast();
@@ -227,6 +258,15 @@ const DataList = () => {
   const [products, setProducts] = useState([]);
   const [customerSearch, setCustomerSearch] = useState('');
   const [productSearch, setProductSearch] = useState('');
+  const [customerLoanMetaById, setCustomerLoanMetaById] = useState({});
+  const [loanOpen, setLoanOpen] = useState(false);
+  const [loanSaving, setLoanSaving] = useState(false);
+  const [selectedCustomerForLoan, setSelectedCustomerForLoan] = useState(null);
+  const [loanProducts, setLoanProducts] = useState([]);
+  const [loanPurposes, setLoanPurposes] = useState([]);
+  const [loanEligibility, setLoanEligibility] = useState(null);
+  const [loanEligibilityLoading, setLoanEligibilityLoading] = useState(false);
+  const [loanForm, setLoanForm] = useState({ productCode: '', amount: '', tenure: '', loanPurposeId: '' });
   const createSchema = cfg ? CREATE_FORM_SCHEMAS[cfg.apiType] : null;
   const needsCustomerPicker = cfg?.apiType === 'borrower-scores' || cfg?.apiType === 'borrower-eligibility-results';
   const needsProductPicker = cfg?.apiType === 'loan-product-policies' || cfg?.apiType === 'borrower-eligibility-results';
@@ -256,7 +296,32 @@ const DataList = () => {
     setSearch('');
     setStatus('');
     setPage(0);
+    setCustomerLoanMetaById({});
   }, [cfg?.apiType]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await listLoanPurposesOps({
+          active: true,
+          limit: 500,
+          offset: 0,
+          orderBy: 'name',
+          sortOrder: 'asc',
+        });
+        const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+        if (!cancelled) {
+          setLoanPurposes(items.filter((item) => item?.fineractCodeValueId || item?.loanPurposeId));
+        }
+      } catch {
+        if (!cancelled) setLoanPurposes([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!createOpen || (!needsCustomerPicker && !needsProductPicker)) return;
@@ -415,6 +480,111 @@ const DataList = () => {
     };
   }, [cfg?.apiType, debouncedSearch, status, page, limit, sortBy, sortDir, refreshTick]);
 
+  useEffect(() => {
+    if (cfg?.apiType !== 'customers' || !rows.length) return () => {};
+    let cancelled = false;
+    const customerRows = rows
+      .map((row) => ({
+        key: String(row?.platformCustomerId || row?.gatewayCustomerId || row?.id || '').trim(),
+        lookupId: String(row?.gatewayCustomerId || row?.platformCustomerId || row?.id || '').trim(),
+      }))
+      .filter((item) => item.key && item.lookupId)
+      .filter((item) => !(item.key in (customerLoanMetaById || {})));
+    if (!customerRows.length) return () => {};
+
+    (async () => {
+      const next = {};
+      await Promise.all(customerRows.map(async ({ key, lookupId }) => {
+        try {
+          const data = await listGwLoans({ q: lookupId, limit: 50, offset: 0, orderBy: 'appliedAt', sortOrder: 'desc' });
+          const items = Array.isArray(data?.items) ? data.items : [];
+          const blocking = items.find((item) => isBlockingLoanStatus(item?.status));
+          next[key] = {
+            blocked: !!blocking,
+            reason: blocking ? `Blocked by ${String(blocking.status || 'loan workflow')}` : '',
+          };
+        } catch {
+          next[key] = { blocked: false, reason: '' };
+        }
+      }));
+      if (!cancelled) {
+        setCustomerLoanMetaById((prev) => ({ ...(prev || {}), ...next }));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cfg?.apiType, rows, customerLoanMetaById]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const customerId = selectedCustomerForLoan?.gatewayCustomerId || selectedCustomerForLoan?.platformCustomerId || selectedCustomerForLoan?.id;
+    if (!loanOpen || !customerId) {
+      setLoanProducts([]);
+      setLoanEligibility(null);
+      setLoanEligibilityLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+    (async () => {
+      try {
+        const data = await getGwLoanEligibilityForCustomer(customerId, {});
+        if (cancelled) return;
+        const items = Array.isArray(data?.eligibleProducts) ? data.eligibleProducts : [];
+        setLoanProducts(items.filter((item) => item?.productCode));
+        setLoanForm((prev) => ({
+          ...prev,
+          productCode: prev.productCode || String(items?.[0]?.productCode || ''),
+        }));
+      } catch {
+        if (!cancelled) setLoanProducts([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loanOpen, selectedCustomerForLoan]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const customerId = selectedCustomerForLoan?.gatewayCustomerId || selectedCustomerForLoan?.platformCustomerId || selectedCustomerForLoan?.id;
+    const amount = Number(loanForm.amount);
+    const productCode = String(loanForm.productCode || '').trim();
+    if (!loanOpen || !customerId || !productCode || !(amount > 0)) {
+      setLoanEligibility(null);
+      setLoanEligibilityLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+    setLoanEligibilityLoading(true);
+    (async () => {
+      try {
+        let data = await getGwLoanEligibilityForCustomer(customerId, {
+          productCode,
+          requestedAmount: amount,
+        });
+        if (cancelled) return;
+        let resolved = resolveEligibilityMatch(data, productCode);
+        if (!resolved) {
+          data = await getGwLoanEligibilityForCustomer(customerId, { productCode });
+          if (cancelled) return;
+          resolved = resolveEligibilityMatch(data, productCode);
+        }
+        setLoanEligibility(resolved);
+      } catch {
+        if (!cancelled) setLoanEligibility(null);
+      } finally {
+        if (!cancelled) setLoanEligibilityLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loanOpen, selectedCustomerForLoan, loanForm.productCode, loanForm.amount]);
+
   const onSort = (key) => {
     if (sortBy === key) {
       setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
@@ -545,6 +715,72 @@ const DataList = () => {
     }
   };
 
+  const openCustomerLoanModal = (customer) => {
+    setSelectedCustomerForLoan(customer || null);
+    setLoanProducts([]);
+    setLoanEligibility(null);
+    setLoanForm({ productCode: '', amount: '', tenure: '', loanPurposeId: '' });
+    setLoanOpen(true);
+  };
+
+  const submitLoanOnBehalf = async () => {
+    const customerId = selectedCustomerForLoan?.gatewayCustomerId || selectedCustomerForLoan?.platformCustomerId || selectedCustomerForLoan?.id;
+    if (!customerId) {
+      addToast('Customer mapping is missing', 'error');
+      return;
+    }
+    if (!loanForm.productCode || !(Number(loanForm.amount) > 0) || !(Number(loanForm.tenure) > 0)) {
+      addToast('Select product, amount, and tenure', 'error');
+      return;
+    }
+    setLoanSaving(true);
+    try {
+      const eligibilityData = await getGwLoanEligibilityForCustomer(customerId, {
+        productCode: loanForm.productCode,
+        requestedAmount: Number(loanForm.amount),
+      });
+      const resolvedEligibility = resolveEligibilityMatch(eligibilityData, loanForm.productCode)
+        || resolveEligibilityMatch(await getGwLoanEligibilityForCustomer(customerId, {
+          productCode: loanForm.productCode,
+        }), loanForm.productCode);
+      const allowedTenures = Array.isArray(resolvedEligibility?.allowedTenures)
+        ? resolvedEligibility.allowedTenures.map((value) => Number(value)).filter((value) => Number.isFinite(value) && value > 0)
+        : [];
+      const requestedTenure = Number(loanForm.tenure);
+      if (allowedTenures.length > 0 && !allowedTenures.includes(requestedTenure)) {
+        addToast(`Tenure ${requestedTenure} is not allowed. Allowed: ${allowedTenures.join(', ')}`, 'error');
+        return;
+      }
+      const loan = await applyGwLoanOnBehalf(customerId, {
+        productCode: loanForm.productCode,
+        amount: Number(loanForm.amount),
+        tenure: requestedTenure,
+        tenureUnit: resolvedEligibility?.tenureUnit || loanEligibility?.tenureUnit || undefined,
+        loanPurposeId: loanForm.loanPurposeId ? Number(loanForm.loanPurposeId) : undefined,
+      });
+      setLoanOpen(false);
+      addToast('Loan application submitted', 'success');
+      navigate(`/gateway/loans/${encodeURIComponent(loan?.platformLoanId)}`);
+    } catch (err) {
+      addToast(err?.response?.data?.errors?.[0]?.details || err?.response?.data?.message || err?.message || 'Loan application failed', 'error');
+    } finally {
+      setLoanSaving(false);
+    }
+  };
+
+  const loanPurposeOptions = loanPurposes
+    .map((item) => ({
+      value: String(item?.fineractCodeValueId || item?.loanPurposeId || ''),
+      label: `${item?.name || item?.code || 'Purpose'}${item?.code ? ` (${item.code})` : ''}`,
+    }))
+    .filter((item) => item.value);
+
+  const tenureOptions = Array.isArray(loanEligibility?.allowedTenures)
+    ? loanEligibility.allowedTenures
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && value > 0)
+    : [];
+
   const columns = useMemo(() => {
     if (!cfg) return [];
 
@@ -559,10 +795,21 @@ const DataList = () => {
     });
 
     // A couple of type-specific "headline" columns
-    if (cfg.apiType === 'customers') {
-      base.push({ key: 'username', header: 'Username', sortable: true, render: (r) => r?.username || '-' });
-      base.push({ key: 'phone', header: 'Phone', sortable: false, render: (r) => r?.profile?.phone || r?.phone || r?.mobileNo || '-' });
-    }
+      if (cfg.apiType === 'customers') {
+        base.push({ key: 'username', header: 'Username', sortable: true, render: (r) => r?.username || '-' });
+        base.push({ key: 'phone', header: 'Phone', sortable: false, render: (r) => r?.profile?.phone || r?.phone || r?.mobileNo || '-' });
+        base.push({
+          key: 'loanAvailability',
+          header: 'Loan On Behalf',
+          sortable: false,
+          render: (r) => {
+            const key = String(r?.platformCustomerId || r?.gatewayCustomerId || r?.id || '').trim();
+            const meta = customerLoanMetaById?.[key];
+            if (!meta) return 'Checking...';
+            return meta.blocked ? meta.reason || 'Blocked' : 'Available';
+          },
+        });
+      }
     if (cfg.apiType === 'auth-accounts') {
       base.push({ key: 'msisdn', header: 'MSISDN', sortable: true, render: (r) => r?.msisdn || '-' });
       base.push({ key: 'username', header: 'Username', sortable: true, render: (r) => r?.username || '-' });
@@ -654,15 +901,28 @@ const DataList = () => {
       render: (r) => timeAgo(r?.updatedAt || r?.createdAt || r?.occurredAt),
     });
 
-    base.push({
-      key: 'actions',
-      header: 'Actions',
-      sortable: false,
-          render: (r) => (
-        <div className="flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
-          {cfg.apiType === 'score-band-policies' ? (
-            <Can any={['GW_OPS_WRITE']}>
-              <Button
+      base.push({
+        key: 'actions',
+        header: 'Actions',
+        sortable: false,
+        render: (r) => (
+          <div className="flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
+            {cfg.apiType === 'customers' ? (
+              <Can any={['CREATE_LOAN', 'GW_OPS_WRITE']}>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => openCustomerLoanModal(r)}
+                  disabled={customerLoanMetaById?.[String(r?.platformCustomerId || r?.gatewayCustomerId || r?.id || '').trim()]?.blocked}
+                  title={customerLoanMetaById?.[String(r?.platformCustomerId || r?.gatewayCustomerId || r?.id || '').trim()]?.reason || 'Apply loan on behalf'}
+                >
+                  Apply Loan
+                </Button>
+              </Can>
+            ) : null}
+            {cfg.apiType === 'score-band-policies' ? (
+              <Can any={['GW_OPS_WRITE']}>
+                <Button
                 size="sm"
                 variant="ghost"
                 className="px-2"
@@ -691,10 +951,17 @@ const DataList = () => {
     });
 
     return base;
-  }, [cfg?.apiType]);
+  }, [cfg?.apiType, customerLoanMetaById]);
 
   const onRowClick = (row) => {
     if (!cfg) return;
+    if (cfg.apiType === 'customers') {
+      const id = row?.gatewayCustomerId || row?.platformCustomerId || row?.id;
+      if (id) {
+        navigate(`/gateway/customers/${encodeURIComponent(String(id))}`);
+      }
+      return;
+    }
     if (cfg.apiType === 'score-band-policies') {
       openEdit(row);
     }
@@ -803,6 +1070,105 @@ const DataList = () => {
           emptyMessage="No records found"
         />
       </Card>
+
+      <Modal
+        open={loanOpen}
+        onClose={() => {
+          if (!loanSaving) setLoanOpen(false);
+        }}
+        title="Apply Loan On Behalf"
+        size="lg"
+        footer={(
+          <>
+            <Button variant="secondary" onClick={() => setLoanOpen(false)} disabled={loanSaving}>
+              Cancel
+            </Button>
+            <Button onClick={submitLoanOnBehalf} disabled={loanSaving}>
+              {loanSaving ? 'Submitting...' : 'Submit Loan'}
+            </Button>
+          </>
+        )}
+      >
+        <div className="space-y-4">
+          <div className="rounded-xl border border-slate-200/70 bg-slate-50/80 p-3 text-sm dark:border-slate-700/70 dark:bg-slate-900/50">
+            <div className="font-semibold text-slate-900 dark:text-slate-100">{customerLabel(selectedCustomerForLoan)}</div>
+            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              {selectedCustomerForLoan?.gatewayCustomerId || selectedCustomerForLoan?.platformCustomerId || selectedCustomerForLoan?.id || '-'}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Loan Product
+            </label>
+            <select
+              value={loanForm.productCode}
+              onChange={(e) => setLoanForm((prev) => ({ ...prev, productCode: e.target.value, tenure: '' }))}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            >
+              <option value="">{loanProducts.length ? 'Select product' : 'No eligible products'}</option>
+              {loanProducts.map((item) => (
+                <option key={String(item?.productCode || '')} value={String(item?.productCode || '')}>
+                  {item?.productName || item?.name || item?.productCode || 'Product'}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Loan Purpose
+            </label>
+            <select
+              value={loanForm.loanPurposeId}
+              onChange={(e) => setLoanForm((prev) => ({ ...prev, loanPurposeId: e.target.value }))}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            >
+              <option value="">Select purpose</option>
+              {loanPurposeOptions.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Amount
+            </label>
+            <input
+              type="number"
+              min="1"
+              step="0.01"
+              value={loanForm.amount}
+              onChange={(e) => setLoanForm((prev) => ({ ...prev, amount: e.target.value }))}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Tenure
+            </label>
+            <input
+              type="number"
+              min="1"
+              step="1"
+              value={loanForm.tenure}
+              onChange={(e) => setLoanForm((prev) => ({ ...prev, tenure: e.target.value }))}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              {loanEligibilityLoading
+                ? 'Checking allowed tenures for the selected amount.'
+                : tenureOptions.length
+                ? `Allowed: ${tenureOptions.join(', ')} ${loanEligibility?.tenureUnit || ''}`.trim()
+                : loanEligibility?.tenureUnit
+                ? `Tenure unit: ${loanEligibility.tenureUnit}`
+                : 'Select product and amount to load allowed tenures.'}
+            </div>
+          </div>
+        </div>
+      </Modal>
 
       <Modal
         open={editOpen}

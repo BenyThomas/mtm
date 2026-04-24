@@ -31,12 +31,14 @@ const inviteInit = {
   invitedByStaffId: '',
   phoneNumber: '',
   firstName: '',
+  middleName: '',
   lastName: '',
 };
 
 const bulkInviteRowInit = {
   phoneNumber: '',
   firstName: '',
+  middleName: '',
   lastName: '',
 };
 
@@ -51,8 +53,9 @@ const statusTone = (value) => {
 
 const customerLabelFromDoc = (item) => {
   const first = String(item?.profile?.firstName || '').trim();
+  const middle = String(item?.profile?.middleName || '').trim();
   const last = String(item?.profile?.lastName || '').trim();
-  const fullName = [first, last].filter(Boolean).join(' ');
+  const fullName = [first, middle, last].filter(Boolean).join(' ');
   const phone = String(item?.profile?.phone || '').trim();
   return `${fullName || item?.username || '-'}${phone ? ` - ${phone}` : ''}`;
 };
@@ -299,10 +302,11 @@ const GroupDetails = () => {
     });
     const items = Array.isArray(response?.items) ? response.items : [];
     return items
-      .map((item) => {
-        const first = String(item?.profile?.firstName || '').trim();
-        const last = String(item?.profile?.lastName || '').trim();
-        const fullName = [first, last].filter(Boolean).join(' ');
+        .map((item) => {
+          const first = String(item?.profile?.firstName || '').trim();
+          const middle = String(item?.profile?.middleName || '').trim();
+          const last = String(item?.profile?.lastName || '').trim();
+          const fullName = [first, middle, last].filter(Boolean).join(' ');
         const phone = String(item?.profile?.phone || '').trim();
         const id = item?.gatewayCustomerId || item?.platformCustomerId || item?.customerId || item?.id;
         return {
@@ -516,12 +520,13 @@ const GroupDetails = () => {
         maxUses: Number(inviteForm.maxUses) || 1,
         membershipRole: inviteForm.membershipRole,
         invitedByStaffId: Number(inviteForm.invitedByStaffId),
-        prefill: {
-          phoneNumber: inviteForm.phoneNumber.trim() || null,
-          firstName: inviteForm.firstName.trim() || null,
-          lastName: inviteForm.lastName.trim() || null,
-        },
-      });
+          prefill: {
+            phoneNumber: inviteForm.phoneNumber.trim() || null,
+            firstName: inviteForm.firstName.trim() || null,
+            middleName: inviteForm.middleName.trim() || null,
+            lastName: inviteForm.lastName.trim() || null,
+          },
+        });
       setInviteOpen(false);
       addToast('Group invite created', 'success');
       navigate(`/gateway/invites/${encodeURIComponent(created?.inviteId)}`);
@@ -540,11 +545,12 @@ const GroupDetails = () => {
     setError('');
     try {
       const members = bulkInviteRows
-        .map((item) => ({
-          phoneNumber: String(item.phoneNumber || '').trim() || null,
-          firstName: String(item.firstName || '').trim() || null,
-          lastName: String(item.lastName || '').trim() || null,
-        }))
+          .map((item) => ({
+            phoneNumber: String(item.phoneNumber || '').trim() || null,
+            firstName: String(item.firstName || '').trim() || null,
+            middleName: String(item.middleName || '').trim() || null,
+            lastName: String(item.lastName || '').trim() || null,
+          }))
         .filter((item) => item.phoneNumber);
       if (!members.length) {
         addToast('At least one member phone number is required', 'error');
@@ -1072,16 +1078,21 @@ const GroupDetails = () => {
               <input className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={inviteForm.phoneNumber}
                 onChange={(e) => setInviteForm((p) => ({ ...p, phoneNumber: e.target.value }))} placeholder="2557..." />
             </div>
-            <div>
-              <label className="block text-sm font-medium">First Name</label>
-              <input className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={inviteForm.firstName}
-                onChange={(e) => setInviteForm((p) => ({ ...p, firstName: e.target.value }))} />
-            </div>
-            <div>
-              <label className="block text-sm font-medium">Last Name</label>
-              <input className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={inviteForm.lastName}
-                onChange={(e) => setInviteForm((p) => ({ ...p, lastName: e.target.value }))} />
-            </div>
+              <div>
+                <label className="block text-sm font-medium">First Name</label>
+                <input className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={inviteForm.firstName}
+                  onChange={(e) => setInviteForm((p) => ({ ...p, firstName: e.target.value }))} required />
+              </div>
+              <div>
+                <label className="block text-sm font-medium">Middle Name</label>
+                <input className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={inviteForm.middleName}
+                  onChange={(e) => setInviteForm((p) => ({ ...p, middleName: e.target.value }))} required />
+              </div>
+              <div>
+                <label className="block text-sm font-medium">Last Name</label>
+                <input className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={inviteForm.lastName}
+                  onChange={(e) => setInviteForm((p) => ({ ...p, lastName: e.target.value }))} required />
+              </div>
           </div>
         </form>
       </Modal>
@@ -1134,8 +1145,8 @@ const GroupDetails = () => {
             </div>
           </div>
           <div className="space-y-3">
-            {bulkInviteRows.map((row, idx) => (
-              <div key={`bulk-row-${idx}`} className="grid gap-3 rounded-xl border border-slate-200/70 p-3 dark:border-slate-700/60 md:grid-cols-3">
+              {bulkInviteRows.map((row, idx) => (
+              <div key={`bulk-row-${idx}`} className="grid gap-3 rounded-xl border border-slate-200/70 p-3 dark:border-slate-700/60 md:grid-cols-4">
                 <div>
                   <label className="block text-sm font-medium">Phone</label>
                   <input
@@ -1145,19 +1156,27 @@ const GroupDetails = () => {
                     placeholder="2557..."
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium">First Name</label>
-                  <input
-                    className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
-                    value={row.firstName}
-                    onChange={(e) => setBulkInviteRows((prev) => prev.map((item, itemIdx) => itemIdx === idx ? { ...item, firstName: e.target.value } : item))}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium">Last Name</label>
-                  <input
-                    className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
-                    value={row.lastName}
+                  <div>
+                    <label className="block text-sm font-medium">First Name</label>
+                    <input
+                      className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                      value={row.firstName}
+                      onChange={(e) => setBulkInviteRows((prev) => prev.map((item, itemIdx) => itemIdx === idx ? { ...item, firstName: e.target.value } : item))}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium">Middle Name</label>
+                    <input
+                      className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                      value={row.middleName}
+                      onChange={(e) => setBulkInviteRows((prev) => prev.map((item, itemIdx) => itemIdx === idx ? { ...item, middleName: e.target.value } : item))}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium">Last Name</label>
+                    <input
+                      className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                      value={row.lastName}
                     onChange={(e) => setBulkInviteRows((prev) => prev.map((item, itemIdx) => itemIdx === idx ? { ...item, lastName: e.target.value } : item))}
                   />
                 </div>

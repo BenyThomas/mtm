@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 
 const normalizeStaff = (s) => ({
     id: s.id,
-    displayName: s.displayName || [s.firstname, s.lastname].filter(Boolean).join(' '),
+    displayName: s.displayName || [s.firstname, s.middlename, s.lastname].filter(Boolean).join(' '),
     officeName: s.officeName || s.office?.name || '',
     isLoanOfficer: s.isLoanOfficer ?? s.isLoanOfficerActive ?? false,
     mobileNo: s.mobileNo || '',

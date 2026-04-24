@@ -23,6 +23,7 @@ const InviteNew = () => {
   const [multiUse, setMultiUse] = useState(false);
   const [phoneNumber, setPhoneNumber] = useState('');
   const [firstName, setFirstName] = useState('');
+  const [middleName, setMiddleName] = useState('');
   const [lastName, setLastName] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState('');
@@ -50,6 +51,9 @@ const InviteNew = () => {
     setSubmitting(true);
     setErr('');
     try {
+      if (!phoneNumber.trim() || !firstName.trim() || !middleName.trim() || !lastName.trim()) {
+        throw new Error('Phone, first name, middle name, and last name are required');
+      }
       const effectiveStaffId = isLoanOfficerUser && loggedInStaffId ? loggedInStaffId : referrerId;
       const payload = {
         campaignCode: campaignCode.trim(),
@@ -60,6 +64,7 @@ const InviteNew = () => {
         prefill: {
           phoneNumber: phoneNumber.trim() || null,
           firstName: firstName.trim() || null,
+          middleName: middleName.trim() || null,
           lastName: lastName.trim() || null,
         },
       };
@@ -145,7 +150,7 @@ const InviteNew = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
               <div>
                 <label className="block text-sm font-medium">Prefill Phone</label>
                 <input
@@ -161,6 +166,16 @@ const InviteNew = () => {
                   className="mt-1 w-full rounded-xl border border-slate-200 bg-white/80 p-2 text-sm dark:border-slate-700 dark:bg-slate-900/70"
                   value={firstName}
                   onChange={(e) => setFirstName(e.target.value)}
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium">Middle Name</label>
+                <input
+                  className="mt-1 w-full rounded-xl border border-slate-200 bg-white/80 p-2 text-sm dark:border-slate-700 dark:bg-slate-900/70"
+                  value={middleName}
+                  onChange={(e) => setMiddleName(e.target.value)}
+                  required
                 />
               </div>
               <div>
@@ -169,6 +184,7 @@ const InviteNew = () => {
                   className="mt-1 w-full rounded-xl border border-slate-200 bg-white/80 p-2 text-sm dark:border-slate-700 dark:bg-slate-900/70"
                   value={lastName}
                   onChange={(e) => setLastName(e.target.value)}
+                  required
                 />
               </div>
             </div>

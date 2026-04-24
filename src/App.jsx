@@ -123,6 +123,7 @@ import GwLoanDetails from "./pages/gateway/loans/GwLoanDetails";
 import GwArrearsLoans from "./pages/gateway/loans/GwArrearsLoans";
 import GwReports from "./pages/gateway/reports/GwReports";
 import GatewayDataList from "./pages/gateway/data/DataList";
+import GwCustomerDetails from "./pages/gateway/customers/GwCustomerDetails";
 import MerchantCompanies from "./pages/gateway/merchant/MerchantCompanies";
 import MerchantCompanyDetails from "./pages/gateway/merchant/MerchantCompanyDetails";
 import MerchantCustomers from "./pages/gateway/merchant/MerchantCustomers";
@@ -320,6 +321,7 @@ const App = () => {
                             <Route path="/gateway/loans/arrears" element={<GwArrearsLoans />} />
                             <Route path="/gateway/reports" element={<GwReports />} />
                             <Route path="/gateway/loans/:platformLoanId" element={<GwLoanDetails />} />
+                            <Route path="/gateway/customers/:customerId" element={<GwCustomerDetails />} />
                             <Route path="/gateway/data/:resource" element={<GatewayDataList />} />
 
 

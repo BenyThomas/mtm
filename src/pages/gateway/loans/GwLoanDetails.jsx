@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { Copy, Download, FileSpreadsheet, FileText, Loader2 } from 'lucide-react';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { CalendarDays, CheckCircle, Copy, Download, FileSpreadsheet, FileText, Loader2, ReceiptText, RotateCcw, Settings2, Trash2, Undo2, UserPlus, Wallet, XCircle } from 'lucide-react';
 import Button from '../../../components/Button';
 import Card from '../../../components/Card';
 import Skeleton from '../../../components/Skeleton';
@@ -8,6 +8,7 @@ import Badge from '../../../components/Badge';
 import Modal from '../../../components/Modal';
 import Can from '../../../components/Can';
 import ScheduleTable from '../../../components/ScheduleTable';
+import StaffSelect from '../../../components/StaffSelect';
 import Tabs from '../../../components/Tabs';
 import {
   adjustGwLoanTransaction,
@@ -111,7 +112,7 @@ const extractCustomerProfile = (customerDoc) => {
     walletMsisdn: normalizeText(profile?.walletMsisdn),
     phone: normalizeText(profile?.phone),
     email: normalizeText(profile?.email),
-    fullName: normalizeText(`${profile?.firstName || ''} ${profile?.lastName || ''}`),
+    fullName: normalizeText(`${profile?.firstName || ''} ${profile?.middleName || ''} ${profile?.lastName || ''}`),
   };
 };
 
@@ -149,6 +150,7 @@ const formatMoney = (v) => {
     return String(n);
   }
 };
+
 
 const txDateToISO = (value) => {
   if (Array.isArray(value) && value.length >= 3) {
@@ -250,8 +252,141 @@ const ChargesTable = ({ items }) => {
   );
 };
 
+const FINERACT_ACTIONS = {
+  reschedule: {
+    title: 'Reschedule Loan',
+    icon: CalendarDays,
+    endpoint: 'loan',
+    buildPayload: ({ date, note }) => ({ locale: 'en', dateFormat: 'yyyy-MM-dd', rescheduleFromDate: date, note: note || undefined }),
+    needsDate: true,
+    needsNote: true,
+  },
+  waiveInterest: {
+    title: 'Waive Interest',
+    icon: ReceiptText,
+    endpoint: 'transactions',
+    buildPayload: ({ date, amount, note }) => ({ locale: 'en', dateFormat: 'yyyy-MM-dd', transactionDate: date, transactionAmount: amount ? Number(amount) : undefined, note: note || undefined }),
+    needsDate: true,
+    needsAmount: true,
+    needsNote: true,
+  },
+  writeoff: {
+    title: 'Write Off',
+    icon: XCircle,
+    endpoint: 'loan',
+    buildPayload: ({ date, note }) => ({ locale: 'en', dateFormat: 'yyyy-MM-dd', transactionDate: date, note: note || undefined }),
+    needsDate: true,
+    needsNote: true,
+  },
+  undowriteoff: {
+    title: 'Undo Write Off',
+    icon: RotateCcw,
+    endpoint: 'transactions',
+    buildPayload: () => ({}),
+  },
+  undoWaiveInterest: {
+    title: 'Undo Interest Waiver',
+    icon: Undo2,
+    endpoint: 'transactions',
+    buildPayload: () => ({}),
+  },
+  prepayLoan: {
+    title: 'Prepay / Foreclose',
+    icon: Wallet,
+    endpoint: 'transactions',
+    buildPayload: ({ date, amount, note, paymentTypeId, externalId }) => ({
+      locale: 'en',
+      dateFormat: 'yyyy-MM-dd',
+      transactionDate: date,
+      transactionAmount: amount ? Number(amount) : undefined,
+      paymentTypeId: paymentTypeId ? Number(paymentTypeId) : undefined,
+      externalId: externalId || undefined,
+      note: note || undefined,
+    }),
+    needsDate: true,
+    needsAmount: true,
+    needsNote: true,
+    needsPaymentType: true,
+    needsExternalId: true,
+  },
+  'close-rescheduled': {
+    title: 'Close As Rescheduled',
+    icon: CheckCircle,
+    endpoint: 'loan',
+    buildPayload: ({ date, note }) => ({ locale: 'en', dateFormat: 'yyyy-MM-dd', transactionDate: date, note: note || undefined }),
+    needsDate: true,
+    needsNote: true,
+  },
+  close: {
+    title: 'Close Loan',
+    icon: FileText,
+    endpoint: 'loan',
+    buildPayload: ({ date, note }) => ({ locale: 'en', dateFormat: 'yyyy-MM-dd', closedOnDate: date, note: note || undefined }),
+    needsDate: true,
+    needsNote: true,
+  },
+  waiveLoanCharge: {
+    title: 'Waive Loan Charge',
+    icon: ReceiptText,
+    endpoint: 'charges',
+    buildPayload: ({ date, amount, note }) => ({ locale: 'en', dateFormat: 'yyyy-MM-dd', transactionDate: date, amount: amount ? Number(amount) : undefined, note: note || undefined }),
+    needsDate: true,
+    needsAmount: true,
+    needsNote: true,
+    needsChargeId: true,
+  },
+  payLoanCharge: {
+    title: 'Pay Loan Charge',
+    icon: Download,
+    endpoint: 'charges',
+    buildPayload: ({ date, amount, note, paymentTypeId, externalId }) => ({
+      locale: 'en',
+      dateFormat: 'yyyy-MM-dd',
+      transactionDate: date,
+      amount: amount ? Number(amount) : undefined,
+      paymentTypeId: paymentTypeId ? Number(paymentTypeId) : undefined,
+      externalId: externalId || undefined,
+      note: note || undefined,
+    }),
+    needsDate: true,
+    needsAmount: true,
+    needsNote: true,
+    needsPaymentType: true,
+    needsExternalId: true,
+    needsChargeId: true,
+  },
+  waivePenalty: {
+    title: 'Waive Penalty',
+    icon: Trash2,
+    endpoint: 'charges',
+    buildPayload: ({ date, amount, note }) => ({ locale: 'en', dateFormat: 'yyyy-MM-dd', transactionDate: date, amount: amount ? Number(amount) : undefined, note: note || undefined }),
+    needsDate: true,
+    needsAmount: true,
+    needsNote: true,
+    needsChargeId: true,
+  },
+  custom: {
+    title: 'Custom Command',
+    icon: Settings2,
+    endpoint: 'loan',
+    buildPayload: () => ({}),
+    needsCustomCommand: true,
+    needsPayload: true,
+  },
+};
+
+const actionButtonClass = (tone = 'slate') => {
+  if (tone === 'emerald') return 'border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-900/60 dark:bg-emerald-900/20 dark:text-emerald-300 dark:hover:bg-emerald-900/35';
+  if (tone === 'amber') return 'border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-900/60 dark:bg-amber-900/20 dark:text-amber-300 dark:hover:bg-amber-900/35';
+  if (tone === 'rose') return 'border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 dark:border-rose-900/60 dark:bg-rose-900/20 dark:text-rose-300 dark:hover:bg-rose-900/35';
+  if (tone === 'cyan') return 'border border-cyan-200 bg-cyan-50 text-cyan-700 hover:bg-cyan-100 dark:border-cyan-900/60 dark:bg-cyan-900/20 dark:text-cyan-300 dark:hover:bg-cyan-900/35';
+  if (tone === 'violet') return 'border border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 dark:border-violet-900/60 dark:bg-violet-900/20 dark:text-violet-300 dark:hover:bg-violet-900/35';
+  return 'border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 dark:border-slate-700/70 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-800';
+};
+
 const GwLoanDetails = () => {
   const { platformLoanId } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const { addToast } = useToast();
 
@@ -321,6 +456,30 @@ const GwLoanDetails = () => {
   const [reverseTransactionBusy, setReverseTransactionBusy] = useState(false);
   const [reverseTransactionDate, setReverseTransactionDate] = useState(dateISO());
   const [reverseTransactionNote, setReverseTransactionNote] = useState('');
+  const [assignOfficerOpen, setAssignOfficerOpen] = useState(false);
+  const [assignOfficerBusy, setAssignOfficerBusy] = useState(false);
+  const [assignedOfficerId, setAssignedOfficerId] = useState('');
+  const [assignmentDate, setAssignmentDate] = useState(dateISO());
+  const [paymentTypeOptions, setPaymentTypeOptions] = useState([]);
+  const [fineractActionOpen, setFineractActionOpen] = useState('');
+  const [fineractActionBusy, setFineractActionBusy] = useState(false);
+  const [fineractActionDate, setFineractActionDate] = useState(dateISO());
+  const [fineractActionAmount, setFineractActionAmount] = useState('');
+  const [fineractActionNote, setFineractActionNote] = useState('');
+  const [fineractActionPaymentTypeId, setFineractActionPaymentTypeId] = useState('');
+  const [fineractActionExternalId, setFineractActionExternalId] = useState('');
+  const [fineractActionChargeId, setFineractActionChargeId] = useState('');
+  const [fineractActionCustomCommand, setFineractActionCustomCommand] = useState('');
+  const [fineractActionPayload, setFineractActionPayload] = useState('{}');
+  const returnTo = location?.state?.returnTo;
+  const returnTab = location?.state?.tab;
+  const goBack = () => {
+    if (returnTo) {
+      navigate(returnTo, { state: { tab: returnTab || 'loans' } });
+      return;
+    }
+    navigate('/gateway/loans');
+  };
 
   const load = async () => {
     setLoading(true);
@@ -417,6 +576,37 @@ const GwLoanDetails = () => {
   useEffect(() => {
     const fineractLoanId = doc?.fineractLoanId ? String(doc.fineractLoanId) : '';
     loadFineractLoanData(fineractLoanId);
+  }, [doc?.fineractLoanId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fineractLoanId = String(doc?.fineractLoanId || '').trim();
+    if (!fineractLoanId) {
+      setPaymentTypeOptions([]);
+      return () => {};
+    }
+    (async () => {
+      try {
+        const t = await api.get(`/loans/${encodeURIComponent(fineractLoanId)}`, { params: { template: true } });
+        if (cancelled) return;
+        const ptypes =
+          t?.data?.paymentTypeOptions ||
+          t?.data?.paymentTypeOptionsForRepayment ||
+          t?.data?.paymentTypeOptionsForDisbursement ||
+          [];
+        setPaymentTypeOptions(Array.isArray(ptypes)
+          ? ptypes.map((o) => ({
+            id: o.id ?? o.value ?? o.code,
+            name: o.name ?? o.value ?? o.code ?? `Type ${o.id}`,
+          }))
+          : []);
+      } catch (_) {
+        if (!cancelled) setPaymentTypeOptions([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [doc?.fineractLoanId]);
 
   useEffect(() => {
@@ -559,6 +749,16 @@ const GwLoanDetails = () => {
     payerEmail: normalizeText(customerProfile?.email),
   }), [customerProfile, doc?.customerFullName, doc?.customerPhone]);
   const customerDisplayName = customerRepaymentIdentity.payerName || normalizeText(doc?.customerId);
+  const currentLoanOfficerId = firstNumeric(fxLoan?.loanOfficerId, fxLoan?.loanOfficer?.id, doc?.loanOfficerId);
+  const currentLoanOfficerName = normalizeText(
+    fxLoan?.loanOfficerName
+    || fxLoan?.loanOfficer?.displayName
+    || fxLoan?.loanOfficer?.name
+    || doc?.loanOfficerName
+  );
+  const hasAssignedLoanOfficer = currentLoanOfficerId != null || Boolean(currentLoanOfficerName);
+  const canAssignLoanOfficer = hasFineractLoanId && !hasAssignedLoanOfficer && statusUpper !== 'CLOSED';
+  const canOpenAdvancedFineractActions = hasFineractLoanId;
   const canRepayViaSelcom =
     hasFineractLoanId &&
     (statusUpper === 'ACTIVE' || statusUpper === 'DISBURSED' || fxStatusUpper.includes('ACTIVE')) &&
@@ -573,28 +773,32 @@ const GwLoanDetails = () => {
   const primaryWorkflowActions = [
     {
       key: 'approve',
-      label: 'Approve',
+      icon: CheckCircle,
+      tone: 'emerald',
       title: 'Approve loan',
       onClick: () => setApproveOpen(true),
       show: canApprove,
     },
     {
       key: 'disburse',
-      label: 'Disburse',
+      icon: Wallet,
+      tone: 'cyan',
       title: 'Disburse loan',
       onClick: openDisburseModal,
       show: canDisburse,
     },
     {
       key: 'repay',
-      label: 'Repay Loan',
-      title: 'Repay loan via Selcom USSD push',
+      icon: ReceiptText,
+      tone: 'emerald',
+      title: 'Repay loan',
       onClick: openRepayModal,
       show: canRepayViaSelcom,
     },
     {
       key: 'refund',
-      label: 'Refund',
+      icon: RotateCcw,
+      tone: 'amber',
       title: 'Refund overpaid amount',
       onClick: openRefundModal,
       show: canRefund,
@@ -603,30 +807,162 @@ const GwLoanDetails = () => {
   const secondaryWorkflowActions = [
     {
       key: 'reject',
-      label: 'Reject',
+      icon: XCircle,
+      tone: 'rose',
       title: 'Reject loan',
       onClick: () => openSimpleActionModal('reject'),
       show: canReject,
-      variant: 'danger',
     },
     {
       key: 'undo-approval',
-      label: 'Undo Approval',
+      icon: Undo2,
+      tone: 'amber',
       title: 'Undo approval',
       onClick: () => openSimpleActionModal('undoApproval'),
       show: canUndoApproval,
-      variant: 'secondary',
     },
     {
       key: 'undo-disbursement',
-      label: 'Undo Disbursement',
+      icon: RotateCcw,
+      tone: 'amber',
       title: 'Undo disbursement',
       onClick: () => openSimpleActionModal('undodisbursal'),
       show: canUndoDisbursement,
-      variant: 'secondary',
     },
   ].filter((item) => item.show);
   const hasAnyWorkflowAction = primaryWorkflowActions.length > 0 || secondaryWorkflowActions.length > 0;
+  const isClosedLike = statusUpper === 'CLOSED' || fxStatusUpper.includes('CLOSED');
+  const isWrittenOffLike = fxStatusUpper.includes('WRITTEN OFF') || fxStatusUpper.includes('WRITEOFF');
+  const isActiveLike = statusUpper === 'ACTIVE' || statusUpper === 'DISBURSED' || fxStatusUpper.includes('ACTIVE') || fxStatusUpper.includes('DISBURSED');
+  const availableChargeIds = useMemo(() => {
+    const chargeRows = Array.isArray(fxLoan?.charges) ? fxLoan.charges : [];
+    return chargeRows
+      .map((item) => ({
+        value: String(item?.id ?? item?.chargeId ?? ''),
+        label: `${item?.name || item?.chargeName || 'Charge'}${item?.id || item?.chargeId ? ` (#${item?.id ?? item?.chargeId})` : ''}`,
+      }))
+      .filter((item) => item.value);
+  }, [fxLoan?.charges]);
+  const fineractPresetActions = [
+    { key: 'reschedule', show: hasFineractLoanId && isActiveLike && !isClosedLike && !isWrittenOffLike },
+    { key: 'waiveInterest', show: hasFineractLoanId && isActiveLike && !isClosedLike && !isWrittenOffLike },
+    { key: 'writeoff', show: hasFineractLoanId && isActiveLike && !isClosedLike && !isWrittenOffLike },
+    { key: 'undowriteoff', show: hasFineractLoanId && isWrittenOffLike },
+    { key: 'undoWaiveInterest', show: hasFineractLoanId && !isClosedLike },
+    { key: 'prepayLoan', show: hasFineractLoanId && isActiveLike && !isClosedLike && !isWrittenOffLike },
+    { key: 'close-rescheduled', show: hasFineractLoanId && !isClosedLike && !isWrittenOffLike },
+    { key: 'close', show: hasFineractLoanId && !isClosedLike && !isWrittenOffLike },
+    { key: 'waiveLoanCharge', show: hasFineractLoanId && availableChargeIds.length > 0 && !isClosedLike },
+    { key: 'payLoanCharge', show: hasFineractLoanId && availableChargeIds.length > 0 && !isClosedLike },
+    { key: 'waivePenalty', show: hasFineractLoanId && availableChargeIds.length > 0 && !isClosedLike },
+    { key: 'custom', show: hasFineractLoanId },
+  ].filter((item) => item.show).map((item) => {
+    const toneMap = {
+      reschedule: 'violet',
+      waiveInterest: 'amber',
+      writeoff: 'rose',
+      undowriteoff: 'amber',
+      undoWaiveInterest: 'amber',
+      prepayLoan: 'emerald',
+      'close-rescheduled': 'cyan',
+      close: 'slate',
+      waiveLoanCharge: 'amber',
+      payLoanCharge: 'emerald',
+      waivePenalty: 'rose',
+      custom: 'slate',
+    };
+    return { ...item, ...FINERACT_ACTIONS[item.key], tone: toneMap[item.key] || 'slate' };
+  });
+
+  const submitAssignLoanOfficer = async () => {
+    if (!doc?.fineractLoanId) {
+      addToast('Fineract loan id is missing', 'error');
+      return;
+    }
+    if (!assignedOfficerId) {
+      addToast('Select a loan officer', 'error');
+      return;
+    }
+    setAssignOfficerBusy(true);
+    try {
+      await api.post(`/loans/${encodeURIComponent(String(doc.fineractLoanId))}?command=assignLoanOfficer`, {
+        toLoanOfficerId: Number(assignedOfficerId),
+        assignmentDate,
+        dateFormat: 'yyyy-MM-dd',
+        locale: 'en',
+        fromLoanOfficerId: '',
+      });
+      setAssignOfficerOpen(false);
+      addToast('Loan officer assigned', 'success');
+      await refreshLoanViews();
+    } catch (e) {
+      addToast(extractGatewayErrorMessage(e, 'Assign loan officer failed'), 'error');
+    } finally {
+      setAssignOfficerBusy(false);
+    }
+  };
+
+  const openFineractActionModal = (actionKey) => {
+    const meta = FINERACT_ACTIONS[actionKey];
+    if (!meta) return;
+    setFineractActionDate(dateISO());
+    setFineractActionAmount('');
+    setFineractActionNote('');
+    setFineractActionPaymentTypeId('');
+    setFineractActionExternalId('');
+    setFineractActionChargeId(availableChargeIds[0]?.value || '');
+    setFineractActionCustomCommand('');
+    setFineractActionPayload('{}');
+    setFineractActionOpen(actionKey);
+  };
+
+  const submitFineractAction = async () => {
+    const meta = FINERACT_ACTIONS[fineractActionOpen];
+    const fineractLoanId = String(doc?.fineractLoanId || '').trim();
+    if (!meta || !fineractLoanId) return;
+    if (meta.needsChargeId && !String(fineractActionChargeId || '').trim()) {
+      addToast('Charge ID is required', 'error');
+      return;
+    }
+    if (meta.needsCustomCommand && !String(fineractActionCustomCommand || '').trim()) {
+      addToast('Command is required', 'error');
+      return;
+    }
+
+    let payload;
+    try {
+      payload = meta.needsPayload
+        ? JSON.parse(fineractActionPayload || '{}')
+        : meta.buildPayload({
+          date: fineractActionDate,
+          amount: fineractActionAmount,
+          note: fineractActionNote,
+          paymentTypeId: fineractActionPaymentTypeId,
+          externalId: fineractActionExternalId,
+        });
+    } catch (_) {
+      addToast('Payload must be valid JSON', 'error');
+      return;
+    }
+
+    setFineractActionBusy(true);
+    try {
+      const commandName = meta.needsCustomCommand ? fineractActionCustomCommand.trim() : fineractActionOpen;
+      const path = meta.endpoint === 'transactions'
+        ? `/loans/${encodeURIComponent(fineractLoanId)}/transactions?command=${encodeURIComponent(commandName)}`
+        : meta.endpoint === 'charges'
+          ? `/loans/${encodeURIComponent(fineractLoanId)}/charges/${encodeURIComponent(String(fineractActionChargeId).trim())}?command=${encodeURIComponent(commandName)}`
+          : `/loans/${encodeURIComponent(fineractLoanId)}?command=${encodeURIComponent(commandName)}`;
+      await api.post(path, payload);
+      addToast(`${meta.title} submitted`, 'success');
+      setFineractActionOpen('');
+      await refreshLoanViews();
+    } catch (e) {
+      addToast(extractGatewayErrorMessage(e, `${meta.title} failed`), 'error');
+    } finally {
+      setFineractActionBusy(false);
+    }
+  };
 
   const filteredBankNameOptions = useMemo(() => {
     const requiredType = BANK_NAME_TYPE_BY_DISBURSEMENT[disbursementType];
@@ -1070,7 +1406,7 @@ const GwLoanDetails = () => {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="secondary" onClick={() => navigate('/gateway/loans')}>
+            <Button variant="secondary" onClick={goBack}>
               Back
             </Button>
             <Can any={['GW_OPS_WRITE']}>
@@ -1078,32 +1414,66 @@ const GwLoanDetails = () => {
                 <Button
                   key={action.key}
                   size="sm"
+                  variant="ghost"
+                  className={`h-10 w-10 rounded-xl p-0 shadow-sm ${actionButtonClass(action.tone)}`}
                   onClick={action.onClick}
                   title={action.title}
+                  aria-label={action.title}
                 >
-                  {action.label}
+                  <action.icon size={18} strokeWidth={2.2} />
                 </Button>
               )) : null}
               {doc ? secondaryWorkflowActions.map((action) => (
                 <Button
                   key={action.key}
                   size="sm"
-                  variant={action.variant || 'secondary'}
+                  variant="ghost"
+                  className={`h-10 w-10 rounded-xl p-0 shadow-sm ${actionButtonClass(action.tone)}`}
                   onClick={action.onClick}
                   title={action.title}
+                  aria-label={action.title}
                 >
-                  {action.label}
+                  <action.icon size={18} strokeWidth={2.2} />
                 </Button>
               )) : null}
-              {doc && canDeleteLoan ? (
+              {doc && canAssignLoanOfficer ? (
                 <Button
-                  variant="danger"
-                  onClick={doDelete}
-                  disabled={saving}
+                  size="sm"
+                  variant="ghost"
+                  className={`h-10 w-10 rounded-xl p-0 shadow-sm ${actionButtonClass('violet')}`}
+                  onClick={() => setAssignOfficerOpen(true)}
+                  title="Assign loan officer"
+                  aria-label="Assign loan officer"
                 >
-                  Delete
+                  <UserPlus size={18} strokeWidth={2.2} />
                 </Button>
               ) : null}
+              {doc && canDeleteLoan ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className={`h-10 w-10 rounded-xl p-0 shadow-sm ${actionButtonClass('rose')}`}
+                  onClick={doDelete}
+                  disabled={saving}
+                  title="Delete loan"
+                  aria-label="Delete loan"
+                >
+                  <Trash2 size={18} strokeWidth={2.2} />
+                </Button>
+              ) : null}
+              {doc && canOpenAdvancedFineractActions ? fineractPresetActions.map((action) => (
+                <Button
+                  key={action.key}
+                  size="sm"
+                  variant="ghost"
+                  className={`h-10 w-10 rounded-xl p-0 shadow-sm ${actionButtonClass(action.tone)}`}
+                  onClick={() => openFineractActionModal(action.key)}
+                  title={action.title}
+                  aria-label={action.title}
+                >
+                  <action.icon size={18} strokeWidth={2.2} />
+                </Button>
+              )) : null}
             </Can>
           </div>
         </div>
@@ -1176,6 +1546,7 @@ const GwLoanDetails = () => {
             <div className="mt-3 grid gap-2 rounded-lg border border-slate-200/70 bg-slate-50/60 px-3 py-2 dark:border-slate-700/60 dark:bg-slate-900/30 sm:grid-cols-2 lg:grid-cols-4">
               <Field label="Current Status" value={doc?.status} />
               <Field label="Fineract Status" value={fxStatusText || (fxLoading ? 'Loading...' : '')} />
+              <Field label="Loan Officer" value={currentLoanOfficerName} />
               <Field label="Expected Disbursement" value={formatDisplayDate(doc?.expectedDisbursementDate)} />
               <Field label="Overpaid Amount" value={overpaidAmount != null ? formatMoney(overpaidAmount) : ''} />
             </div>
@@ -1220,6 +1591,7 @@ const GwLoanDetails = () => {
                   <div className="mb-4 text-sm font-semibold">Loan Summary</div>
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     <Field label="Customer Name" value={customerDisplayName} />
+                    <Field label="Loan Officer" value={currentLoanOfficerName} />
                     <Field label="Platform Loan ID" value={doc?.platformLoanId} mono />
                     <Field label="Fineract Loan ID" value={doc?.fineractLoanId} mono />
                     <Field label="Product" value={doc?.productCode} />
@@ -1383,6 +1755,161 @@ const GwLoanDetails = () => {
           </div>
         </div>
       )}
+
+      <Modal
+        open={!!fineractActionOpen}
+        onClose={() => (fineractActionBusy ? null : setFineractActionOpen(''))}
+        title={FINERACT_ACTIONS[fineractActionOpen]?.title || 'Fineract Action'}
+        size="lg"
+        footer={(
+          <>
+            <Button variant="secondary" onClick={() => setFineractActionOpen('')} disabled={fineractActionBusy}>
+              Cancel
+            </Button>
+            <Button onClick={submitFineractAction} disabled={fineractActionBusy}>
+              {fineractActionBusy ? 'Submitting...' : 'Submit'}
+            </Button>
+          </>
+        )}
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
+          {FINERACT_ACTIONS[fineractActionOpen]?.needsDate ? (
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Date</label>
+              <input
+                type="date"
+                value={fineractActionDate}
+                onChange={(e) => setFineractActionDate(e.target.value)}
+                className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+              />
+            </div>
+          ) : null}
+          {FINERACT_ACTIONS[fineractActionOpen]?.needsAmount ? (
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Amount</label>
+              <input
+                inputMode="decimal"
+                value={fineractActionAmount}
+                onChange={(e) => setFineractActionAmount(e.target.value)}
+                className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+              />
+            </div>
+          ) : null}
+          {FINERACT_ACTIONS[fineractActionOpen]?.needsPaymentType ? (
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Payment Type</label>
+              <select
+                value={fineractActionPaymentTypeId}
+                onChange={(e) => setFineractActionPaymentTypeId(e.target.value)}
+                className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+              >
+                <option value="">Select payment type</option>
+                {paymentTypeOptions.map((item) => (
+                  <option key={item.id} value={item.id}>{item.name}</option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+          {FINERACT_ACTIONS[fineractActionOpen]?.needsExternalId ? (
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">External ID</label>
+              <input
+                value={fineractActionExternalId}
+                onChange={(e) => setFineractActionExternalId(e.target.value)}
+                className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+              />
+            </div>
+          ) : null}
+          {FINERACT_ACTIONS[fineractActionOpen]?.needsChargeId ? (
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Charge</label>
+              <select
+                value={fineractActionChargeId}
+                onChange={(e) => setFineractActionChargeId(e.target.value)}
+                className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+              >
+                <option value="">Select charge</option>
+                {availableChargeIds.map((item) => (
+                  <option key={item.value} value={item.value}>{item.label}</option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+          {FINERACT_ACTIONS[fineractActionOpen]?.needsCustomCommand ? (
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Command</label>
+              <input
+                value={fineractActionCustomCommand}
+                onChange={(e) => setFineractActionCustomCommand(e.target.value)}
+                className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+              />
+            </div>
+          ) : null}
+          {FINERACT_ACTIONS[fineractActionOpen]?.needsNote ? (
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Note</label>
+              <textarea
+                rows={3}
+                value={fineractActionNote}
+                onChange={(e) => setFineractActionNote(e.target.value)}
+                className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+              />
+            </div>
+          ) : null}
+          {FINERACT_ACTIONS[fineractActionOpen]?.needsPayload ? (
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Payload</label>
+              <textarea
+                rows={10}
+                value={fineractActionPayload}
+                onChange={(e) => setFineractActionPayload(e.target.value)}
+                className="mt-1 w-full rounded-xl border p-2.5 font-mono text-xs dark:bg-gray-900 dark:border-gray-600"
+              />
+            </div>
+          ) : null}
+        </div>
+      </Modal>
+
+      <Modal
+        open={assignOfficerOpen}
+        onClose={() => (assignOfficerBusy ? null : setAssignOfficerOpen(false))}
+        title="Assign Loan Officer"
+        size="lg"
+        footer={(
+          <>
+            <Button variant="secondary" onClick={() => setAssignOfficerOpen(false)} disabled={assignOfficerBusy}>
+              Cancel
+            </Button>
+            <Button onClick={submitAssignLoanOfficer} disabled={assignOfficerBusy}>
+              {assignOfficerBusy ? 'Assigning...' : 'Assign Officer'}
+            </Button>
+          </>
+        )}
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Loan Officer</label>
+            <StaffSelect
+              value={assignedOfficerId}
+              onChange={setAssignedOfficerId}
+              loanOfficerOnly
+              className="mt-1"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Assignment Date</label>
+            <input
+              type="date"
+              value={assignmentDate}
+              onChange={(e) => setAssignmentDate(e.target.value)}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+          <div className="rounded-xl border border-slate-200/70 bg-slate-50 px-3 py-3 text-xs text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/50 dark:text-slate-300">
+            Assign the selected officer to the mapped Fineract loan. The loan page will refresh after a successful assignment.
+          </div>
+        </div>
+      </Modal>
 
       <Modal
         open={transactionDetailOpen}

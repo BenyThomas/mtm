@@ -15,7 +15,7 @@ export const fetchStaffByOffice = async (officeId) => {
         id: s.id,
         displayName:
             s.displayName ||
-            `${s.firstname || s.firstName || ''} ${s.lastname || s.lastName || ''}`.trim() ||
+            `${s.firstname || s.firstName || ''} ${s.middlename || s.middleName || ''} ${s.lastname || s.lastName || ''}`.trim().replace(/\s+/g, ' ') ||
             `Staff ${s.id}`,
     }));
 };

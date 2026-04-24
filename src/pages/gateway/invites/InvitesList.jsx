@@ -59,8 +59,9 @@ const timeAgo = (iso) => {
 
 const renderName = (it) => {
   const fn = (it?.prefill?.firstName || '').trim();
+  const mn = (it?.prefill?.middleName || '').trim();
   const ln = (it?.prefill?.lastName || '').trim();
-  const full = `${fn} ${ln}`.trim();
+  const full = `${fn} ${mn} ${ln}`.trim();
   return full || '-';
 };
 
@@ -72,6 +73,7 @@ const inviteFormInit = {
   multiUse: false,
   phoneNumber: '',
   firstName: '',
+  middleName: '',
   lastName: '',
 };
 
@@ -219,6 +221,7 @@ const InvitesList = () => {
       multiUse: Number(invite?.maxUses || 0) === 0,
       phoneNumber: String(invite?.prefill?.phoneNumber || ''),
       firstName: String(invite?.prefill?.firstName || ''),
+      middleName: String(invite?.prefill?.middleName || ''),
       lastName: String(invite?.prefill?.lastName || ''),
     });
     setInviteOpen(true);
@@ -228,6 +231,10 @@ const InvitesList = () => {
     e?.preventDefault?.();
     setSavingInvite(true);
     try {
+      if (!inviteForm.phoneNumber.trim() || !inviteForm.firstName.trim() || !inviteForm.middleName.trim() || !inviteForm.lastName.trim()) {
+        addToast('Phone, first name, middle name, and last name are required', 'error');
+        return;
+      }
       const effectiveStaffId = isLoanOfficerUser && loggedInStaffId ? loggedInStaffId : inviteForm.referrerId;
       const payload = {
         referrerId: effectiveStaffId ? String(effectiveStaffId) : null,
@@ -238,6 +245,7 @@ const InvitesList = () => {
         prefill: {
           phoneNumber: inviteForm.phoneNumber.trim() || null,
           firstName: inviteForm.firstName.trim() || null,
+          middleName: inviteForm.middleName.trim() || null,
           lastName: inviteForm.lastName.trim() || null,
         },
       };
@@ -518,11 +526,15 @@ const InvitesList = () => {
           </div>
           <div>
             <label className="block text-sm font-medium">First Name</label>
-            <input className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={inviteForm.firstName} onChange={(e) => setInviteForm((prev) => ({ ...prev, firstName: e.target.value }))} />
+            <input className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={inviteForm.firstName} onChange={(e) => setInviteForm((prev) => ({ ...prev, firstName: e.target.value }))} required />
+          </div>
+          <div>
+            <label className="block text-sm font-medium">Middle Name</label>
+            <input className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={inviteForm.middleName} onChange={(e) => setInviteForm((prev) => ({ ...prev, middleName: e.target.value }))} required />
           </div>
           <div>
             <label className="block text-sm font-medium">Last Name</label>
-            <input className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={inviteForm.lastName} onChange={(e) => setInviteForm((prev) => ({ ...prev, lastName: e.target.value }))} />
+            <input className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={inviteForm.lastName} onChange={(e) => setInviteForm((prev) => ({ ...prev, lastName: e.target.value }))} required />
           </div>
         </form>
       </Modal>
