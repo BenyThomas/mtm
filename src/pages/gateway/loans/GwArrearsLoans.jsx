@@ -92,7 +92,7 @@ const GwArrearsLoans = () => {
         });
         if (cancelled) return;
         const items = Array.isArray(data?.items) ? data.items : [];
-        setRows(items.map((item) => ({ ...item, id: item?.platformLoanId })));
+        setRows(items.map((item, index) => ({ ...item, id: item?.platformLoanId || item?.loanAccount || `arrears-${index}` })));
         setTotal(Number(data?.total || items.length || 0));
         setSummary(data?.summary || null);
       } catch (_) {
@@ -129,7 +129,7 @@ const GwArrearsLoans = () => {
         sortable: true,
         render: (r) => (
           <div className="min-w-[180px]">
-            <div className="font-medium text-slate-900 dark:text-slate-50">{r?.customerFullName || r?.customerId || '-'}</div>
+            <div className="font-medium text-slate-900 dark:text-slate-50">{r?.customerFullName || r?.customerName || r?.customerId || '-'}</div>
           </div>
         ),
       },
@@ -143,7 +143,7 @@ const GwArrearsLoans = () => {
         key: 'productCode',
         header: 'Product',
         sortable: false,
-        render: (r) => r?.productCode || '-',
+        render: (r) => r?.productCode || r?.product || '-',
       },
       {
         key: 'daysInArrears',
@@ -197,7 +197,7 @@ const GwArrearsLoans = () => {
         key: 'fineractStatusText',
         header: 'Fineract Status',
         sortable: false,
-        render: (r) => <Badge tone={statusTone(r?.fineractStatusText)}>{r?.fineractStatusText || r?.status || '-'}</Badge>,
+        render: (r) => <Badge tone={statusTone(r?.fineractStatusText || r?.accountStatus)}>{r?.fineractStatusText || r?.accountStatus || r?.status || '-'}</Badge>,
       },
       {
         key: 'actions',

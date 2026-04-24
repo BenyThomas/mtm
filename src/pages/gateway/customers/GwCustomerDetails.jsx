@@ -16,6 +16,7 @@ import { getGwCustomerSummary, updateGwCustomerProfile } from '../../../api/gate
 import { applyGwLoanOnBehalf, getGwLoanEligibilityForCustomer, listGwLoans } from '../../../api/gateway/loans';
 import { listLoanPurposesOps } from '../../../api/gateway/loanPurposes';
 import { listOpsResources } from '../../../api/gateway/opsResources';
+import { getGwLoanStatusCode, getGwLoanStatusLabel, isGwLoanBlockingStatus } from '../../../utils/gwLoanStatus';
 
 const profileFormInit = {
   firstName: '',
@@ -51,18 +52,6 @@ const statusTone = (value) => {
   if (normalized.includes('PENDING') || normalized.includes('OPEN') || normalized.includes('CREATED')) return 'yellow';
   if (normalized.includes('CLOSE') || normalized.includes('REJECT') || normalized.includes('WITHDRAW') || normalized.includes('FAIL') || normalized.includes('EXPIRE')) return 'red';
   return 'gray';
-};
-
-const statusLabel = (value) => {
-  const v = String(value || '').toUpperCase();
-  if (['SUBMITTED', 'CREATED_IN_FINERACT', 'PENDING', 'PENDING_UPSTREAM'].includes(v)) return 'PENDING_APPROVAL';
-  if (v === 'APPROVED') return 'APPROVED';
-  if (v === 'ACTIVE' || v === 'DISBURSED') return 'ACTIVE';
-  if (v === 'OVERDUE') return 'OVERDUE';
-  if (v === 'OVERPAID') return 'OVERPAID';
-  if (v === 'CLOSED') return 'CLOSED';
-  if (v === 'UPSTREAM_FAILED') return 'UPSTREAM_FAILED';
-  return value || '-';
 };
 
 const LOAN_STATUS_FILTER_OPTIONS = [
@@ -200,11 +189,6 @@ const resolveEligibilityMatch = (data, productCode) => {
     };
   }
   return null;
-};
-
-const isBlockingLoanStatus = (status) => {
-  const normalized = normalizeText(status);
-  return normalized && !['CLOSED', 'REJECTED', 'DECLINED', 'CANCELLED', 'CANCELED', 'WITHDRAWN', 'WITHDRAWN_BY_APPLICANT', 'UPSTREAM_FAILED', 'OVERPAID'].includes(normalized);
 };
 
 const toDateInput = (value) => {
@@ -359,7 +343,7 @@ const GwCustomerDetails = () => {
     : 'UNKNOWN';
   const initialTab = location?.state?.tab || 'overview';
   const applyLoanCustomerId = customer?.gatewayCustomerId || customer?.platformCustomerId || customerId;
-  const hasBlockingLoan = useMemo(() => (loans || []).some((loan) => isBlockingLoanStatus(loan?.statusCode || loan?.status)), [loans]);
+  const hasBlockingLoan = useMemo(() => (loans || []).some((loan) => isGwLoanBlockingStatus(loan)), [loans]);
   const canApplyLoanOnBehalf = Boolean(applyLoanCustomerId) && !hasBlockingLoan;
   const hasAssignedStaff = Boolean(fineractClient?.staffId || fineractClient?.staffName);
   const clientActions = useMemo(() => {
@@ -440,7 +424,7 @@ const GwCustomerDetails = () => {
     const wantedProduct = String(loanProduct || '').trim().toUpperCase();
     return (loans || []).filter((loan) => {
       const productCode = String(loan?.productCode || '').toUpperCase();
-      const displayStatus = String(statusLabel(loan?.statusCode || loan?.status) || '').toUpperCase();
+      const displayStatus = getGwLoanStatusCode(loan);
       if (wantedStatus && displayStatus !== wantedStatus) return false;
       if (wantedProduct && productCode !== wantedProduct) return false;
       return true;
@@ -582,7 +566,7 @@ const GwCustomerDetails = () => {
       header: 'Status',
       sortable: false,
       render: (loan) => {
-        const displayStatus = statusLabel(loan?.statusCode || loan?.status);
+        const displayStatus = getGwLoanStatusLabel(loan);
         return <Badge tone={statusTone(displayStatus)}>{displayStatus}</Badge>;
       },
     },

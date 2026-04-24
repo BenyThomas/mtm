@@ -13,6 +13,7 @@ import { listLoanPurposesOps } from '../../../api/gateway/loanPurposes';
 import api from '../../../api/axios';
 import gatewayApi from '../../../api/gatewayAxios';
 import { useToast } from '../../../context/ToastContext';
+import { getGwLoanStatusCode, getGwLoanStatusLabel, getGwLoanStatusTone, isGwLoanBlockingStatus } from '../../../utils/gwLoanStatus';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
 
@@ -26,29 +27,6 @@ const STATUS_OPTIONS = [
   { value: 'CLOSED', label: 'Closed' },
   { value: 'UPSTREAM_FAILED', label: 'Failed' },
 ];
-
-const statusLabel = (value) => {
-  const v = String(value || '').toUpperCase();
-  if (['SUBMITTED', 'CREATED_IN_FINERACT', 'PENDING', 'PENDING_UPSTREAM'].includes(v)) return 'PENDING_APPROVAL';
-  if (v === 'APPROVED') return 'APPROVED';
-  if (v === 'ACTIVE' || v === 'DISBURSED') return 'ACTIVE';
-  if (v === 'OVERPAID') return 'OVERPAID';
-  if (v === 'CLOSED') return 'CLOSED';
-  if (v === 'UPSTREAM_FAILED') return 'UPSTREAM_FAILED';
-  return value || '-';
-};
-
-const statusTone = (s) => {
-  const v = String(s || '').toUpperCase();
-  if (['SUBMITTED', 'CREATED_IN_FINERACT', 'PENDING', 'PENDING_UPSTREAM'].includes(v)) return 'yellow';
-  if (v === 'APPROVED') return 'cyan';
-  if (v === 'ACTIVE' || v === 'DISBURSED') return 'green';
-  if (v === 'OVERDUE') return 'red';
-  if (v === 'OVERPAID') return 'emerald';
-  if (v === 'CLOSED') return 'gray';
-  if (v === 'UPSTREAM_FAILED') return 'red';
-  return 'blue';
-};
 
 const unwrap = (body) => (body && typeof body === 'object' && 'data' in body ? body.data : body);
 const normalizeText = (value) => String(value || '').trim().toUpperCase();
@@ -113,11 +91,6 @@ const resolveEligibilityMatch = (data, productCode) => {
     };
   }
   return null;
-};
-
-const isBlockingLoanStatus = (status) => {
-  const normalized = normalizeText(status);
-  return normalized && !['CLOSED', 'REJECTED', 'DECLINED', 'CANCELLED', 'CANCELED', 'WITHDRAWN', 'WITHDRAWN_BY_APPLICANT', 'UPSTREAM_FAILED', 'OVERPAID'].includes(normalized);
 };
 
 const customerLabel = (loan) => {
@@ -387,10 +360,10 @@ const GwLoansList = () => {
         try {
           const data = await listGwLoans({ q: lookupId, limit: 50, offset: 0, orderBy: 'appliedAt', sortOrder: 'desc' });
           const items = Array.isArray(data?.items) ? data.items : [];
-          const blocking = items.find((item) => isBlockingLoanStatus(item?.status));
+          const blocking = items.find((item) => isGwLoanBlockingStatus(item));
           next[key] = {
             blocked: !!blocking,
-            reason: blocking ? `Blocked by ${String(blocking.status || 'loan workflow')}` : '',
+            reason: blocking ? `Blocked by ${getGwLoanStatusLabel(blocking)}` : '',
           };
         } catch (_) {
           next[key] = { blocked: false, reason: '' };
@@ -641,8 +614,9 @@ const GwLoansList = () => {
         header: 'Status',
         sortable: true,
         render: (r) => {
-          const displayStatus = status === 'OVERDUE' ? 'OVERDUE' : statusLabel(r?.status);
-          return <Badge tone={statusTone(displayStatus)}>{displayStatus === 'OVERDUE' ? 'Overdue' : displayStatus}</Badge>;
+          const displayStatus = status === 'OVERDUE' ? 'Overdue' : getGwLoanStatusLabel(r);
+          const tone = status === 'OVERDUE' ? getGwLoanStatusTone('OVERDUE') : getGwLoanStatusTone(r);
+          return <Badge tone={tone}>{displayStatus}</Badge>;
         },
       },
       {

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { Eye, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Eye, Pencil, Send, Trash2 } from 'lucide-react';
 import Card from '../../../components/Card';
 import Button from '../../../components/Button';
 import DataTable from '../../../components/DataTable';
@@ -77,7 +77,8 @@ const inviteFormInit = {
   lastName: '',
 };
 
-const InvitesList = () => {
+const InvitesList = ({ embedded = false, autoOpenCreate = false, onAutoOpenConsumed }) => {
+  const location = useLocation();
   const navigate = useNavigate();
   const { addToast } = useToast();
   const { user } = useAuth();
@@ -208,6 +209,18 @@ const InvitesList = () => {
     });
     setInviteOpen(true);
   };
+
+  useEffect(() => {
+    if (!location?.state?.openCreate) return;
+    openCreateModal();
+    navigate(location.pathname, { replace: true, state: {} });
+  }, [location?.pathname, location?.state, navigate, campaignOptions, channelOptions, loggedInStaffId]);
+
+  useEffect(() => {
+    if (!embedded || !autoOpenCreate) return;
+    openCreateModal();
+    onAutoOpenConsumed?.();
+  }, [embedded, autoOpenCreate, campaignOptions, channelOptions, loggedInStaffId, onAutoOpenConsumed]);
 
   const openEditModal = (invite, e) => {
     e?.stopPropagation?.();
@@ -352,32 +365,34 @@ const InvitesList = () => {
 
   return (
     <div className="space-y-4">
-      <section>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">Invites</h1>
-            <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-              Create and manage onboarding invitation links
+      {!embedded ? (
+        <section>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h1 className="text-2xl font-bold">Invites</h1>
+              <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+                Create and manage onboarding invitation links
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Can any={INVITE_READ_PERMISSIONS}>
+                <div className="hidden sm:block text-right">
+                  <div className="text-xs text-slate-500 dark:text-slate-400">Page</div>
+                  <div className="text-base font-semibold">{page + 1}</div>
+                </div>
+              </Can>
+              <Can any={['CREATE_CLIENT']}>
+                <Button onClick={openCreateModal}><Plus size={16} /> Create Invite</Button>
+              </Can>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Can any={INVITE_READ_PERMISSIONS}>
-              <div className="hidden sm:block text-right">
-                <div className="text-xs text-slate-500 dark:text-slate-400">Page</div>
-                <div className="text-base font-semibold">{page + 1}</div>
-              </div>
-            </Can>
-            <Can any={['CREATE_CLIENT']}>
-              <Button onClick={openCreateModal}><Plus size={16} /> Create Invite</Button>
-            </Can>
-          </div>
-        </div>
-      </section>
+        </section>
+      ) : null}
 
       {/* Filters */}
       <Card>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-          <div className="col-span-2">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="min-w-[260px] flex-1">
             <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
               Search
             </label>
@@ -388,7 +403,7 @@ const InvitesList = () => {
               className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
             />
           </div>
-          <div>
+          <div className="w-full sm:w-[220px]">
             <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
               Status
             </label>
@@ -407,13 +422,16 @@ const InvitesList = () => {
               ))}
             </select>
           </div>
-        </div>
-
-        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <Button variant="secondary" onClick={clearFilters} className="w-full sm:w-auto">
-            Clear
-          </Button>
-          <div className="flex items-center justify-between gap-2 sm:justify-start">
+          <div className="flex flex-row flex-wrap items-center gap-2 sm:ml-auto">
+            <Button variant="secondary" onClick={clearFilters} className="w-full sm:w-auto">
+              Clear
+            </Button>
+            <Can any={['CREATE_CLIENT']}>
+              <Button onClick={openCreateModal} className="w-full sm:w-auto">
+                <Send size={16} />
+                <span className="ml-2">Send Invite</span>
+              </Button>
+            </Can>
             <label className="text-sm text-slate-600 dark:text-slate-300">Rows</label>
             <select
               value={limit}
