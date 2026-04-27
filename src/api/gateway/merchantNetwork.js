@@ -90,10 +90,119 @@ export async function listMerchantCreditAccounts(customerId) {
   return unwrap(response);
 }
 
+export async function getMerchantCreditAccount(merchantCreditAccountId) {
+  const response = await gatewayApi.get(
+    `/ops/merchant-credit-accounts/${encodeURIComponent(merchantCreditAccountId)}`
+  );
+  return unwrap(response);
+}
+
 export async function createMerchantCreditAccountFromLoan(platformLoanId, payload) {
   const response = await gatewayApi.post(
     `/ops/merchant-credit-accounts/from-loan/${encodeURIComponent(platformLoanId)}`,
     payload || {}
   );
+  return unwrap(response);
+}
+
+export async function blockMerchantCreditAccount(merchantCreditAccountId, payload) {
+  const response = await gatewayApi.post(
+    `/ops/merchant-credit-accounts/${encodeURIComponent(merchantCreditAccountId)}/block`,
+    payload || {}
+  );
+  return unwrap(response);
+}
+
+export async function unblockMerchantCreditAccount(merchantCreditAccountId) {
+  const response = await gatewayApi.post(
+    `/ops/merchant-credit-accounts/${encodeURIComponent(merchantCreditAccountId)}/unblock`
+  );
+  return unwrap(response);
+}
+
+export async function closeMerchantCreditAccount(merchantCreditAccountId, payload) {
+  const response = await gatewayApi.post(
+    `/ops/merchant-credit-accounts/${encodeURIComponent(merchantCreditAccountId)}/close`,
+    payload || {}
+  );
+  return unwrap(response);
+}
+
+export async function adjustMerchantCreditAccount(merchantCreditAccountId, payload) {
+  const response = await gatewayApi.post(
+    `/ops/merchant-credit-accounts/${encodeURIComponent(merchantCreditAccountId)}/adjust`,
+    payload || {}
+  );
+  return unwrap(response);
+}
+
+export async function listMerchantTransactions(params) {
+  const response = await gatewayApi.get('/ops/merchant-transactions', { params });
+  return unwrap(response);
+}
+
+export async function getMerchantTransaction(merchantTransactionId) {
+  const response = await gatewayApi.get(`/ops/merchant-transactions/${encodeURIComponent(merchantTransactionId)}`);
+  return unwrap(response);
+}
+
+export async function reverseMerchantTransaction(merchantTransactionId, payload) {
+  const response = await gatewayApi.post(
+    `/ops/merchant-transactions/${encodeURIComponent(merchantTransactionId)}/reverse`,
+    payload || {}
+  );
+  return unwrap(response);
+}
+
+export async function settleMerchantTransaction(merchantTransactionId, payload) {
+  const response = await gatewayApi.post(
+    `/ops/merchant-transactions/${encodeURIComponent(merchantTransactionId)}/settle`,
+    payload || {}
+  );
+  return unwrap(response);
+}
+
+export async function listMerchantSettlementBatches(params) {
+  const response = await gatewayApi.get('/ops/merchant-settlement-batches', { params });
+  return unwrap(response);
+}
+
+export async function getMerchantSettlementBatch(merchantSettlementBatchId) {
+  const response = await gatewayApi.get(
+    `/ops/merchant-settlement-batches/${encodeURIComponent(merchantSettlementBatchId)}`
+  );
+  return unwrap(response);
+}
+
+export async function getMerchantSettlementBatchDetail(merchantSettlementBatchId) {
+  const response = await gatewayApi.get(
+    `/ops/merchant-settlement-batches/${encodeURIComponent(merchantSettlementBatchId)}/detail`
+  );
+  return unwrap(response);
+}
+
+export async function createMerchantSettlementBatch(payload) {
+  const response = await gatewayApi.post('/ops/merchant-settlement-batches', payload || {});
+  return unwrap(response);
+}
+
+export async function payMerchantSettlementBatch(merchantSettlementBatchId, payload) {
+  const response = await gatewayApi.post(
+    `/ops/merchant-settlement-batches/${encodeURIComponent(merchantSettlementBatchId)}/pay`,
+    payload || {}
+  );
+  return unwrap(response);
+}
+
+export async function failMerchantSettlementBatch(merchantSettlementBatchId, payload) {
+  const response = await gatewayApi.post(
+    `/ops/merchant-settlement-batches/${encodeURIComponent(merchantSettlementBatchId)}/fail`,
+    payload || {}
+  );
+  return unwrap(response);
+}
+
+export async function getMerchantSettlementExposureSummary(params) {
+  const response = await gatewayApi.get('/ops/merchant-settlement-batches/exposure-summary', { params });
   return unwrap(response);
 }
