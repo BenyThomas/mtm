@@ -9,11 +9,16 @@ import DataTable from '../../../components/DataTable';
 import Modal from '../../../components/Modal';
 import { listGwLoans } from '../../../api/gateway/loans';
 import {
+  adjustMerchantCreditAccount,
+  blockMerchantCreditAccount,
+  closeMerchantCreditAccount,
   createCustomerVehicle,
   createMerchantCreditAccountFromLoan,
+  getMerchantCreditAccount,
   listCustomerVehicles,
   listMerchantCreditAccounts,
   patchCustomerVehicle,
+  unblockMerchantCreditAccount,
 } from '../../../api/gateway/merchantNetwork';
 import { getOpsResource } from '../../../api/gateway/opsResources';
 import { useToast } from '../../../context/ToastContext';
@@ -27,6 +32,11 @@ const vehicleFormInit = {
   color: '',
   primaryVehicle: false,
   active: true,
+};
+const creditActionFormInit = {
+  reason: '',
+  approvedAmountDelta: '',
+  availableAmountDelta: '',
 };
 
 const fullName = (customer) => {
@@ -72,6 +82,11 @@ const MerchantCustomerDetails = () => {
   const [vehicleForm, setVehicleForm] = useState(vehicleFormInit);
   const [selectedLoanId, setSelectedLoanId] = useState('');
   const [selectedIndustryType, setSelectedIndustryType] = useState('FUEL');
+  const [creditActionOpen, setCreditActionOpen] = useState(false);
+  const [savingCreditAction, setSavingCreditAction] = useState(false);
+  const [selectedCreditAccount, setSelectedCreditAccount] = useState(null);
+  const [creditActionType, setCreditActionType] = useState('');
+  const [creditActionForm, setCreditActionForm] = useState(creditActionFormInit);
 
   const load = async () => {
     setLoading(true);
@@ -194,6 +209,65 @@ const MerchantCustomerDetails = () => {
     setVehicleOpen(true);
   };
 
+  const openCreditAction = async (account, actionType) => {
+    const accountId = account?.merchantCreditAccountId;
+    if (!accountId || !actionType) return;
+    setSavingCreditAction(true);
+    try {
+      const latest = await getMerchantCreditAccount(accountId);
+      setSelectedCreditAccount(latest || account);
+      setCreditActionType(actionType);
+      setCreditActionForm(creditActionFormInit);
+      setCreditActionOpen(true);
+    } catch (e) {
+      const message = e?.response?.data?.errors?.[0]?.details || e?.response?.data?.message || e?.message || 'Failed to load account details';
+      setError(message);
+      addToast(message, 'error');
+    } finally {
+      setSavingCreditAction(false);
+    }
+  };
+
+  const submitCreditAction = async (event) => {
+    event?.preventDefault?.();
+    const accountId = selectedCreditAccount?.merchantCreditAccountId;
+    if (!accountId || !creditActionType) return;
+    setSavingCreditAction(true);
+    setError('');
+    try {
+      if (creditActionType === 'ADJUST') {
+        const approvedAmountDelta = creditActionForm.approvedAmountDelta === '' ? null : Number(creditActionForm.approvedAmountDelta);
+        const availableAmountDelta = creditActionForm.availableAmountDelta === '' ? null : Number(creditActionForm.availableAmountDelta);
+        await adjustMerchantCreditAccount(accountId, {
+          approvedAmountDelta,
+          availableAmountDelta,
+          reason: creditActionForm.reason.trim() || null,
+        });
+        addToast('Credit account adjusted', 'success');
+      } else if (creditActionType === 'BLOCK') {
+        await blockMerchantCreditAccount(accountId, { reason: creditActionForm.reason.trim() || null });
+        addToast('Credit account blocked', 'success');
+      } else if (creditActionType === 'UNBLOCK') {
+        await unblockMerchantCreditAccount(accountId);
+        addToast('Credit account unblocked', 'success');
+      } else if (creditActionType === 'CLOSE') {
+        await closeMerchantCreditAccount(accountId, { reason: creditActionForm.reason.trim() || null });
+        addToast('Credit account closed', 'success');
+      }
+      setCreditActionOpen(false);
+      setSelectedCreditAccount(null);
+      setCreditActionType('');
+      setCreditActionForm(creditActionFormInit);
+      await load();
+    } catch (e) {
+      const message = e?.response?.data?.errors?.[0]?.details || e?.response?.data?.message || e?.message || 'Action failed';
+      setError(message);
+      addToast(message, 'error');
+    } finally {
+      setSavingCreditAction(false);
+    }
+  };
+
   const vehicleColumns = useMemo(() => [
     {
       key: 'registrationNumber',
@@ -279,6 +353,38 @@ const MerchantCustomerDetails = () => {
       header: 'Status',
       sortable: false,
       render: (row) => <Badge tone={toneForStatus(row?.status)}>{row?.status || '-'}</Badge>,
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      sortable: false,
+      render: (row) => {
+        const status = String(row?.status || '').toUpperCase();
+        return (
+          <div className="flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
+            <Can any={['GW_OPS_WRITE', 'GW_OPS_ALL', 'UPDATE_CONFIGURATION', 'CREATE_CONFIGURATION']}>
+              <Button size="sm" variant="ghost" onClick={() => openCreditAction(row, 'ADJUST')} disabled={savingCreditAction}>
+                Adjust
+              </Button>
+              {status === 'ACTIVE' ? (
+                <Button size="sm" variant="ghost" onClick={() => openCreditAction(row, 'BLOCK')} disabled={savingCreditAction}>
+                  Block
+                </Button>
+              ) : null}
+              {status === 'BLOCKED' ? (
+                <Button size="sm" variant="ghost" onClick={() => openCreditAction(row, 'UNBLOCK')} disabled={savingCreditAction}>
+                  Unblock
+                </Button>
+              ) : null}
+              {status !== 'CLOSED' ? (
+                <Button size="sm" variant="ghost" onClick={() => openCreditAction(row, 'CLOSE')} disabled={savingCreditAction}>
+                  Close
+                </Button>
+              ) : null}
+            </Can>
+          </div>
+        );
+      },
     },
   ], []);
 
@@ -507,6 +613,64 @@ const MerchantCustomerDetails = () => {
               {INDUSTRY_OPTIONS.map((value) => <option key={value} value={value}>{value}</option>)}
             </select>
           </div>
+        </form>
+      </Modal>
+
+      <Modal
+        open={creditActionOpen}
+        onClose={() => (savingCreditAction ? null : setCreditActionOpen(false))}
+        title={`${creditActionType || 'Credit'} Merchant Credit`}
+        size="lg"
+        footer={(
+          <>
+            <Button variant="secondary" onClick={() => setCreditActionOpen(false)} disabled={savingCreditAction}>Cancel</Button>
+            <Button onClick={submitCreditAction} disabled={savingCreditAction}>
+              {savingCreditAction ? 'Saving...' : 'Confirm'}
+            </Button>
+          </>
+        )}
+      >
+        <form className="grid gap-4" onSubmit={submitCreditAction}>
+          <div className="text-sm text-slate-600 dark:text-slate-300">
+            Account: <span className="font-medium">{selectedCreditAccount?.merchantCreditAccountId || '-'}</span>
+          </div>
+          {(creditActionType === 'BLOCK' || creditActionType === 'CLOSE' || creditActionType === 'ADJUST') ? (
+            <div>
+              <label className="block text-sm font-medium">Reason</label>
+              <input
+                value={creditActionForm.reason}
+                onChange={(event) => setCreditActionForm((prev) => ({ ...prev, reason: event.target.value }))}
+                className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                placeholder="Optional reason"
+              />
+            </div>
+          ) : null}
+          {creditActionType === 'ADJUST' ? (
+            <>
+              <div>
+                <label className="block text-sm font-medium">Approved Amount Delta</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={creditActionForm.approvedAmountDelta}
+                  onChange={(event) => setCreditActionForm((prev) => ({ ...prev, approvedAmountDelta: event.target.value }))}
+                  className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                  placeholder="e.g. 100000 or -100000"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium">Available Amount Delta</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={creditActionForm.availableAmountDelta}
+                  onChange={(event) => setCreditActionForm((prev) => ({ ...prev, availableAmountDelta: event.target.value }))}
+                  className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                  placeholder="e.g. 50000 or -50000"
+                />
+              </div>
+            </>
+          ) : null}
         </form>
       </Modal>
     </div>

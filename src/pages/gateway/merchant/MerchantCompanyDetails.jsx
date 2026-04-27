@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Plus, Send } from 'lucide-react';
+import { Eye, Plus, Send } from 'lucide-react';
 import Badge from '../../../components/Badge';
 import Button from '../../../components/Button';
 import Can from '../../../components/Can';
@@ -11,9 +11,16 @@ import {
   createMerchantAttendant,
   createMerchantOutlet,
   enrollMerchantAttendant,
+  failMerchantSettlementBatch,
   getMerchantCompany,
+  getMerchantSettlementBatchDetail,
+  getMerchantSettlementExposureSummary,
   listMerchantAttendants,
   listMerchantOutlets,
+  listMerchantSettlementBatches,
+  listMerchantTransactions,
+  payMerchantSettlementBatch,
+  createMerchantSettlementBatch,
 } from '../../../api/gateway/merchantNetwork';
 import { useToast } from '../../../context/ToastContext';
 
@@ -38,8 +45,42 @@ const attendantFormInit = {
   active: true,
 };
 
+const settlementFormInit = {
+  note: '',
+};
+
+const payFormInit = {
+  paymentReference: '',
+  note: '',
+};
+
+const failFormInit = {
+  reason: '',
+};
+
 const toneForActive = (value) => (value ? 'green' : 'gray');
 const formatLabel = (value) => String(value || '-').replaceAll('_', ' ');
+const PAGE_SIZE = 10;
+
+const toneForStatus = (value) => {
+  const status = String(value || '').toUpperCase();
+  if (status === 'PAID') return 'green';
+  if (status === 'FAILED') return 'red';
+  if (status === 'CREATED') return 'yellow';
+  if (status === 'CONFIRMED') return 'cyan';
+  if (status === 'REVERSED') return 'gray';
+  return 'gray';
+};
+
+const formatMoney = (value) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return '-';
+  try {
+    return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(numeric);
+  } catch {
+    return String(numeric);
+  }
+};
 
 const MerchantCompanyDetails = () => {
   const { merchantCompanyId } = useParams();
@@ -57,15 +98,43 @@ const MerchantCompanyDetails = () => {
   const [enrollingId, setEnrollingId] = useState('');
   const [outletForm, setOutletForm] = useState(outletFormInit);
   const [attendantForm, setAttendantForm] = useState(attendantFormInit);
+  const [transactions, setTransactions] = useState([]);
+  const [transactionsTotal, setTransactionsTotal] = useState(0);
+  const [settlementBatches, setSettlementBatches] = useState([]);
+  const [settlementBatchesTotal, setSettlementBatchesTotal] = useState(0);
+  const [exposureSummary, setExposureSummary] = useState(null);
+  const [transactionPage, setTransactionPage] = useState(0);
+  const [settlementPage, setSettlementPage] = useState(0);
+  const [selectedBatchDetail, setSelectedBatchDetail] = useState(null);
+  const [batchDetailOpen, setBatchDetailOpen] = useState(false);
+  const [createBatchOpen, setCreateBatchOpen] = useState(false);
+  const [payBatchOpen, setPayBatchOpen] = useState(false);
+  const [failBatchOpen, setFailBatchOpen] = useState(false);
+  const [savingBatch, setSavingBatch] = useState(false);
+  const [selectedBatch, setSelectedBatch] = useState(null);
+  const [settlementForm, setSettlementForm] = useState(settlementFormInit);
+  const [payForm, setPayForm] = useState(payFormInit);
+  const [failForm, setFailForm] = useState(failFormInit);
 
   const load = async () => {
     setLoading(true);
     setError('');
     try {
-      const [companyData, outletData, attendantData] = await Promise.all([
+      const [companyData, outletData, attendantData, transactionData, batchData, exposureData] = await Promise.all([
         getMerchantCompany(merchantCompanyId),
         listMerchantOutlets({ merchantCompanyId, limit: 200, offset: 0 }),
         listMerchantAttendants({ limit: 200, offset: 0 }),
+        listMerchantTransactions({
+          merchantCompanyId,
+          limit: PAGE_SIZE,
+          offset: transactionPage * PAGE_SIZE,
+        }),
+        listMerchantSettlementBatches({
+          merchantCompanyId,
+          limit: PAGE_SIZE,
+          offset: settlementPage * PAGE_SIZE,
+        }),
+        getMerchantSettlementExposureSummary({ merchantCompanyId }),
       ]);
       const outletItems = Array.isArray(outletData?.items) ? outletData.items : [];
       const attendantItems = Array.isArray(attendantData?.items) ? attendantData.items : [];
@@ -76,6 +145,13 @@ const MerchantCompanyDetails = () => {
           .filter((item) => String(item?.merchantCompanyId || '') === String(merchantCompanyId))
           .map((item) => ({ ...item, id: item?.merchantAttendantId }))
       );
+      const transactionItems = Array.isArray(transactionData?.items) ? transactionData.items : [];
+      setTransactions(transactionItems.map((item) => ({ ...item, id: item?.merchantTransactionId })));
+      setTransactionsTotal(Number(transactionData?.total || transactionItems.length || 0));
+      const batchItems = Array.isArray(batchData?.items) ? batchData.items : [];
+      setSettlementBatches(batchItems.map((item) => ({ ...item, id: item?.merchantSettlementBatchId })));
+      setSettlementBatchesTotal(Number(batchData?.total || batchItems.length || 0));
+      setExposureSummary(exposureData || null);
       if (!selectedOutletId && outletItems[0]?.merchantOutletId) {
         setSelectedOutletId(String(outletItems[0].merchantOutletId));
       }
@@ -84,6 +160,11 @@ const MerchantCompanyDetails = () => {
       setCompany(null);
       setOutlets([]);
       setAttendants([]);
+      setTransactions([]);
+      setTransactionsTotal(0);
+      setSettlementBatches([]);
+      setSettlementBatchesTotal(0);
+      setExposureSummary(null);
     } finally {
       setLoading(false);
     }
@@ -91,7 +172,7 @@ const MerchantCompanyDetails = () => {
 
   useEffect(() => {
     load();
-  }, [merchantCompanyId]);
+  }, [merchantCompanyId, transactionPage, settlementPage]);
 
   useEffect(() => {
     if (!outlets.find((item) => String(item?.merchantOutletId) === String(selectedOutletId))) {
@@ -173,6 +254,87 @@ const MerchantCompanyDetails = () => {
       addToast(e?.response?.data?.message || e?.message || 'Enrollment failed', 'error');
     } finally {
       setEnrollingId('');
+    }
+  };
+
+  const openBatchDetail = async (merchantSettlementBatchId) => {
+    if (!merchantSettlementBatchId) return;
+    try {
+      const detail = await getMerchantSettlementBatchDetail(merchantSettlementBatchId);
+      setSelectedBatchDetail(detail || null);
+      setBatchDetailOpen(true);
+    } catch (e) {
+      addToast(e?.response?.data?.message || e?.message || 'Failed to load settlement batch detail', 'error');
+    }
+  };
+
+  const submitCreateBatch = async (event) => {
+    event?.preventDefault?.();
+    setSavingBatch(true);
+    setError('');
+    try {
+      await createMerchantSettlementBatch({
+        merchantCompanyId,
+        note: settlementForm.note.trim() || undefined,
+      });
+      setCreateBatchOpen(false);
+      setSettlementForm(settlementFormInit);
+      setSettlementPage(0);
+      await load();
+      addToast('Settlement batch created', 'success');
+    } catch (e) {
+      const message = e?.response?.data?.errors?.[0]?.details || e?.response?.data?.message || e?.message || 'Batch creation failed';
+      setError(message);
+      addToast(message, 'error');
+    } finally {
+      setSavingBatch(false);
+    }
+  };
+
+  const submitPayBatch = async (event) => {
+    event?.preventDefault?.();
+    if (!selectedBatch?.merchantSettlementBatchId) return;
+    setSavingBatch(true);
+    setError('');
+    try {
+      await payMerchantSettlementBatch(selectedBatch.merchantSettlementBatchId, {
+        paymentReference: payForm.paymentReference.trim(),
+        note: payForm.note.trim() || undefined,
+      });
+      setPayBatchOpen(false);
+      setSelectedBatch(null);
+      setPayForm(payFormInit);
+      await load();
+      addToast('Settlement batch marked paid', 'success');
+    } catch (e) {
+      const message = e?.response?.data?.errors?.[0]?.details || e?.response?.data?.message || e?.message || 'Batch payment update failed';
+      setError(message);
+      addToast(message, 'error');
+    } finally {
+      setSavingBatch(false);
+    }
+  };
+
+  const submitFailBatch = async (event) => {
+    event?.preventDefault?.();
+    if (!selectedBatch?.merchantSettlementBatchId) return;
+    setSavingBatch(true);
+    setError('');
+    try {
+      await failMerchantSettlementBatch(selectedBatch.merchantSettlementBatchId, {
+        reason: failForm.reason.trim(),
+      });
+      setFailBatchOpen(false);
+      setSelectedBatch(null);
+      setFailForm(failFormInit);
+      await load();
+      addToast('Settlement batch marked failed', 'success');
+    } catch (e) {
+      const message = e?.response?.data?.errors?.[0]?.details || e?.response?.data?.message || e?.message || 'Batch failure update failed';
+      setError(message);
+      addToast(message, 'error');
+    } finally {
+      setSavingBatch(false);
     }
   };
 
@@ -265,7 +427,126 @@ const MerchantCompanyDetails = () => {
     },
   ], [enrollingId]);
 
+  const transactionColumns = useMemo(() => [
+    {
+      key: 'merchantTransactionId',
+      header: 'Transaction',
+      sortable: false,
+      render: (row) => (
+        <div className="min-w-[180px]">
+          <div className="font-medium text-slate-900 dark:text-slate-50">{row?.merchantTransactionId || '-'}</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400">{row?.merchantOutletName || row?.merchantOutletId || '-'}</div>
+        </div>
+      ),
+    },
+    {
+      key: 'customerId',
+      header: 'Customer',
+      sortable: false,
+      render: (row) => row?.customerId || '-',
+    },
+    {
+      key: 'amount',
+      header: 'Amount',
+      sortable: false,
+      render: (row) => formatMoney(row?.amount),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      sortable: false,
+      render: (row) => <Badge tone={toneForStatus(row?.status)}>{row?.status || '-'}</Badge>,
+    },
+    {
+      key: 'settled',
+      header: 'Settlement',
+      sortable: false,
+      render: (row) => (
+        row?.settled
+          ? <Badge tone="green">{row?.settlementBatchId ? `SETTLED ${row.settlementBatchId}` : 'SETTLED'}</Badge>
+          : <Badge tone="yellow">UNSETTLED</Badge>
+      ),
+    },
+  ], []);
+
+  const settlementColumns = useMemo(() => [
+    {
+      key: 'merchantSettlementBatchId',
+      header: 'Batch',
+      sortable: false,
+      render: (row) => (
+        <div className="min-w-[180px]">
+          <div className="font-medium text-slate-900 dark:text-slate-50">{row?.merchantSettlementBatchId || '-'}</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400">{row?.createdAt || '-'}</div>
+        </div>
+      ),
+    },
+    {
+      key: 'transactionCount',
+      header: 'Transactions',
+      sortable: false,
+      render: (row) => row?.transactionCount ?? '-',
+    },
+    {
+      key: 'grossAmount',
+      header: 'Gross Amount',
+      sortable: false,
+      render: (row) => formatMoney(row?.grossAmount),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      sortable: false,
+      render: (row) => <Badge tone={toneForStatus(row?.status)}>{row?.status || '-'}</Badge>,
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      sortable: false,
+      render: (row) => (
+        <div className="flex gap-2" onClick={(event) => event.stopPropagation()}>
+          <Button size="sm" variant="ghost" onClick={() => openBatchDetail(row?.merchantSettlementBatchId)}>
+            <Eye size={14} /> View
+          </Button>
+          <Can any={['GW_OPS_WRITE', 'GW_OPS_ALL', 'UPDATE_CONFIGURATION', 'CREATE_CONFIGURATION']}>
+            {String(row?.status || '').toUpperCase() === 'CREATED' ? (
+              <>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    setSelectedBatch(row);
+                    setPayForm(payFormInit);
+                    setPayBatchOpen(true);
+                  }}
+                >
+                  Mark Paid
+                </Button>
+                <Button
+                  size="sm"
+                  variant="danger"
+                  onClick={() => {
+                    setSelectedBatch(row);
+                    setFailForm(failFormInit);
+                    setFailBatchOpen(true);
+                  }}
+                >
+                  Fail
+                </Button>
+              </>
+            ) : null}
+          </Can>
+        </div>
+      ),
+    },
+  ], []);
+
   const selectedOutlet = outlets.find((item) => String(item?.merchantOutletId) === String(selectedOutletId)) || null;
+  const exposureCompany = useMemo(() => {
+    const items = Array.isArray(exposureSummary?.byCompany) ? exposureSummary.byCompany : [];
+    return items.find((item) => String(item?.merchantCompanyId || '') === String(merchantCompanyId)) || null;
+  }, [exposureSummary, merchantCompanyId]);
+  const batchDetailItems = Array.isArray(selectedBatchDetail?.transactions) ? selectedBatchDetail.transactions : [];
 
   return (
     <div className="space-y-4">
@@ -290,6 +571,15 @@ const MerchantCompanyDetails = () => {
               <Button onClick={() => setAttendantOpen(true)} disabled={!selectedOutletId}>
                 <Plus size={16} /> Add Attendant
               </Button>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setSettlementForm(settlementFormInit);
+                  setCreateBatchOpen(true);
+                }}
+              >
+                <Plus size={16} /> Create Settlement Batch
+              </Button>
             </Can>
           </div>
         </div>
@@ -307,6 +597,15 @@ const MerchantCompanyDetails = () => {
           <div><div className="text-xs text-slate-500">Phone</div><div className="mt-1 text-sm">{company?.contactPhone || '-'}</div></div>
           <div><div className="text-xs text-slate-500">Payment Provider</div><div className="mt-1 text-sm">{company?.paymentProvider || '-'}</div></div>
           <div><div className="text-xs text-slate-500">Payment Account</div><div className="mt-1 text-sm">{company?.paymentAccount || '-'}</div></div>
+        </div>
+      </Card>
+
+      <Card>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div><div className="text-xs text-slate-500">Unsettled Transactions</div><div className="mt-1 text-lg font-semibold">{exposureCompany?.transactionCount ?? 0}</div></div>
+          <div><div className="text-xs text-slate-500">Unsettled Amount</div><div className="mt-1 text-lg font-semibold">{formatMoney(exposureCompany?.unsettledAmount ?? 0)}</div></div>
+          <div><div className="text-xs text-slate-500">Settlement Batches</div><div className="mt-1 text-lg font-semibold">{settlementBatchesTotal}</div></div>
+          <div><div className="text-xs text-slate-500">Industries</div><div className="mt-1 text-sm">{(exposureCompany?.industryTypes || [company?.industryType]).filter(Boolean).join(', ') || '-'}</div></div>
         </div>
       </Card>
 
@@ -372,6 +671,54 @@ const MerchantCompanyDetails = () => {
             sortDir="asc"
             onSort={() => {}}
             emptyMessage="No attendants found"
+          />
+        </div>
+      </Card>
+
+      <Card>
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <div className="text-sm font-semibold">Merchant Transactions</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">Latest company redemption activity and settlement status.</div>
+          </div>
+        </div>
+        <div className="mt-4">
+          <DataTable
+            columns={transactionColumns}
+            data={transactions}
+            loading={loading}
+            total={transactionsTotal}
+            page={transactionPage}
+            limit={PAGE_SIZE}
+            onPageChange={setTransactionPage}
+            sortBy=""
+            sortDir="asc"
+            onSort={() => {}}
+            emptyMessage="No merchant transactions found"
+          />
+        </div>
+      </Card>
+
+      <Card>
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <div className="text-sm font-semibold">Settlement Batches</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">Bulk payment batches created for this merchant company.</div>
+          </div>
+        </div>
+        <div className="mt-4">
+          <DataTable
+            columns={settlementColumns}
+            data={settlementBatches}
+            loading={loading}
+            total={settlementBatchesTotal}
+            page={settlementPage}
+            limit={PAGE_SIZE}
+            onPageChange={setSettlementPage}
+            sortBy=""
+            sortDir="asc"
+            onSort={() => {}}
+            emptyMessage="No settlement batches found"
           />
         </div>
       </Card>
@@ -464,6 +811,144 @@ const MerchantCompanyDetails = () => {
             Active immediately
           </label>
         </form>
+      </Modal>
+
+      <Modal
+        open={createBatchOpen}
+        onClose={() => (savingBatch ? null : setCreateBatchOpen(false))}
+        title="Create Settlement Batch"
+        size="lg"
+        footer={(
+          <>
+            <Button variant="secondary" onClick={() => setCreateBatchOpen(false)} disabled={savingBatch}>Cancel</Button>
+            <Button onClick={submitCreateBatch} disabled={savingBatch}>{savingBatch ? 'Creating...' : 'Create Batch'}</Button>
+          </>
+        )}
+      >
+        <form className="grid gap-4" onSubmit={submitCreateBatch}>
+          <div>
+            <label className="block text-sm font-medium">Merchant Company</label>
+            <input value={company?.name || merchantCompanyId} readOnly className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium">Note</label>
+            <textarea
+              value={settlementForm.note}
+              onChange={(event) => setSettlementForm((prev) => ({ ...prev, note: event.target.value }))}
+              className="mt-1 min-h-[110px] w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+              placeholder="Optional batch note"
+            />
+          </div>
+          <div className="rounded-xl border border-dashed border-slate-300/80 bg-slate-50/70 p-3 text-xs text-slate-600 dark:border-slate-600/80 dark:bg-slate-800/40 dark:text-slate-300">
+            The backend will automatically include eligible unsettled confirmed transactions for this merchant company.
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        open={payBatchOpen}
+        onClose={() => (savingBatch ? null : setPayBatchOpen(false))}
+        title="Mark Settlement Batch Paid"
+        size="lg"
+        footer={(
+          <>
+            <Button variant="secondary" onClick={() => setPayBatchOpen(false)} disabled={savingBatch}>Cancel</Button>
+            <Button onClick={submitPayBatch} disabled={savingBatch}>{savingBatch ? 'Saving...' : 'Mark Paid'}</Button>
+          </>
+        )}
+      >
+        <form className="grid gap-4" onSubmit={submitPayBatch}>
+          <div>
+            <label className="block text-sm font-medium">Settlement Batch</label>
+            <input value={selectedBatch?.merchantSettlementBatchId || ''} readOnly className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium">Payment Reference</label>
+            <input
+              value={payForm.paymentReference}
+              onChange={(event) => setPayForm((prev) => ({ ...prev, paymentReference: event.target.value }))}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium">Note</label>
+            <textarea
+              value={payForm.note}
+              onChange={(event) => setPayForm((prev) => ({ ...prev, note: event.target.value }))}
+              className="mt-1 min-h-[110px] w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+              placeholder="Optional payment note"
+            />
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        open={failBatchOpen}
+        onClose={() => (savingBatch ? null : setFailBatchOpen(false))}
+        title="Mark Settlement Batch Failed"
+        size="lg"
+        footer={(
+          <>
+            <Button variant="secondary" onClick={() => setFailBatchOpen(false)} disabled={savingBatch}>Cancel</Button>
+            <Button variant="danger" onClick={submitFailBatch} disabled={savingBatch}>{savingBatch ? 'Saving...' : 'Mark Failed'}</Button>
+          </>
+        )}
+      >
+        <form className="grid gap-4" onSubmit={submitFailBatch}>
+          <div>
+            <label className="block text-sm font-medium">Settlement Batch</label>
+            <input value={selectedBatch?.merchantSettlementBatchId || ''} readOnly className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium">Failure Reason</label>
+            <textarea
+              value={failForm.reason}
+              onChange={(event) => setFailForm((prev) => ({ ...prev, reason: event.target.value }))}
+              className="mt-1 min-h-[110px] w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+              placeholder="Reason for failure"
+              required
+            />
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        open={batchDetailOpen}
+        onClose={() => setBatchDetailOpen(false)}
+        title="Settlement Batch Detail"
+        size="6xl"
+        footer={(
+          <Button variant="secondary" onClick={() => setBatchDetailOpen(false)}>Close</Button>
+        )}
+      >
+        <div className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div><div className="text-xs text-slate-500">Batch ID</div><div className="mt-1 text-sm">{selectedBatchDetail?.batch?.merchantSettlementBatchId || '-'}</div></div>
+            <div><div className="text-xs text-slate-500">Status</div><div className="mt-1 text-sm"><Badge tone={toneForStatus(selectedBatchDetail?.batch?.status)}>{selectedBatchDetail?.batch?.status || '-'}</Badge></div></div>
+            <div><div className="text-xs text-slate-500">Gross Amount</div><div className="mt-1 text-sm">{formatMoney(selectedBatchDetail?.summary?.grossAmount)}</div></div>
+            <div><div className="text-xs text-slate-500">Outstanding</div><div className="mt-1 text-sm">{formatMoney(selectedBatchDetail?.summary?.outstandingAmount)}</div></div>
+          </div>
+          <DataTable
+            columns={[
+              { key: 'merchantTransactionId', header: 'Transaction', sortable: false, render: (row) => row?.merchantTransactionId || '-' },
+              { key: 'customerId', header: 'Customer', sortable: false, render: (row) => row?.customerId || '-' },
+              { key: 'amount', header: 'Amount', sortable: false, render: (row) => formatMoney(row?.amount) },
+              { key: 'status', header: 'Status', sortable: false, render: (row) => <Badge tone={toneForStatus(row?.status)}>{row?.status || '-'}</Badge> },
+              { key: 'settled', header: 'Settled', sortable: false, render: (row) => row?.settled ? 'Yes' : 'No' },
+            ]}
+            data={batchDetailItems.map((item) => ({ ...item, id: item?.merchantTransactionId }))}
+            loading={false}
+            total={batchDetailItems.length}
+            page={0}
+            limit={Math.max(1, batchDetailItems.length || 1)}
+            onPageChange={() => {}}
+            sortBy=""
+            sortDir="asc"
+            onSort={() => {}}
+            emptyMessage="No transactions in this batch"
+          />
+        </div>
       </Modal>
     </div>
   );

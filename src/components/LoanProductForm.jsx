@@ -2,11 +2,13 @@ import React, { useEffect, useState } from 'react';
 import Card from './Card';
 import Button from './Button';
 import Skeleton from './Skeleton';
+import SearchableSelectField from './SearchableSelectField';
 import api from '../api/axios';
 import { useToast } from '../context/ToastContext';
 
 const FALLBACK_TEMPLATE = {
     currencyOptions: [{ code: 'TZS', name: 'Tanzanian Shilling' }, { code: 'USD', name: 'US Dollar' }],
+    fundOptions: [],
     amortizationTypeOptions: [
         { id: 1, value: 'Equal installments' },
         { id: 2, value: 'Equal principal payments' },
@@ -97,6 +99,15 @@ const FALLBACK_TEMPLATE = {
         { id: 1, value: 'Till Pre-Close Date' },
         { id: 2, value: 'Till Rest Frequency Date' },
     ],
+    repaymentStrategyOptions: [
+        { id: 'REDUCE_EMI_AMOUNT', value: 'Reduce EMI Amount' },
+        { id: 'REDUCE_NUMBER_OF_INSTALLMENTS', value: 'Reduce Number Of Installments' },
+    ],
+    overpaymentHandlingOptions: [
+        { id: 'apply_to_next_installment', value: 'Apply To Next Installment' },
+        { id: 'apply_to_principal', value: 'Apply To Principal' },
+        { id: 'reject_overpayment', value: 'Reject Overpayment' },
+    ],
 };
 
 const numberOrUndefined = (v) =>
@@ -108,6 +119,12 @@ const hasValidNumber = (v) => {
     return Number.isFinite(Number(v));
 };
 
+const stringOrUndefined = (v) => {
+    if (v === null || v === undefined) return undefined;
+    const text = String(v).trim();
+    return text ? text : undefined;
+};
+
 const normalizeEnumToken = (value, fallback = '') => {
     if (value === null || value === undefined) return fallback;
     const raw = typeof value === 'object'
@@ -116,6 +133,37 @@ const normalizeEnumToken = (value, fallback = '') => {
     const text = String(raw || '').trim();
     if (!text) return fallback;
     return text.replace(/\s+/g, '_').replace(/-/g, '_').toUpperCase();
+};
+
+const stringifyStructuredValue = (value) => {
+    if (value === null || value === undefined || value === '') return '';
+    if (typeof value === 'string') return value;
+    try {
+        return JSON.stringify(value, null, 2);
+    } catch {
+        return String(value);
+    }
+};
+
+const parseStructuredValue = (value) => {
+    const text = stringOrUndefined(value);
+    if (!text) return undefined;
+    try {
+        return JSON.parse(text);
+    } catch {
+        const tokens = text.split(',').map((item) => item.trim()).filter(Boolean);
+        return tokens.length > 0 ? tokens : text;
+    }
+};
+
+const withCurrentOption = (options, currentValue) => {
+    const current = stringOrUndefined(currentValue);
+    if (!current) return options || [];
+    const items = Array.isArray(options) ? options : [];
+    const exists = items.some((option) =>
+        String(option?.id ?? option?.code ?? option?.value ?? '') === current
+    );
+    return exists ? items : [{ id: current, code: current, value: current }, ...items];
 };
 
 const normalizeAccountingOptions = (options) => ({
@@ -192,6 +240,8 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
     const [form, setForm] = useState({
         name: '',
         shortName: '',
+        description: '',
+        fundId: '',
         currencyCode: 'TZS',
         digitsAfterDecimal: 0,
 
@@ -202,6 +252,7 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
         rateMin: '',
         rateDefault: '',
         rateMax: '',
+        annualInterestRate: '',
 
         interestRateFrequencyType: 2, // Months default
 
@@ -215,12 +266,22 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
         amortizationType: 1,
         interestType: 0,
         interestCalculationPeriodType: 1,
+        allowPartialPeriodInterestCalculation: false,
+        inArrearsTolerance: '',
+        loanCycle: '',
+        multiDisbursement: false,
+        graceOnPrincipalPayment: '',
+        graceOnInterestPayment: '',
+        graceOnInterestCharged: '',
 
         daysInMonthType: 30,
         daysInYearType: 365,
 
         // Strategy / Charges / Accounting
         transactionProcessingStrategyId: '',
+        repaymentStrategy: '',
+        overpaymentHandling: '',
+        principalDisbursedIndicators: '',
 
         // Advanced allocation (only for advanced strategy)
         fixedLength: '',
@@ -312,6 +373,7 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                 if (!cancelled && res?.data) {
                     setTpl({
                         currencyOptions: templateData.currencyOptions || FALLBACK_TEMPLATE.currencyOptions,
+                        fundOptions: templateData.fundOptions || FALLBACK_TEMPLATE.fundOptions,
                         amortizationTypeOptions: templateData.amortizationTypeOptions || FALLBACK_TEMPLATE.amortizationTypeOptions,
                         interestTypeOptions: templateData.interestTypeOptions || FALLBACK_TEMPLATE.interestTypeOptions,
                         interestCalculationPeriodTypeOptions: templateData.interestCalculationPeriodTypeOptions || FALLBACK_TEMPLATE.interestCalculationPeriodTypeOptions,
@@ -347,6 +409,12 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                         preClosureInterestCalculationStrategyOptions:
                             templateData.preClosureInterestCalculationStrategyOptions ||
                             FALLBACK_TEMPLATE.preClosureInterestCalculationStrategyOptions,
+                        repaymentStrategyOptions:
+                            templateData.repaymentStrategyOptions ||
+                            FALLBACK_TEMPLATE.repaymentStrategyOptions,
+                        overpaymentHandlingOptions:
+                            templateData.overpaymentHandlingOptions ||
+                            FALLBACK_TEMPLATE.overpaymentHandlingOptions,
                     });
 
                     // Default strategy if available and not in edit mode
@@ -387,6 +455,8 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
             ...f,
             name: initial.name || '',
             shortName: initial.shortName || '',
+            description: initial.description || '',
+            fundId: initial.fundId ?? initial.fund?.id ?? '',
             currencyCode: initial.currency?.code || initial.currencyCode || f.currencyCode,
             digitsAfterDecimal:
                 initial.currency?.decimalPlaces ?? initial.digitsAfterDecimal ?? f.digitsAfterDecimal,
@@ -403,6 +473,7 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                 initial.interestRate ??
                 '',
             rateMax: initial.interestRatePerPeriod?.maximum ?? initial.maxInterestRatePerPeriod ?? '',
+            annualInterestRate: initial.annualInterestRate ?? '',
 
             interestRateFrequencyType:
                 initial.interestRateFrequencyType?.id ??
@@ -423,6 +494,15 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                 initial.interestCalculationPeriodType?.id ??
                 initial.interestCalculationPeriodType ??
                 1,
+            allowPartialPeriodInterestCalculation: Boolean(
+                initial.allowPartialPeriodInterestCalculation ?? initial.allowPartialPeriodInterestCalcualtion
+            ),
+            inArrearsTolerance: initial.inArrearsTolerance ?? '',
+            loanCycle: initial.loanCycle ?? '',
+            multiDisbursement: Boolean(initial.multiDisbursement),
+            graceOnPrincipalPayment: initial.graceOnPrincipalPayment ?? '',
+            graceOnInterestPayment: initial.graceOnInterestPayment ?? '',
+            graceOnInterestCharged: initial.graceOnInterestCharged ?? '',
 
             daysInMonthType: initial.daysInMonthType?.id ?? initial.daysInMonthType ?? 30,
             daysInYearType: initial.daysInYearType?.id ?? initial.daysInYearType ?? 365,
@@ -433,6 +513,17 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                 initial.transactionProcessingStrategy?.code ||
                 initial.transactionProcessingStrategyId ||
                 f.transactionProcessingStrategyId,
+            repaymentStrategy:
+                initial.repaymentStrategy?.code ??
+                initial.repaymentStrategy?.value ??
+                initial.repaymentStrategy ??
+                '',
+            overpaymentHandling:
+                initial.overpaymentHandling?.code ??
+                initial.overpaymentHandling?.value ??
+                initial.overpaymentHandling ??
+                '',
+            principalDisbursedIndicators: stringifyStructuredValue(initial.principalDisbursedIndicators),
 
             // advanced allocation (if present)
             fixedLength: initial.fixedLength ?? '',
@@ -639,6 +730,8 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
         const payload = {
             name: form.name,
             shortName: form.shortName,
+            description: stringOrUndefined(form.description),
+            fundId: numberOrUndefined(form.fundId),
             currencyCode: form.currencyCode,
             digitsAfterDecimal: numberOrUndefined(form.digitsAfterDecimal),
 
@@ -661,12 +754,19 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
             amortizationType: Number(form.amortizationType),
             interestType: Number(form.interestType),
             interestCalculationPeriodType: Number(form.interestCalculationPeriodType),
+            allowPartialPeriodInterestCalculation: Boolean(form.allowPartialPeriodInterestCalculation),
+            inArrearsTolerance: numberOrUndefined(form.inArrearsTolerance),
+            loanCycle: numberOrUndefined(form.loanCycle),
+            graceOnPrincipalPayment: numberOrUndefined(form.graceOnPrincipalPayment),
+            graceOnInterestPayment: numberOrUndefined(form.graceOnInterestPayment),
+            graceOnInterestCharged: numberOrUndefined(form.graceOnInterestCharged),
 
             daysInMonthType: Number(form.daysInMonthType),
             daysInYearType: Number(form.daysInYearType),
 
             // strategy by code
             transactionProcessingStrategyCode: form.transactionProcessingStrategyId || undefined,
+            principalDisbursedIndicators: parseStructuredValue(form.principalDisbursedIndicators),
 
             // loan schedule
             loanScheduleType: normalizeEnumToken(form.loanScheduleType),
@@ -797,6 +897,9 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
         daysInYearTypeOptions,
         accountingRuleOptions,
         transactionProcessingStrategyOptions,
+        fundOptions,
+        repaymentStrategyOptions,
+        overpaymentHandlingOptions,
         chargeOptions,
         accountingMappingOptions,
 
@@ -815,6 +918,18 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
     const income = accountingMappingOptions?.incomeAccountOptions || [];
     const expenses = accountingMappingOptions?.expenseAccountOptions || [];
     const liability = accountingMappingOptions?.liabilityAccountOptions || [];
+    const fundSelectOptions = (Array.isArray(fundOptions) ? fundOptions : [])
+        .map((fund) => {
+            const id = optionIdOrValue(fund);
+            if (id === null || id === undefined || id === '') return null;
+            return {
+                id: String(id),
+                label: [fund.name || fund.value || `Fund #${id}`, fund.externalId].filter(Boolean).join(' - '),
+            };
+        })
+        .filter(Boolean);
+    const repaymentStrategyChoices = withCurrentOption(repaymentStrategyOptions, form.repaymentStrategy);
+    const overpaymentHandlingChoices = withCurrentOption(overpaymentHandlingOptions, form.overpaymentHandling);
 
     const acctOptionLabel = (a) =>
         `${a.glCode || a.code || ''} ${a.name ? `— ${a.name}` : ''}`.trim();
@@ -852,6 +967,35 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                             className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                         />
                         {errors.shortName && <p className="text-xs text-red-500 mt-1">{errors.shortName}</p>}
+                    </div>
+                    <div className="md:col-span-2">
+                        <label className="block text-sm font-medium">Description</label>
+                        <textarea
+                            rows="3"
+                            value={form.description}
+                            onChange={(e) => setField('description', e.target.value)}
+                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                        />
+                    </div>
+                    <div>
+                        {fundOptions?.length ? (
+                            <SearchableSelectField
+                                label="Fund"
+                                value={form.fundId}
+                                onChange={(value) => setField('fundId', String(value || ''))}
+                                options={fundSelectOptions}
+                                placeholder="Search fund"
+                            />
+                        ) : (
+                            <input
+                                type="number"
+                                min="1"
+                                value={form.fundId}
+                                onChange={(e) => setField('fundId', e.target.value)}
+                                placeholder="Fund ID"
+                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                            />
+                        )}
                     </div>
 
                     <div>
@@ -924,7 +1068,7 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
             {/* Interest */}
             <Card>
                 <SectionTitle icon="📈">Interest Rate</SectionTitle>
-                <div className="grid md:grid-cols-4 gap-4">
+                <div className="grid md:grid-cols-5 gap-4">
                     <div>
                         <label className="block text-sm font-medium">Min (%)</label>
                         <input
@@ -977,6 +1121,17 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                         {errors.interestRateFrequencyType && (
                             <p className="text-xs text-red-500 mt-1">{errors.interestRateFrequencyType}</p>
                         )}
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium">Annual Interest Rate (%)</label>
+                        <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={form.annualInterestRate}
+                            onChange={(e) => setField('annualInterestRate', e.target.value)}
+                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                        />
                     </div>
                 </div>
             </Card>
@@ -1105,6 +1260,84 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                             <p className="text-xs text-red-500 mt-1">{errors.interestCalculationPeriodType}</p>
                         )}
                     </div>
+                </div>
+
+                <div className="grid md:grid-cols-3 gap-4 mt-4">
+                    <div>
+                        <label className="block text-sm font-medium">In Arrears Tolerance</label>
+                        <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={form.inArrearsTolerance}
+                            onChange={(e) => setField('inArrearsTolerance', e.target.value)}
+                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium">Loan Cycle</label>
+                        <input
+                            type="number"
+                            min="0"
+                            value={form.loanCycle}
+                            onChange={(e) => setField('loanCycle', e.target.value)}
+                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                        />
+                    </div>
+                    <div className="flex items-end">
+                        <label className="inline-flex items-center gap-2">
+                            <input
+                                type="checkbox"
+                                checked={form.allowPartialPeriodInterestCalculation}
+                                onChange={(e) => setField('allowPartialPeriodInterestCalculation', e.target.checked)}
+                            />
+                            <span className="text-sm">Allow Partial Period Interest Calculation</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div className="grid md:grid-cols-3 gap-4 mt-4">
+                    <div>
+                        <label className="block text-sm font-medium">Grace on Principal Payment</label>
+                        <input
+                            type="number"
+                            min="0"
+                            value={form.graceOnPrincipalPayment}
+                            onChange={(e) => setField('graceOnPrincipalPayment', e.target.value)}
+                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium">Grace on Interest Payment</label>
+                        <input
+                            type="number"
+                            min="0"
+                            value={form.graceOnInterestPayment}
+                            onChange={(e) => setField('graceOnInterestPayment', e.target.value)}
+                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium">Grace on Interest Charged</label>
+                        <input
+                            type="number"
+                            min="0"
+                            value={form.graceOnInterestCharged}
+                            onChange={(e) => setField('graceOnInterestCharged', e.target.value)}
+                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                        />
+                    </div>
+                </div>
+
+                <div className="mt-4">
+                    <label className="inline-flex items-center gap-2">
+                        <input
+                            type="checkbox"
+                            checked={form.multiDisbursement}
+                            onChange={(e) => setField('multiDisbursement', e.target.checked)}
+                        />
+                        <span className="text-sm">Enable Multi-Disbursement</span>
+                    </label>
                 </div>
 
                 {/* Loan Schedule */}
@@ -1299,6 +1532,36 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                             <p className="text-xs text-red-500 mt-1">{errors.transactionProcessingStrategyId}</p>
                         )}
                     </div>
+                    <div>
+                        <label className="block text-sm font-medium">Repayment Strategy</label>
+                        <select
+                            value={form.repaymentStrategy}
+                            onChange={(e) => setField('repaymentStrategy', e.target.value)}
+                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                        >
+                            <option value="">Select strategy</option>
+                            {repaymentStrategyChoices.map((option) => (
+                                <option key={optionIdOrValue(option)} value={optionIdOrValue(option)}>
+                                    {option.value || option.name || option.id}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium">Overpayment Handling</label>
+                        <select
+                            value={form.overpaymentHandling}
+                            onChange={(e) => setField('overpaymentHandling', e.target.value)}
+                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                        >
+                            <option value="">Select handling</option>
+                            {overpaymentHandlingChoices.map((option) => (
+                                <option key={optionIdOrValue(option)} value={optionIdOrValue(option)}>
+                                    {option.value || option.name || option.id}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
 
                     <div>
                         <label className="block text-sm font-medium">Charges</label>
@@ -1332,6 +1595,17 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                             )}
                         </div>
                     </div>
+                </div>
+
+                <div className="mt-4">
+                    <label className="block text-sm font-medium">Principal Disbursed Indicators</label>
+                    <textarea
+                        rows="3"
+                        value={form.principalDisbursedIndicators}
+                        onChange={(e) => setField('principalDisbursedIndicators', e.target.value)}
+                        placeholder="Use JSON or comma-separated values"
+                        className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                    />
                 </div>
 
                 {/* Advanced allocation panel (conditional) */}
