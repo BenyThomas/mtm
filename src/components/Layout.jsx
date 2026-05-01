@@ -50,6 +50,7 @@ const NAV_GROUPS = [
       { to: '/gateway/merchant/companies', label: 'Merchant Companies', icon: 'MC', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION', 'READ_CLIENT'] },
       { to: '/gateway/merchant/customers', label: 'Merchant Customers', icon: 'MU', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION', 'READ_CLIENT'] },
       { to: '/gateway/merchant-industry-types', label: 'Merchant Industry Types', icon: 'MI', any: ['GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION', 'UPDATE_CONFIGURATION'] },
+      { to: '/gateway/selcom-sync', label: 'Selcom Repayments Sync', icon: 'RS', any: ['GW_OPS_WRITE', 'GW_OPS_ALL'] },
       { to: '/gateway/bank-names', label: 'Bank Names', icon: 'B', any: ['GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION', 'UPDATE_CONFIGURATION'] },
       { to: '/gateway/loan-purposes', label: 'Loan Purposes', icon: 'LP', any: ['GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION', 'UPDATE_CONFIGURATION', 'READ_LOANPRODUCT'] },
       { to: '/gateway/disbursements', label: 'Disbursements', icon: 'D', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
