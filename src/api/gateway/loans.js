@@ -116,3 +116,15 @@ export async function repayGwLoanViaSelcomUssdPush(platformLoanId, payload) {
   const r = await gatewayApi.post(`/ops/loans/${encodeURIComponent(platformLoanId)}/repayments/selcom-ussd-push`, payload);
   return unwrap(r);
 }
+
+export async function refreshGwSelcomRepaymentOrder(orderId, paymentEventId) {
+  const orderResponse = await gatewayApi.get(`/selcom/checkout/orders/${encodeURIComponent(orderId)}/status`);
+  const order = unwrap(orderResponse);
+  let paymentEvent = null;
+  const resolvedPaymentEventId = paymentEventId || order?.paymentEventId;
+  if (resolvedPaymentEventId) {
+    const eventResponse = await gatewayApi.get(`/payments/events/${encodeURIComponent(resolvedPaymentEventId)}`);
+    paymentEvent = unwrap(eventResponse);
+  }
+  return { selcomOrder: order, paymentEvent };
+}

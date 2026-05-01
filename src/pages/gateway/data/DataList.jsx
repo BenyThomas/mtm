@@ -782,7 +782,7 @@ const DataList = () => {
   const loanPurposeOptions = loanPurposes
     .map((item) => ({
       value: String(item?.fineractCodeValueId || item?.loanPurposeId || ''),
-      label: `${item?.name || item?.code || 'Purpose'}${item?.code ? ` (${item.code})` : ''}`,
+      label: `${item?.name || item?.code || 'Purpose'}`,
     }))
     .filter((item) => item.value);
 

@@ -45,6 +45,29 @@ export async function patchMerchantOutlet(merchantOutletId, payload) {
   return unwrap(response);
 }
 
+export async function listMerchantOutletItems(merchantOutletId, params) {
+  const response = await gatewayApi.get(`/ops/merchant-outlets/${encodeURIComponent(merchantOutletId)}/items`, {
+    params,
+  });
+  return unwrap(response);
+}
+
+export async function createMerchantOutletItem(merchantOutletId, payload) {
+  const response = await gatewayApi.post(
+    `/ops/merchant-outlets/${encodeURIComponent(merchantOutletId)}/items`,
+    payload
+  );
+  return unwrap(response);
+}
+
+export async function patchMerchantOutletItem(merchantOutletItemId, payload) {
+  const response = await gatewayApi.patch(
+    `/ops/merchant-outlet-items/${encodeURIComponent(merchantOutletItemId)}`,
+    payload
+  );
+  return unwrap(response);
+}
+
 export async function listMerchantAttendants(params) {
   const response = await gatewayApi.get('/ops/merchant-attendants', { params });
   return unwrap(response);

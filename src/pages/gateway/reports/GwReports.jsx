@@ -66,6 +66,7 @@ const LABEL_BY_KEY = {
   loanAccount: 'Loan Account',
   customerName: 'Customer Name',
   customerPhone: 'Phone Number',
+  paidBy: 'Paid By',
   accountStatus: 'Account Status',
   botClassification: 'Classification',
   dueAmount: 'Due Amount',

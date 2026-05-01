@@ -20,6 +20,7 @@ import {
   getGwLoanTransactions,
   downloadGwLoanSchedule,
   getGwLoanWorkflow,
+  refreshGwSelcomRepaymentOrder,
   repayGwLoanMobile,
   reverseGwLoanTransaction,
   runGwLoanAction,
@@ -420,6 +421,7 @@ const GwLoanDetails = () => {
   const [repaymentPayerEmail, setRepaymentPayerEmail] = useState('');
   const [repaymentResult, setRepaymentResult] = useState(null);
   const [repaymentBanner, setRepaymentBanner] = useState(null);
+  const [repaymentRefreshBusy, setRepaymentRefreshBusy] = useState(false);
   const [refundOpen, setRefundOpen] = useState(false);
   const [refundBusy, setRefundBusy] = useState(false);
   const [refundAmount, setRefundAmount] = useState('');
@@ -1188,6 +1190,39 @@ const GwLoanDetails = () => {
     }
   };
 
+  const refreshSelcomRepaymentBanner = async () => {
+    const orderId = repaymentBanner?.result?.selcomOrder?.orderId;
+    const paymentEventId = repaymentBanner?.result?.paymentEvent?.paymentEventId;
+    if (!orderId) {
+      addToast('No Selcom order found to refresh', 'error');
+      return;
+    }
+
+    setRepaymentRefreshBusy(true);
+    try {
+      const refreshed = await refreshGwSelcomRepaymentOrder(orderId, paymentEventId);
+      setRepaymentResult((current) => ({
+        ...(current || repaymentBanner?.result || {}),
+        ...refreshed,
+      }));
+      setRepaymentBanner((current) => current ? ({
+        ...current,
+        result: {
+          ...(current.result || {}),
+          ...refreshed,
+        },
+      }) : current);
+      await refreshLoanViews(doc);
+      addToast('Selcom order status refreshed', 'success');
+    } catch (e) {
+      const msg = extractGatewayErrorMessage(e, 'Failed to refresh Selcom order status');
+      setErr(msg);
+      addToast(msg, 'error');
+    } finally {
+      setRepaymentRefreshBusy(false);
+    }
+  };
+
   const openTransactionDetail = async (tx) => {
     if (!tx?.id) return;
     setSelectedTransaction(tx);
@@ -1495,9 +1530,22 @@ const GwLoanDetails = () => {
                 )}
               </div>
             </div>
-            <Button variant="secondary" size="sm" onClick={() => setRepaymentBanner(null)}>
-              Dismiss
-            </Button>
+            <div className="flex gap-2">
+              {repaymentBanner?.result?.selcomOrder?.orderId ? (
+                <Button variant="secondary" size="sm" onClick={refreshSelcomRepaymentBanner} disabled={repaymentRefreshBusy}>
+                  {repaymentRefreshBusy ? (
+                    <span className="inline-flex items-center gap-2">
+                      <Loader2 className="animate-spin" size={14} /> Refreshing...
+                    </span>
+                  ) : (
+                    'Refresh Status'
+                  )}
+                </Button>
+              ) : null}
+              <Button variant="secondary" size="sm" onClick={() => setRepaymentBanner(null)}>
+                Dismiss
+              </Button>
+            </div>
           </div>
         </div>
       ) : null}

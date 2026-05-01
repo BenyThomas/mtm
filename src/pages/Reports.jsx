@@ -10,6 +10,23 @@ import useDebouncedValue from '../hooks/useDebouncedValue';
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
 const TYPE_OPTIONS_BASE = [{ value: '', label: 'All' }];
 const CATEGORY_OPTIONS_BASE = [{ value: '', label: 'All' }];
+const REPORT_FETCH_LIMIT = 200;
+
+const toItems = (payload) => {
+    if (Array.isArray(payload)) return payload;
+    if (payload && Array.isArray(payload.pageItems)) return payload.pageItems;
+    if (payload && Array.isArray(payload.items)) return payload.items;
+    return [];
+};
+
+const toTotal = (payload, fallbackCount) => {
+    const numeric =
+        payload?.totalFilteredRecords ??
+        payload?.totalRecords ??
+        payload?.total ??
+        payload?.filteredRecords;
+    return Number.isFinite(Number(numeric)) ? Number(numeric) : fallbackCount;
+};
 
 const Reports = () => {
     const navigate = useNavigate();
@@ -36,9 +53,27 @@ const Reports = () => {
         (async () => {
             setLoading(true);
             try {
-                const { data } = await api.get('/reports'); // baseURL should include /v1
-                const items = Array.isArray(data) ? data : (data?.pageItems || []);
-                const mapped = items
+                const collected = [];
+                let offset = 0;
+                let expectedTotal = null;
+
+                while (true) {
+                    const { data } = await api.get('/reports', {
+                        params: { offset, limit: REPORT_FETCH_LIMIT },
+                    });
+                    const items = toItems(data);
+                    collected.push(...items);
+
+                    const total = toTotal(data, collected.length);
+                    expectedTotal = expectedTotal == null ? total : Math.max(expectedTotal, total);
+
+                    if (!items.length || items.length < REPORT_FETCH_LIMIT || collected.length >= expectedTotal) {
+                        break;
+                    }
+                    offset += REPORT_FETCH_LIMIT;
+                }
+
+                const mapped = collected
                     .map((r) => ({
                         id: r.id ?? r.reportId ?? r.report_id ?? null,
                         name: r.reportName || r.name || r.report_name || '',
@@ -48,9 +83,10 @@ const Reports = () => {
                         coreReport: r.coreReport,
                         useReport: r.useReport,
                         reportParameters: r.reportParameters || [],
+                        routeKey: String((r.id ?? r.reportId ?? r.report_id ?? r.reportName) || r.name || ''),
                         __raw: r,
                     }))
-                    .filter((r) => !!r.name);
+                    .filter((r) => !!r.name && !!r.routeKey);
                 if (cancelled) return;
                 setReports(mapped);
 
@@ -128,12 +164,13 @@ const Reports = () => {
     );
 
     const onRowClick = (row) => {
-        if (!row?.id) {
-            console.warn('Selected report has no id', row);
+        const routeKey = row?.routeKey || row?.id || row?.name;
+        if (!routeKey) {
+            console.warn('Selected report has no route key', row);
             return;
         }
-        navigate(`/reports/${encodeURIComponent(row.id)}`, {
-            state: { report: row },
+        navigate(`/reports/${encodeURIComponent(String(routeKey))}`, {
+            state: { report: row.__raw || row },
         });
     };
 
