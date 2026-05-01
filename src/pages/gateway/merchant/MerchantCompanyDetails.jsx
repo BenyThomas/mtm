@@ -9,6 +9,7 @@ import DataTable from '../../../components/DataTable';
 import Modal from '../../../components/Modal';
 import {
   createMerchantAttendant,
+  createMerchantOutletItem,
   createMerchantOutlet,
   enrollMerchantAttendant,
   failMerchantSettlementBatch,
@@ -16,20 +17,21 @@ import {
   getMerchantSettlementBatchDetail,
   getMerchantSettlementExposureSummary,
   listMerchantAttendants,
+  listMerchantOutletItems,
   listMerchantOutlets,
   listMerchantSettlementBatches,
   listMerchantTransactions,
+  patchMerchantOutletItem,
   payMerchantSettlementBatch,
   createMerchantSettlementBatch,
 } from '../../../api/gateway/merchantNetwork';
+import { listMerchantIndustryTypeLookup } from '../../../api/gateway/merchantIndustryTypes';
 import { useToast } from '../../../context/ToastContext';
-
-const INDUSTRY_OPTIONS = ['FUEL', 'SPARE_PARTS', 'MAINTENANCE'];
 
 const outletFormInit = {
   code: '',
   name: '',
-  industryType: 'FUEL',
+  industryType: '',
   area: '',
   address: '',
   contactPhone: '',
@@ -42,6 +44,14 @@ const attendantFormInit = {
   employeeCode: '',
   fullName: '',
   phone: '',
+  active: true,
+};
+
+const outletItemFormInit = {
+  code: '',
+  name: '',
+  unit: '',
+  unitPrice: '',
   active: true,
 };
 
@@ -93,11 +103,17 @@ const MerchantCompanyDetails = () => {
   const [selectedOutletId, setSelectedOutletId] = useState('');
   const [outletOpen, setOutletOpen] = useState(false);
   const [attendantOpen, setAttendantOpen] = useState(false);
+  const [outletItemOpen, setOutletItemOpen] = useState(false);
   const [savingOutlet, setSavingOutlet] = useState(false);
   const [savingAttendant, setSavingAttendant] = useState(false);
+  const [savingOutletItem, setSavingOutletItem] = useState(false);
   const [enrollingId, setEnrollingId] = useState('');
   const [outletForm, setOutletForm] = useState(outletFormInit);
   const [attendantForm, setAttendantForm] = useState(attendantFormInit);
+  const [outletItems, setOutletItems] = useState([]);
+  const [outletItemsLoading, setOutletItemsLoading] = useState(false);
+  const [editingOutletItem, setEditingOutletItem] = useState(null);
+  const [outletItemForm, setOutletItemForm] = useState(outletItemFormInit);
   const [transactions, setTransactions] = useState([]);
   const [transactionsTotal, setTransactionsTotal] = useState(0);
   const [settlementBatches, setSettlementBatches] = useState([]);
@@ -115,6 +131,27 @@ const MerchantCompanyDetails = () => {
   const [settlementForm, setSettlementForm] = useState(settlementFormInit);
   const [payForm, setPayForm] = useState(payFormInit);
   const [failForm, setFailForm] = useState(failFormInit);
+  const [industryOptions, setIndustryOptions] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadLookup = async () => {
+      try {
+        const response = await listMerchantIndustryTypeLookup();
+        if (!cancelled) {
+          setIndustryOptions(Array.isArray(response?.items) ? response.items : []);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setIndustryOptions([]);
+        }
+      }
+    };
+    loadLookup();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const load = async () => {
     setLoading(true);
@@ -180,8 +217,35 @@ const MerchantCompanyDetails = () => {
     }
   }, [outlets, selectedOutletId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const loadOutletItems = async () => {
+      if (!selectedOutletId) {
+        setOutletItems([]);
+        return;
+      }
+      setOutletItemsLoading(true);
+      try {
+        const response = await listMerchantOutletItems(selectedOutletId);
+        if (cancelled) return;
+        const items = Array.isArray(response) ? response : [];
+        setOutletItems(items.map((item) => ({ ...item, id: item?.merchantOutletItemId })));
+      } catch (e) {
+        if (cancelled) return;
+        setOutletItems([]);
+        setError(e?.response?.data?.message || e?.message || 'Failed to load outlet items');
+      } finally {
+        if (!cancelled) setOutletItemsLoading(false);
+      }
+    };
+    loadOutletItems();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedOutletId]);
+
   const visibleAttendants = useMemo(() => {
-    if (!selectedOutletId) return attendants;
+    if (!selectedOutletId) return [];
     return attendants.filter((item) => String(item?.merchantOutletId || '') === String(selectedOutletId));
   }, [attendants, selectedOutletId]);
 
@@ -202,7 +266,7 @@ const MerchantCompanyDetails = () => {
         active: !!outletForm.active,
       });
       setOutletOpen(false);
-      setOutletForm({ ...outletFormInit, industryType: company?.industryType || 'FUEL' });
+      setOutletForm({ ...outletFormInit, industryType: company?.industryType || '' });
       await load();
       addToast('Outlet created', 'success');
     } catch (e) {
@@ -241,6 +305,57 @@ const MerchantCompanyDetails = () => {
       addToast(message, 'error');
     } finally {
       setSavingAttendant(false);
+    }
+  };
+
+  const submitOutletItem = async (event) => {
+    event?.preventDefault?.();
+    if (!selectedOutletId) {
+      const message = 'Select an outlet before managing items or services.';
+      setError(message);
+      addToast(message, 'error');
+      return;
+    }
+
+    const unitPrice = Number(outletItemForm.unitPrice);
+    if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+      const message = 'Unit price must be a valid positive amount.';
+      setError(message);
+      addToast(message, 'error');
+      return;
+    }
+
+    setSavingOutletItem(true);
+    setError('');
+    try {
+      const payload = {
+        code: outletItemForm.code.trim(),
+        name: outletItemForm.name.trim(),
+        unit: outletItemForm.unit.trim(),
+        unitPrice,
+        active: !!outletItemForm.active,
+      };
+
+      if (editingOutletItem?.merchantOutletItemId) {
+        await patchMerchantOutletItem(editingOutletItem.merchantOutletItemId, payload);
+        addToast('Outlet item updated', 'success');
+      } else {
+        await createMerchantOutletItem(selectedOutletId, payload);
+        addToast('Outlet item created', 'success');
+      }
+
+      setOutletItemOpen(false);
+      setEditingOutletItem(null);
+      setOutletItemForm(outletItemFormInit);
+      const response = await listMerchantOutletItems(selectedOutletId);
+      const items = Array.isArray(response) ? response : [];
+      setOutletItems(items.map((item) => ({ ...item, id: item?.merchantOutletItemId })));
+    } catch (e) {
+      const message = e?.response?.data?.errors?.[0]?.details || e?.response?.data?.message || e?.message || 'Outlet item save failed';
+      setError(message);
+      addToast(message, 'error');
+    } finally {
+      setSavingOutletItem(false);
     }
   };
 
@@ -360,7 +475,10 @@ const MerchantCompanyDetails = () => {
       key: 'industryType',
       header: 'Industry',
       sortable: false,
-      render: (row) => formatLabel(row?.industryType),
+      render: (row) => {
+        const opt = industryOptions.find((o) => o.id === row?.industryType);
+        return opt?.name || formatLabel(row?.industryType);
+      },
     },
     {
       key: 'contactPhone',
@@ -374,7 +492,23 @@ const MerchantCompanyDetails = () => {
       sortable: false,
       render: (row) => <Badge tone={toneForActive(row?.active)}>{row?.active ? 'ACTIVE' : 'INACTIVE'}</Badge>,
     },
-  ], []);
+    {
+      key: 'actions',
+      header: 'Actions',
+      sortable: false,
+      render: (row) => (
+        <div className="flex gap-2" onClick={(event) => event.stopPropagation()}>
+          <Button
+            size="sm"
+            variant={String(row?.merchantOutletId) === String(selectedOutletId) ? 'secondary' : 'ghost'}
+            onClick={() => setSelectedOutletId(String(row?.merchantOutletId || ''))}
+          >
+            {String(row?.merchantOutletId) === String(selectedOutletId) ? 'Selected' : 'Open'}
+          </Button>
+        </div>
+      ),
+    },
+  ], [industryOptions, selectedOutletId]);
 
   const attendantColumns = useMemo(() => [
     {
@@ -426,6 +560,72 @@ const MerchantCompanyDetails = () => {
       ),
     },
   ], [enrollingId]);
+
+  const outletItemColumns = useMemo(() => [
+    {
+      key: 'name',
+      header: 'Item / Service',
+      sortable: false,
+      render: (row) => (
+        <div className="min-w-[180px]">
+          <div className="font-medium text-slate-900 dark:text-slate-50">{row?.name || '-'}</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400">{row?.merchantOutletItemId || '-'}</div>
+        </div>
+      ),
+    },
+    {
+      key: 'code',
+      header: 'Item Code',
+      sortable: false,
+      render: (row) => row?.code || '-',
+    },
+    {
+      key: 'unit',
+      header: 'Unit',
+      sortable: false,
+      render: (row) => row?.unit || '-',
+    },
+    {
+      key: 'unitPrice',
+      header: 'Unit Price',
+      sortable: false,
+      render: (row) => formatMoney(row?.unitPrice),
+    },
+    {
+      key: 'active',
+      header: 'Status',
+      sortable: false,
+      render: (row) => <Badge tone={toneForActive(row?.active)}>{row?.active ? 'ACTIVE' : 'INACTIVE'}</Badge>,
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      sortable: false,
+      render: (row) => (
+        <div className="flex gap-2" onClick={(event) => event.stopPropagation()}>
+          <Can any={['GW_OPS_WRITE', 'GW_OPS_ALL', 'UPDATE_CONFIGURATION', 'CREATE_CONFIGURATION']}>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setEditingOutletItem(row);
+                setOutletItemForm({
+                  code: row?.code || '',
+                  name: row?.name || '',
+                  unit: row?.unit || '',
+                  unitPrice: row?.unitPrice ?? '',
+                  active: !!row?.active,
+                });
+                setOutletItemOpen(true);
+              }}
+            >
+              Edit
+            </Button>
+          </Can>
+        </div>
+      ),
+    },
+  ], []);
 
   const transactionColumns = useMemo(() => [
     {
@@ -547,6 +747,8 @@ const MerchantCompanyDetails = () => {
     return items.find((item) => String(item?.merchantCompanyId || '') === String(merchantCompanyId)) || null;
   }, [exposureSummary, merchantCompanyId]);
   const batchDetailItems = Array.isArray(selectedBatchDetail?.transactions) ? selectedBatchDetail.transactions : [];
+  const selectedOutletItemCount = outletItems.length;
+  const selectedOutletAttendantCount = visibleAttendants.length;
 
   return (
     <div className="space-y-4">
@@ -562,7 +764,7 @@ const MerchantCompanyDetails = () => {
             <Can any={['GW_OPS_WRITE', 'GW_OPS_ALL', 'UPDATE_CONFIGURATION', 'CREATE_CONFIGURATION']}>
               <Button
                 onClick={() => {
-                  setOutletForm({ ...outletFormInit, industryType: company?.industryType || 'FUEL' });
+                  setOutletForm({ ...outletFormInit, industryType: company?.industryType || '' });
                   setOutletOpen(true);
                 }}
               >
@@ -570,6 +772,16 @@ const MerchantCompanyDetails = () => {
               </Button>
               <Button onClick={() => setAttendantOpen(true)} disabled={!selectedOutletId}>
                 <Plus size={16} /> Add Attendant
+              </Button>
+              <Button
+                onClick={() => {
+                  setEditingOutletItem(null);
+                  setOutletItemForm(outletItemFormInit);
+                  setOutletItemOpen(true);
+                }}
+                disabled={!selectedOutletId}
+              >
+                <Plus size={16} /> Add Item / Service
               </Button>
               <Button
                 variant="secondary"
@@ -590,7 +802,7 @@ const MerchantCompanyDetails = () => {
       <Card>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <div><div className="text-xs text-slate-500">Code</div><div className="mt-1 text-sm">{company?.code || '-'}</div></div>
-          <div><div className="text-xs text-slate-500">Industry</div><div className="mt-1 text-sm">{formatLabel(company?.industryType)}</div></div>
+          <div><div className="text-xs text-slate-500">Industry</div><div className="mt-1 text-sm">{industryOptions.find((o) => o.id === company?.industryType)?.name || formatLabel(company?.industryType)}</div></div>
           <div><div className="text-xs text-slate-500">Settlement Mode</div><div className="mt-1 text-sm">{formatLabel(company?.settlementMode)}</div></div>
           <div><div className="text-xs text-slate-500">Status</div><div className="mt-1 text-sm"><Badge tone={toneForActive(company?.active)}>{company?.active ? 'ACTIVE' : 'INACTIVE'}</Badge></div></div>
           <div><div className="text-xs text-slate-500">Contact</div><div className="mt-1 text-sm">{company?.contactName || '-'}</div></div>
@@ -605,7 +817,7 @@ const MerchantCompanyDetails = () => {
           <div><div className="text-xs text-slate-500">Unsettled Transactions</div><div className="mt-1 text-lg font-semibold">{exposureCompany?.transactionCount ?? 0}</div></div>
           <div><div className="text-xs text-slate-500">Unsettled Amount</div><div className="mt-1 text-lg font-semibold">{formatMoney(exposureCompany?.unsettledAmount ?? 0)}</div></div>
           <div><div className="text-xs text-slate-500">Settlement Batches</div><div className="mt-1 text-lg font-semibold">{settlementBatchesTotal}</div></div>
-          <div><div className="text-xs text-slate-500">Industries</div><div className="mt-1 text-sm">{(exposureCompany?.industryTypes || [company?.industryType]).filter(Boolean).join(', ') || '-'}</div></div>
+          <div><div className="text-xs text-slate-500">Industries</div><div className="mt-1 text-sm">{(exposureCompany?.industryTypes || [company?.industryType]).filter(Boolean).map(id => industryOptions.find(o => o.id === id)?.name || formatLabel(id)).join(', ') || '-'}</div></div>
         </div>
       </Card>
 
@@ -613,7 +825,7 @@ const MerchantCompanyDetails = () => {
         <div className="flex items-center justify-between gap-2">
           <div>
             <div className="text-sm font-semibold">Outlets</div>
-            <div className="text-xs text-slate-500 dark:text-slate-400">Approved merchant outlets under this company.</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">Select an outlet to manage its attendants and item or service catalog.</div>
           </div>
         </div>
         <div className="mt-4">
@@ -635,27 +847,46 @@ const MerchantCompanyDetails = () => {
       </Card>
 
       <Card>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex flex-col gap-4">
+          <div>
+            <div className="text-sm font-semibold">Selected Outlet</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">Work on one outlet at a time.</div>
+          </div>
+          {selectedOutlet ? (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div>
+                <div className="text-xs text-slate-500">Outlet</div>
+                <div className="mt-1 text-sm font-medium">{selectedOutlet.name || '-'}</div>
+                <div className="text-[11px] text-slate-500">{selectedOutlet.code || selectedOutlet.merchantOutletId || '-'}</div>
+              </div>
+              <div>
+                <div className="text-xs text-slate-500">Area</div>
+                <div className="mt-1 text-sm">{selectedOutlet.area || '-'}</div>
+              </div>
+              <div>
+                <div className="text-xs text-slate-500">Attendants</div>
+                <div className="mt-1 text-sm">{selectedOutletAttendantCount}</div>
+              </div>
+              <div>
+                <div className="text-xs text-slate-500">Items / Services</div>
+                <div className="mt-1 text-sm">{selectedOutletItemCount}</div>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-slate-300/80 bg-slate-50/70 p-4 text-sm text-slate-500 dark:border-slate-600/80 dark:bg-slate-800/40 dark:text-slate-300">
+              No outlet selected.
+            </div>
+          )}
+        </div>
+      </Card>
+
+      <Card>
+        <div className="flex items-center justify-between gap-2">
           <div>
             <div className="text-sm font-semibold">Attendants</div>
             <div className="text-xs text-slate-500 dark:text-slate-400">
-              {selectedOutlet ? `Showing attendants for ${selectedOutlet.name}` : 'Showing attendants across all outlets.'}
+              {selectedOutlet ? `Attendants under ${selectedOutlet.name}.` : 'Select an outlet first.'}
             </div>
-          </div>
-          <div className="sm:w-72">
-            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Filter by Outlet</label>
-            <select
-              value={selectedOutletId}
-              onChange={(event) => setSelectedOutletId(event.target.value)}
-              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
-            >
-              <option value="">All Outlets</option>
-              {outlets.map((item) => (
-                <option key={item.merchantOutletId} value={item.merchantOutletId}>
-                  {item.name} {item.area ? `- ${item.area}` : ''}
-                </option>
-              ))}
-            </select>
           </div>
         </div>
         <div className="mt-4">
@@ -670,7 +901,33 @@ const MerchantCompanyDetails = () => {
             sortBy=""
             sortDir="asc"
             onSort={() => {}}
-            emptyMessage="No attendants found"
+            emptyMessage={selectedOutlet ? 'No attendants found for this outlet' : 'Select an outlet to view attendants'}
+          />
+        </div>
+      </Card>
+
+      <Card>
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <div className="text-sm font-semibold">Items / Services</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              {selectedOutlet ? `Catalog configured for ${selectedOutlet.name}.` : 'Select an outlet first.'}
+            </div>
+          </div>
+        </div>
+        <div className="mt-4">
+          <DataTable
+            columns={outletItemColumns}
+            data={outletItems}
+            loading={outletItemsLoading}
+            total={outletItems.length}
+            page={0}
+            limit={Math.max(1, outletItems.length || 1)}
+            onPageChange={() => {}}
+            sortBy=""
+            sortDir="asc"
+            onSort={() => {}}
+            emptyMessage={selectedOutletId ? 'No items or services found for this outlet' : 'Select an outlet to view items or services'}
           />
         </div>
       </Card>
@@ -744,12 +1001,15 @@ const MerchantCompanyDetails = () => {
             <label className="block text-sm font-medium">Name</label>
             <input value={outletForm.name} onChange={(event) => setOutletForm((prev) => ({ ...prev, name: event.target.value }))} className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" required />
           </div>
-          <div>
-            <label className="block text-sm font-medium">Industry</label>
-            <select value={outletForm.industryType} onChange={(event) => setOutletForm((prev) => ({ ...prev, industryType: event.target.value }))} className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600">
-              {INDUSTRY_OPTIONS.map((value) => <option key={value} value={value}>{formatLabel(value)}</option>)}
-            </select>
-          </div>
+            <div>
+              <label className="block text-sm font-medium">Industry</label>
+              <select value={outletForm.industryType} disabled className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600">
+                {(industryOptions.length ? industryOptions : [{ code: outletForm.industryType, name: formatLabel(outletForm.industryType) }]).map((item) => (
+                  <option key={item.id || item.code} value={item.id || item.code}>{item.name || formatLabel(item.code)}</option>
+                ))}
+              </select>
+              <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">Inherited from the merchant company.</div>
+            </div>
           <div>
             <label className="block text-sm font-medium">Area</label>
             <input value={outletForm.area} onChange={(event) => setOutletForm((prev) => ({ ...prev, area: event.target.value }))} className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" />
@@ -808,6 +1068,86 @@ const MerchantCompanyDetails = () => {
           </div>
           <label className="sm:col-span-2 flex items-center gap-3 text-sm">
             <input type="checkbox" checked={attendantForm.active} onChange={(event) => setAttendantForm((prev) => ({ ...prev, active: event.target.checked }))} />
+            Active immediately
+          </label>
+        </form>
+      </Modal>
+
+      <Modal
+        open={outletItemOpen}
+        onClose={() => (savingOutletItem ? null : setOutletItemOpen(false))}
+        title={editingOutletItem ? 'Edit Item / Service' : 'Create Item / Service'}
+        size="lg"
+        footer={(
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setOutletItemOpen(false);
+                setEditingOutletItem(null);
+                setOutletItemForm(outletItemFormInit);
+              }}
+              disabled={savingOutletItem}
+            >
+              Cancel
+            </Button>
+            <Button onClick={submitOutletItem} disabled={savingOutletItem || !selectedOutletId}>
+              {savingOutletItem ? 'Saving...' : editingOutletItem ? 'Save Changes' : 'Create Item'}
+            </Button>
+          </>
+        )}
+      >
+        <form className="grid gap-4 sm:grid-cols-2" onSubmit={submitOutletItem}>
+          <div className="sm:col-span-2">
+            <label className="block text-sm font-medium">Outlet</label>
+            <input value={selectedOutlet?.name || '-'} readOnly className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium">Item Code</label>
+            <input
+              value={outletItemForm.code}
+              onChange={(event) => setOutletItemForm((prev) => ({ ...prev, code: event.target.value }))}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium">Item Name</label>
+            <input
+              value={outletItemForm.name}
+              onChange={(event) => setOutletItemForm((prev) => ({ ...prev, name: event.target.value }))}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium">Unit</label>
+            <input
+              value={outletItemForm.unit}
+              onChange={(event) => setOutletItemForm((prev) => ({ ...prev, unit: event.target.value }))}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+              placeholder="Litre, Piece, Service"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium">Unit Price</label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={outletItemForm.unitPrice}
+              onChange={(event) => setOutletItemForm((prev) => ({ ...prev, unitPrice: event.target.value }))}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+              required
+            />
+          </div>
+          <label className="sm:col-span-2 flex items-center gap-3 text-sm">
+            <input
+              type="checkbox"
+              checked={outletItemForm.active}
+              onChange={(event) => setOutletItemForm((prev) => ({ ...prev, active: event.target.checked }))}
+            />
             Active immediately
           </label>
         </form>

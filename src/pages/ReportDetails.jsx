@@ -1,13 +1,12 @@
-// src/pages/ReportDetails.jsx
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import api from '../api/axios';
+import { downloadGwOpsReport, getGwOpsReport } from '../api/gateway/reports';
 import Card from '../components/Card';
 import Button from '../components/Button';
 import Skeleton from '../components/Skeleton';
 import { useToast } from '../context/ToastContext';
 
-// -------------------- helpers --------------------
 const toItems = (payload) => {
     if (Array.isArray(payload)) return payload;
     if (payload && Array.isArray(payload.pageItems)) return payload.pageItems;
@@ -16,34 +15,31 @@ const toItems = (payload) => {
 };
 
 const norm = (s) => (s ?? '').toString().trim().replace(/\s+/g, ' ').toLowerCase();
-const slug = (s) =>
-    norm(s).replace(/[()]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+const slug = (s) => norm(s).replace(/[()]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
-const downloadBlob = (blob, filename) => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = filename; document.body.appendChild(a);
-    a.click(); a.remove(); URL.revokeObjectURL(url);
-};
-
-// Map Fineract reportParameterName/parameterName -> query key used by /runreports
-const PARAM_QUERY_KEY = {
-    // generic "Select" params
+const COMMON_QUERY_KEY = {
     startDateSelect: 'R_startDate',
     endDateSelect: 'R_endDate',
+    fromDate: 'R_fromDate',
+    toDate: 'R_toDate',
+    asOnDate: 'R_ondate',
     OfficeIdSelectOne: 'R_officeId',
+    OfficeId: 'R_officeId',
+    officeId: 'R_officeId',
     loanOfficerIdSelectAll: 'R_loanOfficerId',
+    loanOfficerId: 'R_loanOfficerId',
     currencyIdSelectAll: 'R_currencyId',
-    fundIdSelectAll: 'R_fundId',
-    loanProductIdSelectAll: 'R_loanProductId',
-    loanPurposeIdSelectAll: 'R_loanPurposeId',
-    parTypeSelect: 'R_parType',
-    obligDateTypeSelect: 'R_obligDateType',
-    savingsProductIdSelectAll: 'R_savingsProductId',
-
-    // "specials"
-    selectAccount: 'R_accountNo',
+    currencyId: 'R_currencyId',
+    fundIdSelectAll: 'fundId',
+    fundId: 'fundId',
+    loanProductIdSelectAll: 'loanProductId',
+    loanProductId: 'loanProductId',
+    loanPurposeIdSelectAll: 'loanPurposeId',
+    loanPurposeId: 'loanPurposeId',
+    savingsProductIdSelectAll: 'savingsProductId',
+    savingsProductId: 'savingsProductId',
     SelectGLAccountNO: 'R_GLAccountNO',
+    selectAccount: 'R_accountNo',
     transactionId: 'R_transactionId',
     DefaultSavings: 'R_savingsId',
     DefaultSavingsTransactionId: 'R_savingsTransactionId',
@@ -52,142 +48,205 @@ const PARAM_QUERY_KEY = {
     DefaultGroup: 'R_groupId',
     selectCenterId: 'R_centerId',
     selectLoan: 'R_selectLoan',
-    asOnDate: 'R_ondate',
-
-    // ranges / counters
     cycleXSelect: 'R_cycleX',
     cycleYSelect: 'R_cycleY',
     fromXSelect: 'R_fromX',
     toYSelect: 'R_toY',
     overdueXSelect: 'R_overdueX',
     overdueYSelect: 'R_overdueY',
+    obligDateType: 'obligDateType',
+    decimalChoice: 'decimalChoice',
+    enableBusinessDate: 'enable-business-date',
 };
 
-// If reportParameterName exists (Pentaho metadata), use it instead of generic
-const getQueryKeyForParam = (p) => {
-    if (p?.reportParameterName) return `R_${p.reportParameterName}`;
-    const byName = PARAM_QUERY_KEY[p?.parameterName];
-    return byName || `R_${(p?.parameterName || '').replace(/Select/i, '')}`;
-};
+const RESERVED_CONTROL_PARAMS = new Set([
+    'isSelfServiceUserReport',
+    'exportCSV',
+    'parameterType',
+    'output-type',
+    'enable-business-date',
+    'obligDateType',
+    'decimalChoice',
+]);
 
-// -------------------- Supported field library --------------------
-const ALL_SUPPORTED_FIELDS = [
-    // Core dates & office/officer
-    { key: 'startDateSelect', label: 'Start Date', type: 'date', section: 'Core' },
-    { key: 'endDateSelect', label: 'End Date', type: 'date', section: 'Core' },
-    { key: 'asOnDate', label: 'As On Date', type: 'date', section: 'Core' },
-    { key: 'OfficeIdSelectOne', label: 'Office', type: 'office', section: 'Core' },
-    { key: 'loanOfficerIdSelectAll', label: 'Loan Officer', type: 'loanOfficer', section: 'Core' },
+const todayISO = new Date().toISOString().slice(0, 10);
+const thirtyDaysAgoISO = new Date(Date.now() - 29 * 24 * 3600 * 1000).toISOString().slice(0, 10);
 
-    // Loan filters
-    { key: 'currencyIdSelectAll', label: 'Currency', type: 'currency', section: 'Loan' },
-    { key: 'fundIdSelectAll', label: 'Fund', type: 'fund', section: 'Loan' },
-    { key: 'loanProductIdSelectAll', label: 'Loan Product', type: 'loanProduct', section: 'Loan' },
-    { key: 'loanPurposeIdSelectAll', label: 'Loan Purpose', type: 'loanPurpose', section: 'Loan' },
-    { key: 'parTypeSelect', label: 'PAR Type', type: 'parType', section: 'Loan' },
-    { key: 'obligDateTypeSelect', label: 'Obligation Date Type', type: 'text', section: 'Loan', placeholder: 'e.g. DISBURSED' },
+function humanizeLabel(value) {
+    const raw = String(value || '')
+        .replace(/^R_/, '')
+        .replace(/Select(One|All)?$/i, '')
+        .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+        .replace(/[_-]+/g, ' ')
+        .trim();
+    if (!raw) return 'Parameter';
+    return raw.charAt(0).toUpperCase() + raw.slice(1);
+}
 
-    // Accounting
-    { key: 'SelectGLAccountNO', label: 'GL Account', type: 'glAccount', section: 'Accounting' },
+function getParameterName(param) {
+    return param?.parameterName || param?.reportParameterName || param?.name || '';
+}
 
-    // Savings
-    { key: 'savingsProductIdSelectAll', label: 'Savings Product', type: 'savingsProduct', section: 'Savings' },
-    { key: 'selectAccount', label: 'Account No.', type: 'text', section: 'Savings', placeholder: 'e.g. 000123' },
-    { key: 'transactionId', label: 'Transaction ID', type: 'text', section: 'Savings', placeholder: 'Txn ID' },
+function getQueryKey(param) {
+    const parameterName = getParameterName(param);
+    const reportParameterName = param?.reportParameterName;
 
-    // Entity defaults
-    { key: 'DefaultSavings', label: 'Savings ID', type: 'number', section: 'Entities' },
-    { key: 'DefaultSavingsTransactionId', label: 'Savings Txn ID', type: 'number', section: 'Entities' },
-    { key: 'DefaultLoan', label: 'Loan ID', type: 'number', section: 'Entities' },
-    { key: 'DefaultClient', label: 'Client ID', type: 'number', section: 'Entities' },
-    { key: 'DefaultGroup', label: 'Group ID', type: 'number', section: 'Entities' },
-    { key: 'selectCenterId', label: 'Center ID', type: 'number', section: 'Entities' },
-    { key: 'selectLoan', label: 'Select Loan', type: 'number', section: 'Entities' },
+    if (reportParameterName) {
+        return reportParameterName.startsWith('R_') ? reportParameterName : `R_${reportParameterName}`;
+    }
+    if (COMMON_QUERY_KEY[parameterName]) {
+        return COMMON_QUERY_KEY[parameterName];
+    }
+    if (parameterName.startsWith('R_') || RESERVED_CONTROL_PARAMS.has(parameterName)) {
+        return parameterName;
+    }
+    return `R_${parameterName}`;
+}
 
-    // Ranged counters (SMS)
-    { key: 'cycleXSelect', label: 'Cycle X', type: 'number', section: 'Ranges' },
-    { key: 'cycleYSelect', label: 'Cycle Y', type: 'number', section: 'Ranges' },
-    { key: 'fromXSelect', label: 'From X (days)', type: 'number', section: 'Ranges' },
-    { key: 'toYSelect', label: 'To Y (days)', type: 'number', section: 'Ranges' },
-    { key: 'overdueXSelect', label: 'Overdue X (days)', type: 'number', section: 'Ranges' },
-    { key: 'overdueYSelect', label: 'Overdue Y (days)', type: 'number', section: 'Ranges' },
-];
+function inferFieldType(param) {
+    const name = getParameterName(param);
+    const lower = name.toLowerCase();
+    if (lower.includes('date')) return 'date';
+    if (lower.includes('office')) return 'office';
+    if (lower.includes('loanofficer') || lower.includes('staff')) return 'loanOfficer';
+    if (lower.includes('currency')) return 'currency';
+    if (lower.includes('fund')) return 'fund';
+    if (lower.includes('loanproduct')) return 'loanProduct';
+    if (lower.includes('loanpurpose')) return 'loanPurpose';
+    if (lower.includes('savingsproduct')) return 'savingsProduct';
+    if (lower.includes('glaccount')) return 'glAccount';
+    if (lower.includes('cycle') || lower.includes('overdue') || lower.includes('fromx') || lower.includes('toy')) return 'number';
+    if (lower.includes('id')) return 'number';
+    return 'text';
+}
 
-// -------------------- Component --------------------
+function buildInitialValues(reportParameters) {
+    const next = {};
+    (reportParameters || []).forEach((param) => {
+        const key = getParameterName(param);
+        if (!key) return;
+        const lower = key.toLowerCase();
+        if (lower === 'startdateselect' || lower === 'fromdate') {
+            next[key] = thirtyDaysAgoISO;
+            return;
+        }
+        if (lower === 'enddateselect' || lower === 'todate' || lower === 'asondate') {
+            next[key] = todayISO;
+            return;
+        }
+        next[key] = '';
+    });
+    return next;
+}
+
+function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+}
+
+function normalizeExportOption(item) {
+    if (typeof item === 'string') {
+        return item.toUpperCase();
+    }
+    if (item && typeof item === 'object') {
+        const raw =
+            item.value ??
+            item.name ??
+            item.type ??
+            item.exportType ??
+            item.outputType ??
+            item.label;
+        if (raw) {
+            return String(raw).toUpperCase();
+        }
+    }
+    return null;
+}
+
+function normalizedReportName(report) {
+    return norm(report?.reportName || report?.name || '');
+}
+
+function resolveGatewayOverride(report) {
+    const name = normalizedReportName(report);
+    if (!name.includes('arrears report')) {
+        return null;
+    }
+
+    let groupBy = 'loan';
+    if (name.includes('branch') || name.includes('office')) {
+        groupBy = 'branch';
+    } else if (name.includes('loan officer') || name.includes('officer') || name.includes('staff')) {
+        groupBy = 'officer';
+    } else if (name.includes('product')) {
+        groupBy = 'product';
+    } else if (name.includes('client') || name.includes('customer')) {
+        groupBy = 'client';
+    }
+
+    return {
+        reportKey: 'arrears',
+        groupBy,
+        previewPath: `/gw/api/v1/ops/reports/arrears?groupBy=${encodeURIComponent(groupBy)}`,
+        outputs: ['JSON', 'PDF', 'XLSX'],
+    };
+}
+
+function rowsToMatrix(items) {
+    const rows = Array.isArray(items) ? items : [];
+    const keys = Array.from(
+        rows.reduce((set, row) => {
+            if (row && typeof row === 'object' && !Array.isArray(row)) {
+                Object.keys(row).forEach((key) => set.add(key));
+            }
+            return set;
+        }, new Set())
+    );
+    return {
+        headers: keys.map((key) => ({ columnName: key })),
+        rows: rows.map((row) => keys.map((key) => row?.[key])),
+    };
+}
+
 const ReportDetails = () => {
     const { addToast } = useToast();
     const navigate = useNavigate();
     const location = useLocation();
     const params = useParams();
 
-    const reportParam =
-        params.reportIdOrName ??
-        params.id ??
-        params.reportId ??
-        params.name ??
-        null;
+    const reportParam = params.reportIdOrName ?? params.id ?? params.reportId ?? params.name ?? null;
 
     const [report, setReport] = useState(location.state?.report || null);
     const [loadingReportMeta, setLoadingReportMeta] = useState(true);
-
-    // Output format
+    const [availableOutputs, setAvailableOutputs] = useState([]);
     const [format, setFormat] = useState('JSON');
-
-    // Data lists
+    const [paramValues, setParamValues] = useState({});
+    const [loadingLists, setLoadingLists] = useState({});
     const [offices, setOffices] = useState([]);
     const [staff, setStaff] = useState([]);
-    const [currencies, setCurrencies] = useState(null); // keep raw object with selectedCurrencyOptions & currencyOptions
+    const [currencies, setCurrencies] = useState(null);
     const [funds, setFunds] = useState([]);
     const [loanProducts, setLoanProducts] = useState([]);
+    const [loanPurposes, setLoanPurposes] = useState([]);
     const [savingsProducts, setSavingsProducts] = useState([]);
     const [glAccounts, setGlAccounts] = useState([]);
-    const [loanPurposes, setLoanPurposes] = useState([]); // <-- codes/3
-
-    const [loadingLists, setLoadingLists] = useState({}); // {offices:true,...}
-
-    // Param values keyed by parameterName (NOT query key)
-    const todayISO = new Date().toISOString().slice(0, 10);
-    const thirtyDaysAgoISO = new Date(Date.now() - 29 * 24 * 3600 * 1000).toISOString().slice(0, 10);
-
-    const [paramValues, setParamValues] = useState({
-        startDateSelect: thirtyDaysAgoISO,
-        endDateSelect: todayISO,
-        asOnDate: todayISO,
-        OfficeIdSelectOne: '-1',       // All offices
-        loanOfficerIdSelectAll: '-1',  // All loan officers
-        currencyIdSelectAll: '',       // Will be prefilled from selectedCurrencyOptions
-        fundIdSelectAll: '',
-        loanProductIdSelectAll: '',
-        loanPurposeIdSelectAll: '',    // codes/3 value (codeValue id)
-        parTypeSelect: '30',
-        obligDateTypeSelect: '',
-        savingsProductIdSelectAll: '',
-        selectAccount: '',
-        transactionId: '',
-        DefaultSavings: '',
-        DefaultSavingsTransactionId: '',
-        DefaultLoan: '',
-        DefaultClient: '',
-        DefaultGroup: '',
-        selectCenterId: '',
-        selectLoan: '',
-        cycleXSelect: '',
-        cycleYSelect: '',
-        fromXSelect: '',
-        toYSelect: '',
-        overdueXSelect: '',
-        overdueYSelect: '',
-        SelectGLAccountNO: '',
-    });
-
-    // Result state
     const [running, setRunning] = useState(false);
     const [error, setError] = useState(null);
     const [headers, setHeaders] = useState([]);
     const [rows, setRows] = useState([]);
-    const [pentahoUnavailable, setPentahoUnavailable] = useState(false);
 
-    // -------- Resolve report from param or state --------
+    const reportParameters = useMemo(
+        () => (Array.isArray(report?.reportParameters) ? report.reportParameters : []),
+        [report]
+    );
+    const gatewayOverride = useMemo(() => resolveGatewayOverride(report), [report]);
+
     useEffect(() => {
         let cancelled = false;
 
@@ -204,7 +263,7 @@ const ReportDetails = () => {
 
         async function resolveByName(nameLike) {
             try {
-                const { data } = await api.get('/reports');
+                const { data } = await api.get('/reports', { params: { offset: 0, limit: 200 } });
                 const items = toItems(data);
                 const target = decodeURIComponent(String(nameLike));
                 const found =
@@ -213,11 +272,9 @@ const ReportDetails = () => {
 
                 if (found?.id != null) {
                     await fetchById(found.id);
-                } else {
-                    if (!cancelled) {
-                        setReport(null);
-                        setLoadingReportMeta(false);
-                    }
+                } else if (!cancelled) {
+                    setReport(null);
+                    setLoadingReportMeta(false);
                 }
             } catch {
                 if (!cancelled) {
@@ -229,492 +286,450 @@ const ReportDetails = () => {
 
         if (report) {
             setLoadingReportMeta(false);
-            return;
+            return undefined;
         }
 
-        // If param is numeric, directly call /reports/{id}?template=true
         if (reportParam && /^\d+$/.test(String(reportParam))) {
             fetchById(reportParam);
         } else if (reportParam) {
-            // Resolve by name
             resolveByName(reportParam);
         } else {
-            setReport(null);
             setLoadingReportMeta(false);
         }
 
-        return () => { cancelled = true; };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [reportParam]);
-
-    const isPentaho = useMemo(
-        () => /pentaho/i.test(report?.reportType || ''),
-        [report]
-    );
-
-    const isTable = useMemo(
-        () => /table/i.test(report?.reportType || ''),
-        [report]
-    );
-
-    const runnable = isPentaho || isTable;
-
-    const allowedOutputs = isPentaho
-        ? ['PDF', 'XLS', 'HTML', 'CSV']
-        : isTable
-            ? ['JSON', 'CSV']
-            : [];
+        return () => {
+            cancelled = true;
+        };
+    }, [report, reportParam]);
 
     useEffect(() => {
-        if (!allowedOutputs.includes(format) && allowedOutputs.length) {
-            setFormat(allowedOutputs[0]);
+        if (!reportParameters.length) {
+            setParamValues({});
+            return;
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [report, isPentaho, isTable]);
+        setParamValues((current) => {
+            const initial = buildInitialValues(reportParameters);
+            const merged = { ...initial, ...current };
+            return merged;
+        });
+    }, [reportParameters]);
 
-    // Set of parameter names that this report actually uses
-    const requiredParamNames = useMemo(() => {
-        const arr = Array.isArray(report?.reportParameters) ? report.reportParameters : [];
-        return new Set(arr.map((p) => p.parameterName));
-    }, [report]);
+    const isPentaho = useMemo(() => /pentaho/i.test(report?.reportType || ''), [report]);
+    const isTable = useMemo(() => /table|stretchy/i.test(report?.reportType || ''), [report]);
+    const runnable = Boolean(report?.reportName) && (isPentaho || isTable);
 
-    // Utility: whether this report needs a specific param (by parameterName)
-    const needs = useCallback((paramName) => requiredParamNames.has(paramName), [requiredParamNames]);
-
-    // Lazy-load option lists only if needed
     useEffect(() => {
         let cancelled = false;
+        async function loadExports() {
+            if (!report?.reportName) {
+                setAvailableOutputs([]);
+                return;
+            }
+            if (gatewayOverride) {
+                setAvailableOutputs(gatewayOverride.outputs);
+                return;
+            }
+            try {
+                const { data } = await api.get(`/runreports/availableExports/${encodeURIComponent(report.reportName)}`);
+                if (cancelled) return;
+                const list = Array.isArray(data)
+                    ? data
+                    : Array.isArray(data?.availableExports)
+                        ? data.availableExports
+                        : Array.isArray(data?.supportedExports)
+                            ? data.supportedExports
+                            : [];
+                const normalized = Array.from(
+                    new Set(
+                        list
+                            .map(normalizeExportOption)
+                            .filter(Boolean)
+                    )
+                );
+                setAvailableOutputs(normalized);
+            } catch {
+                if (cancelled) return;
+                setAvailableOutputs(isPentaho ? ['PDF', 'XLS', 'HTML', 'CSV'] : ['JSON', 'CSV']);
+            }
+        }
+        loadExports();
+        return () => {
+            cancelled = true;
+        };
+    }, [report, isPentaho, gatewayOverride]);
 
-        async function load(name, fn, assign) {
+    useEffect(() => {
+        if (!availableOutputs.length) return;
+        if (!availableOutputs.includes(format)) {
+            setFormat(availableOutputs[0]);
+        }
+    }, [availableOutputs, format]);
+
+    const neededTypes = useMemo(() => {
+        return new Set(reportParameters.map((param) => inferFieldType(param)));
+    }, [reportParameters]);
+
+    useEffect(() => {
+        let cancelled = false;
+        async function load(name, fetcher, assign) {
             setLoadingLists((s) => ({ ...s, [name]: true }));
             try {
-                const res = await fn();
-                if (cancelled) return;
-                assign(res.data);
+                const response = await fetcher();
+                if (!cancelled) assign(response.data);
             } catch {
-                // ignore
+                if (!cancelled) assign(name === 'currencies' ? null : []);
             } finally {
                 if (!cancelled) setLoadingLists((s) => ({ ...s, [name]: false }));
             }
         }
 
-        if (needs('OfficeIdSelectOne'))
-            load('offices', () => api.get('/offices'), (data) => setOffices(toItems(data)));
+        if (neededTypes.has('office')) load('offices', () => api.get('/offices'), (data) => setOffices(toItems(data)));
+        if (neededTypes.has('loanOfficer')) load('staff', () => api.get('/staff'), (data) => setStaff(toItems(data)));
+        if (neededTypes.has('currency')) load('currencies', () => api.get('/currencies'), setCurrencies);
+        if (neededTypes.has('fund')) load('funds', () => api.get('/funds'), (data) => setFunds(toItems(data)));
+        if (neededTypes.has('loanProduct')) load('loanProducts', () => api.get('/loanproducts'), (data) => setLoanProducts(toItems(data)));
+        if (neededTypes.has('loanPurpose')) load('loanPurposes', () => api.get('/codes/3'), (data) => setLoanPurposes(toItems(data?.codeValues || data?.values || [])));
+        if (neededTypes.has('savingsProduct')) load('savingsProducts', () => api.get('/savingsproducts'), (data) => setSavingsProducts(toItems(data)));
+        if (neededTypes.has('glAccount')) load('glAccounts', () => api.get('/glaccounts'), (data) => setGlAccounts(toItems(data)));
 
-        if (needs('loanOfficerIdSelectAll'))
-            load('staff', () => api.get('/staff'), (data) => setStaff(toItems(data)));
+        return () => {
+            cancelled = true;
+        };
+    }, [neededTypes]);
 
-        if (needs('currencyIdSelectAll'))
-            load('currencies', () => api.get('/currencies'), (data) => setCurrencies(data));
-
-        if (needs('fundIdSelectAll'))
-            load('funds', () => api.get('/funds'), (data) => setFunds(toItems(data)));
-
-        if (needs('loanProductIdSelectAll'))
-            load('loanProducts', () => api.get('/loanproducts'), (data) => setLoanProducts(toItems(data)));
-
-        if (needs('savingsProductIdSelectAll'))
-            load('savingsProducts', () => api.get('/savingsproducts'), (data) => setSavingsProducts(toItems(data)));
-
-        if (needs('SelectGLAccountNO'))
-            load('glAccounts', () => api.get('/glaccounts'), (data) => setGlAccounts(toItems(data)));
-
-        // Loan purpose codes (Fineract default "Loan Purpose" code = id 3)
-        if (needs('loanPurposeIdSelectAll'))
-            load('loanPurposes', () => api.get('/codes/3'), (data) => setLoanPurposes(toItems(data?.codeValues || data?.values || [])));
-
-        return () => { cancelled = true; };
-    }, [needs]);
-
-    // Prefill currency from selectedCurrencyOptions if user hasn't chosen yet
     useEffect(() => {
-        if (!currencies) return;
-        const sel = currencies?.selectedCurrencyOptions;
-        if (Array.isArray(sel) && sel.length) {
-            setParamValues((s) => {
-                if (s.currencyIdSelectAll) return s;
-                return { ...s, currencyIdSelectAll: sel[0].code };
-            });
-        }
-    }, [currencies]);
+        if (!neededTypes.has('office') || !offices.length) return;
+        setParamValues((current) => {
+            const officeParam = reportParameters.find((param) => inferFieldType(param) === 'office');
+            const key = officeParam ? getParameterName(officeParam) : null;
+            if (!key || current[key]) return current;
+            return { ...current, [key]: String(offices[0].id) };
+        });
+    }, [neededTypes, offices, reportParameters]);
 
-    const onChangeValue = (key, value) => {
-        setParamValues((s) => ({ ...s, [key]: value }));
-    };
+    useEffect(() => {
+        if (!neededTypes.has('currency') || !currencies) return;
+        const list = currencies?.selectedCurrencyOptions || currencies?.currencyOptions || [];
+        if (!Array.isArray(list) || !list.length) return;
+        setParamValues((current) => {
+            const currencyParam = reportParameters.find((param) => inferFieldType(param) === 'currency');
+            const key = currencyParam ? getParameterName(currencyParam) : null;
+            if (!key || current[key]) return current;
+            return { ...current, [key]: String(list[0].code || list[0].id || '') };
+        });
+    }, [neededTypes, currencies, reportParameters]);
 
-    // Build request params only from the fields the report actually needs.
-    const buildParams = () => {
-        const params = {};
-        const arr = Array.isArray(report?.reportParameters) ? report.reportParameters : [];
+    const onChangeValue = useCallback((key, value) => {
+        setParamValues((current) => ({ ...current, [key]: value }));
+    }, []);
 
-        for (const p of arr) {
-            const paramName = p.parameterName;
-            const qKey = getQueryKeyForParam(p);
-            const v = paramValues[paramName];
-
-            if (v !== undefined && v !== null && v !== '') {
-                params[qKey] = v;
-            } else {
-                // Special "All" defaults
-                if (paramName === 'OfficeIdSelectOne') params[qKey] = '-1';
-                if (paramName === 'loanOfficerIdSelectAll') params[qKey] = '-1';
+    const buildParams = useCallback(() => {
+        const built = {};
+        reportParameters.forEach((param) => {
+            const parameterName = getParameterName(param);
+            const queryKey = getQueryKey(param);
+            const value = paramValues[parameterName];
+            if (value !== undefined && value !== null && value !== '') {
+                built[queryKey] = value;
             }
-        }
-        return params;
-    };
+        });
+        return built;
+    }, [paramValues, reportParameters]);
 
-    // Validate required-ish params
-    const canRun = useCallback(() => {
-        const arr = Array.isArray(report?.reportParameters) ? report.reportParameters : [];
-        for (const p of arr) {
-            const key = p.parameterName;
-            if ((key === 'startDateSelect' || key === 'endDateSelect') && !paramValues[key]) return false;
-            if (key === 'asOnDate' && !paramValues[key]) return false;
+    const requestPreview = useMemo(() => {
+        if (!report?.reportName) return '';
+        if (gatewayOverride) {
+            return gatewayOverride.previewPath;
         }
-        return true;
-    }, [report, paramValues]);
+        const query = new URLSearchParams();
+        Object.entries(buildParams()).forEach(([key, value]) => query.set(key, String(value)));
+        if (format === 'CSV') {
+            query.set('exportCSV', 'true');
+        } else if (format !== 'JSON') {
+            query.set('output-type', format);
+        }
+        return `/runreports/${encodeURIComponent(report.reportName)}${query.toString() ? `?${query.toString()}` : ''}`;
+    }, [buildParams, format, report, gatewayOverride]);
 
-    // Execute report
-    const runReport = async (e) => {
-        e?.preventDefault?.();
+    const runReport = async (event) => {
+        event?.preventDefault?.();
         if (!runnable) return;
 
-        if (!canRun()) {
-            addToast('Please fill all required parameters.', 'warning');
-            return;
-        }
-
-        setError(null); setHeaders([]); setRows([]); setPentahoUnavailable(false);
         setRunning(true);
+        setError(null);
+        setHeaders([]);
+        setRows([]);
 
         try {
-            const params = buildParams();
-
-            if (isTable && format === 'JSON') {
-                const { data } = await api.get(`/runreports/${encodeURIComponent(report.reportName)}`, { params });
-                const cols = Array.isArray(data?.columnHeaders) ? data.columnHeaders : [];
-                const dataRows = Array.isArray(data?.data)
-                    ? data.data.map((r) => (Array.isArray(r?.row) ? r.row : []))
-                    : [];
-                setHeaders(cols);
-                setRows(dataRows);
-                if (!cols.length || !dataRows.length) addToast('Report returned no data', 'info');
-            } else {
-                if (format === 'CSV') {
-                    params.exportCSV = true;
+            const paramsToSend = buildParams();
+            if (gatewayOverride) {
+                if (format === 'JSON') {
+                    const data = await getGwOpsReport(gatewayOverride.reportKey, { groupBy: gatewayOverride.groupBy });
+                    const matrix = rowsToMatrix(data?.items);
+                    setHeaders(matrix.headers);
+                    setRows(matrix.rows);
+                    if (!matrix.headers.length && !matrix.rows.length) {
+                        addToast('Report returned no rows.', 'info');
+                    }
                 } else {
-                    params['output-type'] = format; // PDF | XLS | HTML
+                    const gatewayFormat = format === 'XLSX' ? 'xlsx' : 'pdf';
+                    const response = await downloadGwOpsReport(gatewayOverride.reportKey, { groupBy: gatewayOverride.groupBy }, gatewayFormat);
+                    const contentType = response?.headers?.['content-type'] || (gatewayFormat === 'xlsx'
+                        ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                        : 'application/pdf');
+                    downloadBlob(new Blob([response.data], { type: contentType }), `${report.reportName.replace(/\s+/g, '_')}.${gatewayFormat}`);
+                    addToast(`Exported ${format}`, 'success');
                 }
-
-                const res = await api.get(`/runreports/${encodeURIComponent(report.reportName)}`, {
-                    params,
+                return;
+            }
+            if (isTable && format === 'JSON') {
+                const { data } = await api.get(`/runreports/${encodeURIComponent(report.reportName)}`, { params: paramsToSend });
+                const cols = Array.isArray(data?.columnHeaders) ? data.columnHeaders : [];
+                const objectRows = Array.isArray(data?.data)
+                    ? data.data.filter((row) => row && typeof row === 'object' && !Array.isArray(row) && !Array.isArray(row?.row))
+                    : [];
+                const matrix = objectRows.length ? rowsToMatrix(objectRows) : {
+                    headers: cols,
+                    rows: Array.isArray(data?.data)
+                        ? data.data.map((row) => (Array.isArray(row?.row) ? row.row : []))
+                        : [],
+                };
+                setHeaders(matrix.headers);
+                setRows(matrix.rows);
+                if (!matrix.headers.length && !matrix.rows.length) {
+                    addToast('Report returned no rows.', 'info');
+                }
+            } else {
+                const exportParams = { ...paramsToSend };
+                if (format === 'CSV') {
+                    exportParams.exportCSV = true;
+                } else {
+                    exportParams['output-type'] = format;
+                }
+                const response = await api.get(`/runreports/${encodeURIComponent(report.reportName)}`, {
+                    params: exportParams,
                     responseType: 'blob',
                 });
-                const ext = format === 'CSV' ? 'csv' : format.toLowerCase();
-                const fname = `${report.reportName.replace(/\s+/g, '_')}.${ext}`;
-                downloadBlob(res.data, fname);
+                const ext = format.toLowerCase();
+                downloadBlob(response.data, `${report.reportName.replace(/\s+/g, '_')}.${ext}`);
                 addToast(`Exported ${format}`, 'success');
             }
         } catch (err) {
             const http = err?.response?.status;
-            const devMsg = err?.response?.data?.developerMessage || '';
-            const msg = err?.response?.data?.defaultUserMessage || err?.message || 'Failed to run report';
-            setError(msg);
-            addToast(msg, 'error');
-
-            if (http === 503 && /Pentaho/i.test(devMsg)) {
-                setPentahoUnavailable(true);
-            }
-            if (http === 403 && /BadSqlGrammar/i.test(devMsg)) {
-                addToast('This report may require a valid Office and dates. Try setting Office to a specific branch instead of -1.', 'warning');
+            const developerMessage = err?.response?.data?.developerMessage || err?.response?.data?.defaultUserMessage || '';
+            const message = err?.response?.data?.defaultUserMessage || err?.message || 'Failed to run report.';
+            setError(message);
+            addToast(message, 'error');
+            if (http === 403 && /BadSqlGrammar/i.test(developerMessage)) {
+                addToast('This report rejected the generated SQL. Check the parameter combination and rerun with narrower values.', 'warning');
             }
         } finally {
             setRunning(false);
         }
     };
 
-    // Field renderers (render ONLY when needed)
-    const Field = ({ def }) => {
-        const required = needs(def.key);
-        if (!required) return null; // hide when report doesn't require it
-
+    const Field = ({ param }) => {
+        const key = getParameterName(param);
+        const type = inferFieldType(param);
+        const label = humanizeLabel(param?.reportParameterName || key);
         const commonProps = {
-            className:
-                'mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600',
-            value: paramValues[def.key] ?? '',
-            onChange: (e) => onChangeValue(def.key, e.target.value),
-            placeholder: def.placeholder || '',
+            className: 'mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600',
+            value: paramValues[key] ?? '',
+            onChange: (e) => onChangeValue(key, e.target.value),
         };
 
-        if (def.type === 'date') {
+        if (type === 'date') {
             return (
                 <div>
-                    <label className="block text-sm font-medium">{def.label}</label>
+                    <label className="block text-sm font-medium">{label}</label>
                     <input type="date" {...commonProps} />
                 </div>
             );
         }
 
-        if (def.type === 'number') {
+        if (type === 'number') {
             return (
                 <div>
-                    <label className="block text-sm font-medium">{def.label}</label>
+                    <label className="block text-sm font-medium">{label}</label>
                     <input type="number" {...commonProps} />
                 </div>
             );
         }
 
-        if (def.type === 'text') {
+        if (type === 'office') {
             return (
                 <div>
-                    <label className="block text-sm font-medium">{def.label}</label>
-                    <input type="text" {...commonProps} />
+                    <label className="block text-sm font-medium">{label}</label>
+                    {loadingLists.offices ? (
+                        <div className="mt-2"><Skeleton height="2.25rem" /></div>
+                    ) : (
+                        <select {...commonProps}>
+                            <option value="">Select office</option>
+                            {offices.map((office) => (
+                                <option key={office.id} value={office.id}>
+                                    {office.name || office.officeName || `Office #${office.id}`}
+                                </option>
+                            ))}
+                        </select>
+                    )}
                 </div>
             );
         }
 
-        if (def.type === 'parType') {
-            const value = paramValues[def.key] ?? '';
+        if (type === 'loanOfficer') {
             return (
                 <div>
-                    <label className="block text-sm font-medium">{def.label}</label>
-                    <select
-                        {...commonProps}
-                        value={value}
-                    >
-                        <option value="">Select…</option>
-                        <option value="1">PAR &gt; 1</option>
-                        <option value="30">PAR &gt; 30</option>
-                        <option value="60">PAR &gt; 60</option>
-                        <option value="90">PAR &gt; 90</option>
+                    <label className="block text-sm font-medium">{label}</label>
+                    {loadingLists.staff ? (
+                        <div className="mt-2"><Skeleton height="2.25rem" /></div>
+                    ) : (
+                        <select {...commonProps}>
+                            <option value="">All Loan Officers</option>
+                            {staff.map((member) => (
+                                <option key={member.id} value={member.id}>
+                                    {member.displayName || [member.firstname, member.lastname].filter(Boolean).join(' ') || `Staff #${member.id}`}
+                                </option>
+                            ))}
+                        </select>
+                    )}
+                </div>
+            );
+        }
+
+        if (type === 'currency') {
+            const list = currencies?.selectedCurrencyOptions || currencies?.currencyOptions || [];
+            if (!Array.isArray(list) || !list.length) {
+                return (
+                    <div>
+                        <label className="block text-sm font-medium">{label}</label>
+                        <input type="text" {...commonProps} placeholder="Currency code" />
+                    </div>
+                );
+            }
+            return (
+                <div>
+                    <label className="block text-sm font-medium">{label}</label>
+                    <select {...commonProps}>
+                        <option value="">All</option>
+                        {list.map((item) => (
+                            <option key={item.code || item.id} value={item.code || item.id}>
+                                {item.displayLabel || `${item.name || item.code} [${item.code || item.id}]`}
+                            </option>
+                        ))}
                     </select>
                 </div>
             );
         }
 
-        if (def.type === 'office') {
+        if (type === 'fund') {
             return (
                 <div>
-                    <label className="block text-sm font-medium">{def.label}</label>
-                    {loadingLists.offices ? (
-                        <div className="mt-2"><Skeleton height="2.25rem" /></div>
-                    ) : (
-                        <select
-                            {...commonProps}
-                            value={paramValues[def.key] ?? '-1'}
-                            onChange={(e) => onChangeValue(def.key, e.target.value)}
-                        >
-                            <option value="-1">All Offices (-1)</option>
-                            {offices.map((o) => (
-                                <option key={o.id} value={o.id}>
-                                    {o.name || o.officeName || `Office #${o.id}`}
-                                </option>
-                            ))}
-                        </select>
-                    )}
-                </div>
-            );
-        }
-
-        if (def.type === 'loanOfficer') {
-            return (
-                <div>
-                    <label className="block text-sm font-medium">{def.label}</label>
-                    {loadingLists.staff ? (
-                        <div className="mt-2"><Skeleton height="2.25rem" /></div>
-                    ) : (
-                        <select
-                            {...commonProps}
-                            value={paramValues[def.key] ?? '-1'}
-                            onChange={(e) => onChangeValue(def.key, e.target.value)}
-                        >
-                            <option value="-1">All Loan Officers (-1)</option>
-                            {staff.map((s) => (
-                                <option key={s.id} value={s.id}>
-                                    {s.displayName ||
-                                        [s.firstname, s.lastname].filter(Boolean).join(' ') ||
-                                        `Staff #${s.id}`}
-                                </option>
-                            ))}
-                        </select>
-                    )}
-                </div>
-            );
-        }
-
-        if (def.type === 'currency') {
-            return (
-                <div>
-                    <label className="block text-sm font-medium">{def.label}</label>
-                    {loadingLists.currencies ? (
-                        <div className="mt-2"><Skeleton height="2.25rem" /></div>
-                    ) : (() => {
-                        const list = (currencies?.selectedCurrencyOptions?.length
-                            ? currencies.selectedCurrencyOptions
-                            : currencies?.selectedCurrencyOptions) || [];
-
-                        if (!list.length) {
-                            return <input type="text" {...commonProps} placeholder="Currency code (e.g. TZS)" />;
-                        }
-
-                        const currentValue =
-                            (paramValues[def.key] ?? '') ||
-                            (currencies?.selectedCurrencyOptions?.[0]?.code ?? '');
-
-                        return (
-                            <select
-                                {...commonProps}
-                                value={currentValue}
-                                onChange={(e) => onChangeValue(def.key, e.target.value)}
-                            >
-                                <option value="">All</option>
-                                {list.map((c) => (
-                                    <option key={c.code} value={c.code}>
-                                        {c.displayLabel || `${c.name} [${c.code}]`}
-                                    </option>
-                                ))}
-                            </select>
-                        );
-                    })()}
-                </div>
-            );
-        }
-
-        if (def.type === 'fund') {
-            return (
-                <div>
-                    <label className="block text-sm font-medium">{def.label}</label>
+                    <label className="block text-sm font-medium">{label}</label>
                     {loadingLists.funds ? (
                         <div className="mt-2"><Skeleton height="2.25rem" /></div>
                     ) : funds.length ? (
-                        <select
-                            {...commonProps}
-                            value={paramValues[def.key] ?? ''}
-                            onChange={(e) => onChangeValue(def.key, e.target.value)}
-                        >
+                        <select {...commonProps}>
                             <option value="">All</option>
-                            {funds.map((f) => (
-                                <option key={f.id} value={f.id}>{f.name}</option>
+                            {funds.map((item) => (
+                                <option key={item.id} value={item.id}>{item.name}</option>
                             ))}
                         </select>
                     ) : (
-                        <input type="number" {...commonProps} placeholder="Fund ID" />
+                        <input type="number" {...commonProps} />
                     )}
                 </div>
             );
         }
 
-        if (def.type === 'loanProduct') {
+        if (type === 'loanProduct') {
             return (
                 <div>
-                    <label className="block text-sm font-medium">{def.label}</label>
+                    <label className="block text-sm font-medium">{label}</label>
                     {loadingLists.loanProducts ? (
                         <div className="mt-2"><Skeleton height="2.25rem" /></div>
                     ) : loanProducts.length ? (
-                        <select
-                            {...commonProps}
-                            value={paramValues[def.key] ?? ''}
-                            onChange={(e) => onChangeValue(def.key, e.target.value)}
-                        >
+                        <select {...commonProps}>
                             <option value="">All</option>
-                            {loanProducts.map((p) => (
-                                <option key={p.id} value={p.id}>{p.name}</option>
+                            {loanProducts.map((item) => (
+                                <option key={item.id} value={item.id}>{item.name}</option>
                             ))}
                         </select>
                     ) : (
-                        <input type="number" {...commonProps} placeholder="Loan Product ID" />
+                        <input type="number" {...commonProps} />
                     )}
                 </div>
             );
         }
 
-        if (def.type === 'loanPurpose') {
+        if (type === 'loanPurpose') {
             return (
                 <div>
-                    <label className="block text-sm font-medium">{def.label}</label>
+                    <label className="block text-sm font-medium">{label}</label>
                     {loadingLists.loanPurposes ? (
                         <div className="mt-2"><Skeleton height="2.25rem" /></div>
                     ) : loanPurposes.length ? (
-                        <select
-                            {...commonProps}
-                            value={paramValues[def.key] ?? ''}
-                            onChange={(e) => onChangeValue(def.key, e.target.value)}
-                        >
+                        <select {...commonProps}>
                             <option value="">All</option>
-                            {loanPurposes.map((cv) => (
-                                <option key={cv.id} value={cv.id}>
-                                    {cv.name || cv.value || `Code #${cv.id}`}
-                                </option>
+                            {loanPurposes.map((item) => (
+                                <option key={item.id} value={item.id}>{item.name || item.value || `Code #${item.id}`}</option>
                             ))}
                         </select>
                     ) : (
-                        <input type="number" {...commonProps} placeholder="Loan Purpose code value ID" />
+                        <input type="number" {...commonProps} />
                     )}
                 </div>
             );
         }
 
-        if (def.type === 'savingsProduct') {
+        if (type === 'savingsProduct') {
             return (
                 <div>
-                    <label className="block text-sm font-medium">{def.label}</label>
+                    <label className="block text-sm font-medium">{label}</label>
                     {loadingLists.savingsProducts ? (
                         <div className="mt-2"><Skeleton height="2.25rem" /></div>
                     ) : savingsProducts.length ? (
-                        <select
-                            {...commonProps}
-                            value={paramValues[def.key] ?? ''}
-                            onChange={(e) => onChangeValue(def.key, e.target.value)}
-                        >
+                        <select {...commonProps}>
                             <option value="">All</option>
-                            {savingsProducts.map((p) => (
-                                <option key={p.id} value={p.id}>{p.name}</option>
+                            {savingsProducts.map((item) => (
+                                <option key={item.id} value={item.id}>{item.name}</option>
                             ))}
                         </select>
                     ) : (
-                        <input type="number" {...commonProps} placeholder="Savings Product ID" />
+                        <input type="number" {...commonProps} />
                     )}
                 </div>
             );
         }
 
-        if (def.type === 'glAccount') {
+        if (type === 'glAccount') {
             return (
                 <div>
-                    <label className="block text-sm font-medium">{def.label}</label>
+                    <label className="block text-sm font-medium">{label}</label>
                     {loadingLists.glAccounts ? (
                         <div className="mt-2"><Skeleton height="2.25rem" /></div>
                     ) : glAccounts.length ? (
-                        <select
-                            {...commonProps}
-                            value={paramValues[def.key] ?? ''}
-                            onChange={(e) => onChangeValue(def.key, e.target.value)}
-                        >
+                        <select {...commonProps}>
                             <option value="">All</option>
-                            {glAccounts.map((g) => (
-                                <option key={g.id} value={g.glCode || g.id}>
-                                    {(g.glCode ? `${g.glCode} — ` : '') + (g.name || `GL #${g.id}`)}
+                            {glAccounts.map((item) => (
+                                <option key={item.id} value={item.glCode || item.id}>
+                                    {(item.glCode ? `${item.glCode} - ` : '') + (item.name || `GL #${item.id}`)}
                                 </option>
                             ))}
                         </select>
                     ) : (
-                        <input type="text" {...commonProps} placeholder="GL Account No / Code" />
+                        <input type="text" {...commonProps} />
                     )}
                 </div>
             );
         }
 
-        return null;
+        return (
+            <div>
+                <label className="block text-sm font-medium">{label}</label>
+                <input type="text" {...commonProps} />
+            </div>
+        );
     };
-
-    const sections = useMemo(() => {
-        const grouped = {};
-        for (const f of ALL_SUPPORTED_FIELDS) {
-            if (!grouped[f.section]) grouped[f.section] = [];
-            grouped[f.section].push(f);
-        }
-        return grouped;
-    }, []);
 
     if (loadingReportMeta) {
         return (
@@ -725,7 +740,7 @@ const ReportDetails = () => {
                 <Card>
                     <div className="grid gap-2">
                         <Skeleton height="1.25rem" width="40%" />
-                        {[...Array(6)].map((_, i) => <Skeleton key={i} height="1rem" />)}
+                        {[...Array(6)].map((_, index) => <Skeleton key={index} height="1rem" />)}
                     </div>
                 </Card>
             </div>
@@ -747,34 +762,27 @@ const ReportDetails = () => {
         );
     }
 
-    const anyParams = Array.isArray(report.reportParameters) && report.reportParameters.length > 0;
-
     return (
         <div className="space-y-6">
-            {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-2xl font-bold">{report.reportName}</h1>
                     <div className="text-sm text-gray-500 dark:text-gray-400">
-                        {report.reportType}{report.reportCategory ? ` • ${report.reportCategory}` : ''}
+                        {report.reportType}{report.reportCategory ? ` - ${report.reportCategory}` : ''}
                     </div>
                 </div>
-                <div className="space-x-2">
-                    <Button variant="secondary" onClick={() => navigate('/reports')}>Back</Button>
-                </div>
+                <Button variant="secondary" onClick={() => navigate('/reports')}>Back</Button>
             </div>
 
-            {/* Runner */}
             <Card className="rounded-2xl">
                 <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-lg font-semibold">Parameters</h2>
+                    <h2 className="text-lg font-semibold">Run Report</h2>
                     <div className="text-sm text-gray-500 dark:text-gray-400">
-                        Only parameters required by this report are shown.
+                        {gatewayOverride ? 'Uses gateway arrears report override for clean branch, officer, and cleared-loan handling.' : 'Uses Fineract report metadata directly.'}
                     </div>
                 </div>
 
-                {/* Output format selector */}
-                <div className="grid md:grid-cols-3 gap-3 mb-4">
+                <div className="grid md:grid-cols-3 gap-3 mb-6">
                     <div>
                         <label className="block text-sm font-medium">Output</label>
                         <select
@@ -783,69 +791,47 @@ const ReportDetails = () => {
                             onChange={(e) => setFormat(e.target.value)}
                             disabled={!runnable}
                         >
-                            {allowedOutputs.map((f) => (
-                                <option key={f} value={f}>{f}</option>
+                            {availableOutputs.map((item) => (
+                                <option key={item} value={item}>{item}</option>
                             ))}
                         </select>
-                        {!runnable && (
-                            <div className="text-xs text-amber-600 mt-1">
-                                This report type isn’t runnable via /runreports.
-                            </div>
-                        )}
-                        {isPentaho && (
-                            <div className="text-xs text-gray-500 mt-1">
-                                Pentaho exports require server reporting service.
-                            </div>
-                        )}
                     </div>
                 </div>
 
-                {/* Param sections */}
-                {anyParams ? (
-                    <div className="space-y-6">
-                        {Object.entries(sections).map(([sectionName, fields]) => {
-                            const visibleFields = fields.filter((f) => needs(f.key));
-                            if (!visibleFields.length) return null;
-                            return (
-                                <div key={sectionName}>
-                                    <div className="font-semibold text-sm mb-2">{sectionName}</div>
-                                    <div className="grid md:grid-cols-3 gap-3">
-                                        {visibleFields.map((f) => (
-                                            <Field key={f.key} def={f} />
-                                        ))}
-                                    </div>
-                                </div>
-                            );
-                        })}
+                {!gatewayOverride && reportParameters.length ? (
+                    <div className="grid md:grid-cols-3 gap-3">
+                        {reportParameters.map((param, index) => (
+                            <Field key={`${getParameterName(param)}-${index}`} param={param} />
+                        ))}
+                    </div>
+                ) : gatewayOverride ? (
+                    <div className="rounded-xl border bg-gray-50 p-3 text-sm text-gray-600 dark:bg-gray-800/40 dark:text-gray-300">
+                        Grouping is fixed from the report name: <span className="font-medium">{gatewayOverride.groupBy}</span>.
                     </div>
                 ) : (
-                    <div className="text-sm text-gray-500">This report has no parameters.</div>
+                    <div className="text-sm text-gray-500">This report does not declare parameters.</div>
                 )}
 
-                {/* Pentaho unavailable banner */}
-                {pentahoUnavailable && (
-                    <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 text-amber-800 p-3">
-                        Pentaho reports require the Pentaho reporting service on the server. It appears to be disabled.
-                    </div>
-                )}
-
-                {/* Actions */}
-                <div className="mt-4 flex items-center gap-2">
-                    <Button onClick={runReport} disabled={!runnable || running || !canRun()}>
-                        {running ? 'Running…' : (isTable && format === 'JSON' ? 'Run' : `Download ${format}`)}
-                    </Button>
-                    {(!runnable) && (
-                        <div className="text-sm text-gray-500">Unsupported report type: {report.reportType}</div>
-                    )}
+                <div className="mt-6 rounded-xl border bg-gray-50 p-3 text-xs text-gray-600 dark:bg-gray-800/40 dark:text-gray-300">
+                    <div className="font-semibold mb-1">Request preview</div>
+                    <div className="break-all">{requestPreview || 'No request generated yet.'}</div>
                 </div>
 
-                {/* JSON results */}
-                {isTable && format === 'JSON' && (
+                <div className="mt-4 flex items-center gap-2">
+                    <Button onClick={runReport} disabled={!runnable || running}>
+                        {running ? 'Running...' : ((gatewayOverride || (isTable && format === 'JSON')) ? 'Run' : `Download ${format}`)}
+                    </Button>
+                    {!runnable ? (
+                        <div className="text-sm text-gray-500">Unsupported report type: {report.reportType}</div>
+                    ) : null}
+                </div>
+
+                {isTable && format === 'JSON' ? (
                     <div className="mt-6">
                         {running ? (
                             <div className="grid gap-2">
                                 <Skeleton height="1.25rem" width="40%" />
-                                {[...Array(6)].map((_, i) => <Skeleton key={i} height="1rem" />)}
+                                {[...Array(6)].map((_, index) => <Skeleton key={index} height="1rem" />)}
                             </div>
                         ) : error ? (
                             <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-300">
@@ -855,37 +841,24 @@ const ReportDetails = () => {
                             <div className="overflow-auto rounded-xl border">
                                 <table className="min-w-full text-sm">
                                     <thead className="bg-gray-50 dark:bg-gray-800/40">
-                                    <tr>
-                                        {headers.map((h, i) => (
-                                            <th
-                                                key={i}
-                                                className="px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200 whitespace-nowrap"
-                                            >
-                                                {h.columnName || h.columnCode || `Col ${i + 1}`}
-                                            </th>
-                                        ))}
-                                    </tr>
-                                    </thead>
-                                    <tbody>
-                                    {rows.map((row, rIdx) => (
-                                        <tr
-                                            key={rIdx}
-                                            className="odd:bg-white even:bg-gray-50 dark:odd:bg-transparent dark:even:bg-gray-900/20"
-                                        >
-                                            {row.map((cell, cIdx) => (
-                                                <td key={cIdx} className="px-3 py-2 whitespace-nowrap">
-                                                    {String(cell ?? '')}
-                                                </td>
+                                        <tr>
+                                            {headers.map((header, index) => (
+                                                <th key={index} className="px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200 whitespace-nowrap">
+                                                    {header.columnName || header.columnCode || `Col ${index + 1}`}
+                                                </th>
                                             ))}
                                         </tr>
-                                    ))}
-                                    {!rows.length && (
-                                        <tr>
-                                            <td className="px-3 py-3 text-gray-500" colSpan={headers.length}>
-                                                No rows.
-                                            </td>
-                                        </tr>
-                                    )}
+                                    </thead>
+                                    <tbody>
+                                        {rows.map((row, rowIndex) => (
+                                            <tr key={rowIndex} className="odd:bg-white even:bg-gray-50 dark:odd:bg-transparent dark:even:bg-gray-900/20">
+                                                {row.map((cell, cellIndex) => (
+                                                    <td key={cellIndex} className="px-3 py-2 whitespace-nowrap">
+                                                        {String(cell ?? '')}
+                                                    </td>
+                                                ))}
+                                            </tr>
+                                        ))}
                                     </tbody>
                                 </table>
                             </div>
@@ -893,7 +866,7 @@ const ReportDetails = () => {
                             <div className="text-sm text-gray-500">Run the report to see results.</div>
                         )}
                     </div>
-                )}
+                ) : null}
             </Card>
         </div>
     );

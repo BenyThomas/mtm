@@ -8,16 +8,16 @@ import Card from '../../../components/Card';
 import DataTable from '../../../components/DataTable';
 import Modal from '../../../components/Modal';
 import { createMerchantCompany, listMerchantCompanies } from '../../../api/gateway/merchantNetwork';
+import { listMerchantIndustryTypeLookup } from '../../../api/gateway/merchantIndustryTypes';
 import { useToast } from '../../../context/ToastContext';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
-const INDUSTRY_OPTIONS = ['FUEL', 'SPARE_PARTS', 'MAINTENANCE'];
 const SETTLEMENT_OPTIONS = ['PER_COMPANY', 'PER_OUTLET'];
 
 const emptyForm = {
   code: '',
   name: '',
-  industryType: 'FUEL',
+  industryType: '',
   settlementMode: 'PER_COMPANY',
   contactName: '',
   contactPhone: '',
@@ -46,6 +46,30 @@ const MerchantCompanies = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [form, setForm] = useState(emptyForm);
+  const [industryOptions, setIndustryOptions] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadLookup = async () => {
+      try {
+        const response = await listMerchantIndustryTypeLookup();
+        if (!cancelled) {
+          const items = Array.isArray(response?.items) ? response.items : [];
+          const defaultCode = items.find((item) => item?.defaultType)?.id || items[0]?.id;
+          setIndustryOptions(items);
+          setForm((prev) => ({ ...prev, industryType: defaultCode || prev.industryType }));
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setIndustryOptions([]);
+        }
+      }
+    };
+    loadLookup();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -159,7 +183,10 @@ const MerchantCompanies = () => {
       key: 'industryType',
       header: 'Industry',
       sortable: true,
-      render: (row) => formatLabel(row?.industryType),
+      render: (row) => {
+        const opt = industryOptions.find((o) => o.id === row?.industryType);
+        return opt?.name || formatLabel(row?.industryType);
+      },
     },
     {
       key: 'settlementMode',
@@ -218,13 +245,18 @@ const MerchantCompanies = () => {
           <div>
             <h1 className="text-2xl font-bold">Merchant Companies</h1>
             <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-              Manage merchant networks for fuel, spare parts, and maintenance.
+              Manage merchant networks and their industry mappings.
             </div>
           </div>
           <div className="flex items-center gap-2">
             <Button variant="secondary" onClick={() => setRefreshTick((tick) => tick + 1)} disabled={loading}>Refresh</Button>
             <Can any={['GW_OPS_WRITE', 'GW_OPS_ALL', 'UPDATE_CONFIGURATION', 'CREATE_CONFIGURATION']}>
-              <Button onClick={() => { setError(''); setForm(emptyForm); setCreateOpen(true); }}>
+              <Button onClick={() => {
+                const defaultCode = industryOptions.find((item) => item?.defaultType)?.id || industryOptions[0]?.id || emptyForm.industryType;
+                setError('');
+                setForm({ ...emptyForm, industryType: defaultCode });
+                setCreateOpen(true);
+              }}>
                 <Plus size={16} /> Create Company
               </Button>
             </Can>
@@ -253,7 +285,7 @@ const MerchantCompanies = () => {
               className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
             >
               <option value="">All</option>
-              {INDUSTRY_OPTIONS.map((value) => <option key={value} value={value}>{formatLabel(value)}</option>)}
+              {industryOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
             </select>
           </div>
           <div>
@@ -339,7 +371,7 @@ const MerchantCompanies = () => {
               onChange={(event) => setForm((prev) => ({ ...prev, industryType: event.target.value }))}
               className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
             >
-              {INDUSTRY_OPTIONS.map((value) => <option key={value} value={value}>{formatLabel(value)}</option>)}
+              {industryOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
             </select>
           </div>
           <div>

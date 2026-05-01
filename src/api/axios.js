@@ -11,7 +11,9 @@ import { resolveTenant } from '../config/runtime';
 const fineractOrigin = import.meta.env.VITE_API_URL
     ? String(import.meta.env.VITE_API_URL).replace(/\/+$/, '')
     : '';
-const baseURL = fineractOrigin ? `${fineractOrigin}/api/v1` : '/api/api/v1';
+const baseURL = import.meta.env.DEV
+    ? '/api/api/v1'
+    : (fineractOrigin ? `${fineractOrigin}/api/v1` : '/api/api/v1');
 
 const api = axios.create({ baseURL });
 

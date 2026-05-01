@@ -20,10 +20,9 @@ import {
   patchCustomerVehicle,
   unblockMerchantCreditAccount,
 } from '../../../api/gateway/merchantNetwork';
+import { listMerchantIndustryTypeLookup } from '../../../api/gateway/merchantIndustryTypes';
 import { getOpsResource } from '../../../api/gateway/opsResources';
 import { useToast } from '../../../context/ToastContext';
-
-const INDUSTRY_OPTIONS = ['FUEL', 'SPARE_PARTS', 'MAINTENANCE'];
 const vehicleFormInit = {
   registrationNumber: '',
   vehicleType: '',
@@ -81,7 +80,8 @@ const MerchantCustomerDetails = () => {
   const [editingVehicle, setEditingVehicle] = useState(null);
   const [vehicleForm, setVehicleForm] = useState(vehicleFormInit);
   const [selectedLoanId, setSelectedLoanId] = useState('');
-  const [selectedIndustryType, setSelectedIndustryType] = useState('FUEL');
+  const [selectedIndustryType, setSelectedIndustryType] = useState('');
+  const [industryOptions, setIndustryOptions] = useState([]);
   const [creditActionOpen, setCreditActionOpen] = useState(false);
   const [savingCreditAction, setSavingCreditAction] = useState(false);
   const [selectedCreditAccount, setSelectedCreditAccount] = useState(null);
@@ -116,6 +116,31 @@ const MerchantCustomerDetails = () => {
   useEffect(() => {
     load();
   }, [customerId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadLookup = async () => {
+      try {
+        const response = await listMerchantIndustryTypeLookup();
+        if (!cancelled) {
+          const items = Array.isArray(response?.items) ? response.items : [];
+          const defaultCode = items.find((item) => item?.defaultType)?.id || items[0]?.id;
+          setIndustryOptions(items);
+          if (defaultCode) {
+            setSelectedIndustryType(defaultCode);
+          }
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setIndustryOptions([]);
+        }
+      }
+    };
+    loadLookup();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const eligibleLoans = useMemo(() => {
     return loans.filter((item) => {
@@ -610,7 +635,7 @@ const MerchantCustomerDetails = () => {
               onChange={(event) => setSelectedIndustryType(event.target.value)}
               className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
             >
-              {INDUSTRY_OPTIONS.map((value) => <option key={value} value={value}>{value}</option>)}
+              {industryOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
             </select>
           </div>
         </form>

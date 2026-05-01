@@ -8,6 +8,7 @@ import Modal from '../../components/Modal';
 import useDebouncedValue from '../../hooks/useDebouncedValue';
 import { useToast } from '../../context/ToastContext';
 import { listLoanPurposesOps, patchLoanPurposeOps, syncLoanPurposesOps } from '../../api/gateway/loanPurposes';
+import { listMerchantIndustryTypeLookup } from '../../api/gateway/merchantIndustryTypes';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
 const statusTone = (active) => (active ? 'green' : 'gray');
@@ -33,6 +34,7 @@ const LoanPurposesConfig = () => {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebouncedValue(search, 450);
   const [activeFilter, setActiveFilter] = useState('');
+  const [merchantIndustryTypeFilter, setMerchantIndustryTypeFilter] = useState('');
   const [sortBy, setSortBy] = useState('name');
   const [sortDir, setSortDir] = useState('asc');
   const [page, setPage] = useState(0);
@@ -42,8 +44,34 @@ const LoanPurposesConfig = () => {
 
   const [editing, setEditing] = useState(null);
   const [editingName, setEditingName] = useState('');
-  const [editingCode, setEditingCode] = useState('');
   const [editingActive, setEditingActive] = useState(true);
+  const [editingMerchantIndustryType, setEditingMerchantIndustryType] = useState('');
+  const [merchantIndustryTypes, setMerchantIndustryTypes] = useState([]);
+
+  const merchantIndustryTypeNameById = useMemo(
+    () => Object.fromEntries(merchantIndustryTypes.map((item) => [item.id, item.name])),
+    [merchantIndustryTypes]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadLookup = async () => {
+      try {
+        const data = await listMerchantIndustryTypeLookup();
+        if (!cancelled) {
+          setMerchantIndustryTypes(Array.isArray(data?.items) ? data.items : []);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setMerchantIndustryTypes([]);
+        }
+      }
+    };
+    loadLookup();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -53,6 +81,7 @@ const LoanPurposesConfig = () => {
         const data = await listLoanPurposesOps({
           q: debouncedSearch || undefined,
           active: activeFilter === '' ? undefined : activeFilter === 'true',
+          merchantIndustryType: merchantIndustryTypeFilter || undefined,
           orderBy: sortBy,
           sortOrder: sortDir,
           offset: page * limit,
@@ -76,7 +105,7 @@ const LoanPurposesConfig = () => {
     return () => {
       cancelled = true;
     };
-  }, [debouncedSearch, activeFilter, sortBy, sortDir, page, limit, refreshTick, addToast]);
+  }, [debouncedSearch, activeFilter, merchantIndustryTypeFilter, sortBy, sortDir, page, limit, refreshTick, addToast]);
 
   const onSort = (key) => {
     if (sortBy === key) {
@@ -91,15 +120,15 @@ const LoanPurposesConfig = () => {
   const startEdit = (row) => {
     setEditing(row);
     setEditingName(row?.name || '');
-    setEditingCode(row?.code || '');
     setEditingActive(!!row?.active);
+    setEditingMerchantIndustryType(row?.merchantIndustryType || '');
   };
 
   const closeEdit = () => {
     setEditing(null);
     setEditingName('');
-    setEditingCode('');
     setEditingActive(true);
+    setEditingMerchantIndustryType('');
   };
 
   const saveEdit = async () => {
@@ -108,8 +137,8 @@ const LoanPurposesConfig = () => {
     try {
       await patchLoanPurposeOps(editing.loanPurposeId, {
         name: editingName,
-        code: editingCode,
         active: !!editingActive,
+        merchantIndustryType: editingMerchantIndustryType || null,
       });
       addToast('Loan purpose updated', 'success');
       closeEdit();
@@ -139,7 +168,12 @@ const LoanPurposesConfig = () => {
   const columns = useMemo(
     () => [
       { key: 'name', header: 'Name', sortable: true, render: (r) => r?.name || '-' },
-      { key: 'code', header: 'Code', sortable: true, render: (r) => r?.code || '-' },
+      {
+        key: 'merchantIndustryType',
+        header: 'Merchant Industry',
+        sortable: false,
+        render: (r) => merchantIndustryTypeNameById[r?.merchantIndustryType] || '-',
+      },
       { key: 'fineractCodeValueId', header: 'Fineract ID', sortable: false, render: (r) => r?.fineractCodeValueId ?? '-' },
       {
         key: 'active',
@@ -161,7 +195,7 @@ const LoanPurposesConfig = () => {
         ),
       },
     ],
-    []
+    [merchantIndustryTypeNameById]
   );
 
   return (
@@ -179,7 +213,7 @@ const LoanPurposesConfig = () => {
       </section>
 
       <Card>
-        <div className="grid gap-3 md:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-5">
           <div className="md:col-span-2">
             <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search</label>
             <input
@@ -205,6 +239,22 @@ const LoanPurposesConfig = () => {
               <option value="">All</option>
               <option value="true">Active</option>
               <option value="false">Inactive</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Merchant Industry</label>
+            <select
+              value={merchantIndustryTypeFilter}
+              onChange={(e) => {
+                setMerchantIndustryTypeFilter(e.target.value);
+                setPage(0);
+              }}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            >
+              <option value="">All</option>
+              {merchantIndustryTypes.map((item) => (
+                <option key={item.id} value={item.id}>{item.name}</option>
+              ))}
             </select>
           </div>
           <div className="flex items-end justify-end gap-2">
@@ -293,13 +343,18 @@ const LoanPurposesConfig = () => {
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Code</label>
-            <input
-              value={editingCode}
-              onChange={(e) => setEditingCode(e.target.value)}
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Merchant Industry</label>
+            <select
+              value={editingMerchantIndustryType}
+              onChange={(e) => setEditingMerchantIndustryType(e.target.value)}
               className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
               disabled={saving}
-            />
+            >
+              <option value="">Unmapped</option>
+              {merchantIndustryTypes.map((item) => (
+                <option key={item.id} value={item.id}>{item.name}</option>
+              ))}
+            </select>
           </div>
           <label className="flex items-center gap-2 pt-6">
             <input type="checkbox" checked={editingActive} onChange={(e) => setEditingActive(e.target.checked)} disabled={saving} />

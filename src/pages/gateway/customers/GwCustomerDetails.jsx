@@ -16,6 +16,7 @@ import { getGwCustomerSummary, updateGwCustomerProfile } from '../../../api/gate
 import { applyGwLoanOnBehalf, getGwLoanEligibilityForCustomer, listGwLoans } from '../../../api/gateway/loans';
 import { listLoanPurposesOps } from '../../../api/gateway/loanPurposes';
 import { listOpsResources } from '../../../api/gateway/opsResources';
+import { createCustomerVehicle, listCustomerVehicles, patchCustomerVehicle } from '../../../api/gateway/merchantNetwork';
 import { getGwLoanStatusCode, getGwLoanStatusLabel, isGwLoanBlockingStatus } from '../../../utils/gwLoanStatus';
 
 const profileFormInit = {
@@ -39,6 +40,16 @@ const profileFormInit = {
   bankName: '',
   bankAccount: '',
   walletMsisdn: '',
+};
+
+const vehicleFormInit = {
+  registrationNumber: '',
+  vehicleType: '',
+  make: '',
+  model: '',
+  color: '',
+  primaryVehicle: false,
+  active: true,
 };
 
 const fullName = (profile, fallback = '-') => {
@@ -232,6 +243,11 @@ const GwCustomerDetails = () => {
   const [loanEligibility, setLoanEligibility] = useState(null);
   const [loanEligibilityLoading, setLoanEligibilityLoading] = useState(false);
   const [loanForm, setLoanForm] = useState({ productCode: '', amount: '', tenure: '', loanPurposeId: '' });
+  const [vehicles, setVehicles] = useState([]);
+  const [vehicleOpen, setVehicleOpen] = useState(false);
+  const [vehicleSaving, setVehicleSaving] = useState(false);
+  const [editingVehicle, setEditingVehicle] = useState(null);
+  const [vehicleForm, setVehicleForm] = useState(vehicleFormInit);
 
   const load = async () => {
     setLoading(true);
@@ -241,7 +257,7 @@ const GwCustomerDetails = () => {
       const customer = nextSummary?.customer || null;
       const onboarding = nextSummary?.onboarding || null;
 
-      const [loanRes, inviteRes, fineractRes] = await Promise.all([
+      const [loanRes, inviteRes, vehicleRes, fineractRes] = await Promise.all([
         listGwLoans({
           customerId: customer?.gatewayCustomerId || customer?.platformCustomerId || customerId,
           limit: 100,
@@ -256,6 +272,7 @@ const GwCustomerDetails = () => {
           orderBy: 'updatedAt',
           sortOrder: 'desc',
         }).catch(() => ({ items: [] })),
+        listCustomerVehicles(customerId).catch(() => []),
         customer?.fineractClientId
           ? Promise.all([
               api.get(`/clients/${encodeURIComponent(customer.fineractClientId)}`).catch(() => ({ data: null })),
@@ -267,6 +284,7 @@ const GwCustomerDetails = () => {
       setSummary(nextSummary);
       setLoans(Array.isArray(loanRes?.items) ? loanRes.items : []);
       setInvites((Array.isArray(inviteRes?.items) ? inviteRes.items : []).filter((item) => inviteMatchesCustomer(item, customer, onboarding)));
+      setVehicles((Array.isArray(vehicleRes) ? vehicleRes : []).map((v) => ({ ...v, id: v?.vehicleId })));
       setFineractClient(fineractRes?.[0]?.data || null);
       setAccounts(fineractRes?.[1]?.data || null);
       setProfileForm({
@@ -436,7 +454,7 @@ const GwCustomerDetails = () => {
   const loanPurposeOptions = useMemo(() => loanPurposes
     .map((item) => ({
       value: String(item?.fineractCodeValueId || item?.loanPurposeId || ''),
-      label: `${item?.name || item?.code || 'Purpose'}${item?.code ? ` (${item.code})` : ''}`,
+      label: `${item?.name || item?.code || 'Purpose'}`,
     }))
     .filter((item) => item.value), [loanPurposes]);
   const tenureOptions = useMemo(() => (Array.isArray(loanEligibility?.allowedTenures)
@@ -593,6 +611,70 @@ const GwCustomerDetails = () => {
     }
   };
 
+  const saveVehicle = async (e) => {
+    e?.preventDefault?.();
+    setVehicleSaving(true);
+    try {
+      if (editingVehicle) {
+        await patchCustomerVehicle(editingVehicle.vehicleId, vehicleForm);
+        addToast('Vehicle updated', 'success');
+      } else {
+        await createCustomerVehicle(customerId, vehicleForm);
+        addToast('Vehicle added', 'success');
+      }
+      setVehicleOpen(false);
+      await load();
+    } catch (err) {
+      addToast(err?.response?.data?.message || err?.message || 'Failed to save vehicle', 'error');
+    } finally {
+      setVehicleSaving(false);
+    }
+  };
+
+  const vehicleColumns = useMemo(() => [
+    { key: 'registrationNumber', header: 'Reg Number', sortable: true },
+    { key: 'vehicleType', header: 'Type', sortable: true },
+    { key: 'make', header: 'Make', sortable: true },
+    { key: 'model', header: 'Model', sortable: true },
+    { key: 'color', header: 'Color', sortable: true },
+    {
+      key: 'primaryVehicle',
+      header: 'Primary',
+      render: (v) => <Badge tone={v?.primaryVehicle ? 'green' : 'gray'}>{v?.primaryVehicle ? 'YES' : 'NO'}</Badge>,
+    },
+    {
+      key: 'active',
+      header: 'Status',
+      render: (v) => <Badge tone={v?.active ? 'green' : 'red'}>{v?.active ? 'ACTIVE' : 'INACTIVE'}</Badge>,
+    },
+    {
+      key: 'actions',
+      header: '',
+      render: (v) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={(e) => {
+            e.stopPropagation();
+            setEditingVehicle(v);
+            setVehicleForm({
+              registrationNumber: v.registrationNumber || '',
+              vehicleType: v.vehicleType || '',
+              make: v.make || '',
+              model: v.model || '',
+              color: v.color || '',
+              primaryVehicle: !!v.primaryVehicle,
+              active: !!v.active,
+            });
+            setVehicleOpen(true);
+          }}
+        >
+          Edit
+        </Button>
+      ),
+    },
+  ], []);
+
   const openLoanModal = () => {
     setLoanProducts([]);
     setLoanEligibility(null);
@@ -715,6 +797,7 @@ const GwCustomerDetails = () => {
         tabs={[
           { key: 'overview', label: 'Overview' },
           { key: 'loans', label: `Loans (${loans.length})` },
+          { key: 'vehicles', label: `Vehicles (${vehicles.length})` },
           { key: 'savings', label: `Savings (${savingsAccounts.length})` },
           { key: 'invites', label: `Invites (${invites.length})` },
           { key: 'profile', label: 'Profile' },
@@ -822,9 +905,38 @@ const GwCustomerDetails = () => {
                     },
                   });
                 }}
-                emptyMessage="No platform loans for this customer."
               />
             )}
+          </Card>
+        </div>
+
+        <div data-tab="vehicles" className="space-y-4">
+          <Card>
+            <div className="mb-4 flex items-center justify-between">
+              <div className="font-semibold">Customer Vehicles</div>
+              <Can any={['GW_OPS_WRITE']}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setEditingVehicle(null);
+                    setVehicleForm(vehicleFormInit);
+                    setVehicleOpen(true);
+                  }}
+                >
+                  Add Vehicle
+                </Button>
+              </Can>
+            </div>
+            <DataTable
+              columns={vehicleColumns}
+              data={vehicles}
+              loading={false}
+              total={vehicles.length}
+              page={0}
+              limit={Math.max(vehicles.length, 1)}
+              onPageChange={() => {}}
+            />
           </Card>
         </div>
 
@@ -959,6 +1071,30 @@ const GwCustomerDetails = () => {
           </Card>
         </div>
       </Tabs>
+
+      <Modal
+        open={vehicleOpen}
+        onClose={() => !vehicleSaving && setVehicleOpen(false)}
+        title={editingVehicle ? 'Edit Vehicle' : 'Add Vehicle'}
+        footer={(
+          <div className="flex justify-end gap-3">
+            <Button variant="ghost" onClick={() => setVehicleOpen(false)} disabled={vehicleSaving}>Cancel</Button>
+            <Button onClick={saveVehicle} disabled={vehicleSaving}>{vehicleSaving ? 'Saving...' : 'Save Vehicle'}</Button>
+          </div>
+        )}
+      >
+        <form className="grid gap-4 md:grid-cols-2" onSubmit={saveVehicle}>
+          <label className="text-sm">Registration Number<input className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={vehicleForm.registrationNumber} onChange={(e) => setVehicleForm({ ...vehicleForm, registrationNumber: e.target.value })} required /></label>
+          <label className="text-sm">Vehicle Type<input className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={vehicleForm.vehicleType} onChange={(e) => setVehicleForm({ ...vehicleForm, vehicleType: e.target.value })} required /></label>
+          <label className="text-sm">Make<input className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={vehicleForm.make} onChange={(e) => setVehicleForm({ ...vehicleForm, make: e.target.value })} /></label>
+          <label className="text-sm">Model<input className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={vehicleForm.model} onChange={(e) => setVehicleForm({ ...vehicleForm, model: e.target.value })} /></label>
+          <label className="text-sm">Color<input className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={vehicleForm.color} onChange={(e) => setVehicleForm({ ...vehicleForm, color: e.target.value })} /></label>
+          <div className="flex flex-col justify-center gap-2">
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={vehicleForm.primaryVehicle} onChange={(e) => setVehicleForm({ ...vehicleForm, primaryVehicle: e.target.checked })} /> Primary Vehicle</label>
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={vehicleForm.active} onChange={(e) => setVehicleForm({ ...vehicleForm, active: e.target.checked })} /> Active</label>
+          </div>
+        </form>
+      </Modal>
 
       <ClientCommandModal
         open={Boolean(commandOpen)}
