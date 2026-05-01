@@ -4,10 +4,11 @@ on:
   push:
     branches:
       - prod
+      - tpf
   workflow_dispatch:
 
 concurrency:
-  group: mtm-prod-image
+  group: mtm-prod-image-${{ github.ref_name }}
   cancel-in-progress: true
 
 permissions:
@@ -17,7 +18,7 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    environment: prod
+    environment: ${{ github.ref_name == 'tpf' && 'tpf-prod' || 'prod' }}
 
     steps:
       - name: Checkout
@@ -29,7 +30,14 @@ jobs:
         run: |
           owner_lc="${GITHUB_REPOSITORY_OWNER,,}"
           echo "image_repo=ghcr.io/${owner_lc}/mtm" >> "$GITHUB_OUTPUT"
-          echo "sha_tag=prod-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          
+          if [ "${{ github.ref_name }}" = "tpf" ]; then
+            prefix="tpf-prod"
+          else
+            prefix="prod"
+          fi
+          echo "prefix=${prefix}" >> "$GITHUB_OUTPUT"
+          echo "sha_tag=${prefix}-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -49,9 +57,9 @@ jobs:
           build-args: |
             VITE_API_URL=
             VITE_GATEWAY_API_URL=
-            VITE_TENANT=${{ vars.PROD_VITE_TENANT != '' && vars.PROD_VITE_TENANT || 'x1-epik-pay' }}
+            VITE_TENANT=${{ github.ref_name == 'tpf' && vars.TPF_VITE_TENANT || (vars.PROD_VITE_TENANT != '' && vars.PROD_VITE_TENANT || 'x1-epik-pay') }}
             NGINX_CONF=nginx.compose.conf
           push: true
           tags: |
-            ${{ steps.image_meta.outputs.image_repo }}:prod
+            ${{ steps.image_meta.outputs.image_repo }}:${{ steps.image_meta.outputs.prefix }}
             ${{ steps.image_meta.outputs.image_repo }}:${{ steps.image_meta.outputs.sha_tag }}

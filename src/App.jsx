@@ -129,6 +129,7 @@ import MerchantCompanyDetails from "./pages/gateway/merchant/MerchantCompanyDeta
 import MerchantCustomers from "./pages/gateway/merchant/MerchantCustomers";
 import MerchantCustomerDetails from "./pages/gateway/merchant/MerchantCustomerDetails";
 import MerchantIndustryTypesConfig from "./pages/gateway/MerchantIndustryTypesConfig";
+import SelcomRepaymentSync from "./pages/gateway/SelcomRepaymentSync";
 
 const NotFound = () => (
     <div>
@@ -314,6 +315,7 @@ const App = () => {
                             <Route path="/gateway/merchant/customers" element={<MerchantCustomers />} />
                             <Route path="/gateway/merchant/customers/:customerId" element={<MerchantCustomerDetails />} />
                             <Route path="/gateway/merchant-industry-types" element={<MerchantIndustryTypesConfig />} />
+                            <Route path="/gateway/selcom-sync" element={<SelcomRepaymentSync />} />
                             <Route path="/gateway/invites" element={<InvitesList />} />
                             <Route path="/gateway/invites/new" element={<InviteNew />} />
                             <Route path="/gateway/invite-campaigns" element={<InviteCampaigns />} />
