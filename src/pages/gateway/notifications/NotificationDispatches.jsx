@@ -202,13 +202,14 @@ const NotificationDispatches = () => {
             <Button size="sm" variant="ghost" className="px-2" onClick={() => loadDispatchDetail(row?.dispatchId)}>
               <Eye size={16} />
             </Button>
-            {String(row?.status || '').toUpperCase() === 'FAILED' ? (
+            {['FAILED', 'SENT'].includes(String(row?.status || '').toUpperCase()) ? (
               <Button
                 size="sm"
                 variant="ghost"
                 className="px-2"
                 onClick={() => retryDispatch(row?.dispatchId)}
                 disabled={actingId === row?.dispatchId}
+                title={String(row?.status || '').toUpperCase() === 'SENT' ? 'Resend' : 'Retry'}
               >
                 <RotateCcw size={16} />
               </Button>
@@ -368,13 +369,17 @@ const NotificationDispatches = () => {
             <Button variant="secondary" onClick={() => setDetailOpen(false)}>
               Close
             </Button>
-            {String(selectedDispatch?.status || '').toUpperCase() === 'FAILED' ? (
+            {['FAILED', 'SENT'].includes(String(selectedDispatch?.status || '').toUpperCase()) ? (
               <Button
                 onClick={() => retryDispatch(selectedDispatch?.dispatchId)}
                 disabled={actingId === selectedDispatch?.dispatchId}
               >
                 <RotateCcw size={16} />
-                {actingId === selectedDispatch?.dispatchId ? 'Retrying...' : 'Retry Send'}
+                {actingId === selectedDispatch?.dispatchId
+                  ? 'Retrying...'
+                  : String(selectedDispatch?.status || '').toUpperCase() === 'SENT'
+                    ? 'Resend Message'
+                    : 'Retry Send'}
               </Button>
             ) : null}
           </>

@@ -21,7 +21,29 @@ const STATUS_OPTIONS = [
   { value: 'true', label: 'Active' },
   { value: 'false', label: 'Inactive' },
 ];
-const SUPPORTED_PLACEHOLDERS = ['{{customerName}}', '{{amount}}', '{{productName}}', '{{paidAt}}', '{{loanAccount}}'];
+
+const EVENT_TYPE_OPTIONS = [
+  'LOAN_REPAYMENT_RECEIVED',
+  'LOAN_REPAYMENT_REMINDER',
+  'INVITE_SENT',
+  'INVITE_ACCEPTED',
+  'LOAN_APPROVED',
+  'LOAN_REJECTED',
+  'LOAN_DISBURSED',
+  'GENERIC_OPS',
+];
+
+const PLACEHOLDER_MAP = {
+  LOAN_REPAYMENT_RECEIVED: ['customerName', 'amount', 'productName', 'paidAt', 'loanAccount'],
+  LOAN_REPAYMENT_REMINDER: ['customerName', 'amount', 'productName', 'paidAt', 'loanAccount'],
+  INVITE_SENT: ['customerName', 'inviteCode', 'inviteUrl', 'expiryDate'],
+  INVITE_ACCEPTED: ['customerName', 'inviteCode'],
+  LOAN_APPROVED: ['customerName', 'amount', 'productName', 'loanAccount'],
+  LOAN_REJECTED: ['customerName', 'amount', 'productName', 'loanAccount', 'reason'],
+  LOAN_DISBURSED: ['customerName', 'amount', 'productName', 'loanAccount'],
+  GENERIC_OPS: ['customerName', 'message', 'date'],
+};
+
 const PLACEHOLDER_REGEX = /\{\{\s*([a-zA-Z0-9]+)\s*}}/g;
 
 const EMPTY_FORM = {
@@ -281,15 +303,21 @@ const NotificationTemplates = () => {
         <div className="grid gap-3 md:grid-cols-5">
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Event Type</label>
-            <input
+            <select
               value={eventTypeFilter}
               onChange={(e) => {
                 setEventTypeFilter(e.target.value);
                 setPage(0);
               }}
-              placeholder="LOAN_REPAYMENT_RECEIVED"
               className="mt-1 w-full rounded-xl border p-2.5 dark:border-gray-600 dark:bg-gray-700"
-            />
+            >
+              <option value="">All Events</option>
+              {EVENT_TYPE_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Channel</label>
@@ -520,12 +548,18 @@ const NotificationTemplates = () => {
             <div className="grid gap-3 md:grid-cols-2">
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Event Type</label>
-                <input
+                <select
                   value={form.eventType}
                   onChange={(e) => setForm((prev) => ({ ...prev, eventType: e.target.value }))}
                   className="mt-1 w-full rounded-xl border p-2.5 dark:border-gray-600 dark:bg-gray-700"
                   disabled={saving}
-                />
+                >
+                  {EVENT_TYPE_OPTIONS.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Channel</label>
@@ -597,13 +631,14 @@ const NotificationTemplates = () => {
 
           <Card className="p-4">
             <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Supported Placeholders</div>
+            <div className="mt-1 text-xs text-slate-400 italic">For {form.eventType}</div>
             <div className="mt-3 flex flex-wrap gap-2">
-              {SUPPORTED_PLACEHOLDERS.map((placeholder) => (
+              {(PLACEHOLDER_MAP[form.eventType] || []).map((placeholder) => (
                 <span
                   key={placeholder}
                   className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-mono text-slate-600 dark:border-slate-700 dark:text-slate-300"
                 >
-                  {placeholder}
+                  {`{{${placeholder}}}`}
                 </span>
               ))}
             </div>
