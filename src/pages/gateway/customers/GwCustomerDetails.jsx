@@ -577,7 +577,7 @@ const GwCustomerDetails = () => {
       key: 'totalLoanAmount',
       header: 'Total Loan Amount',
       sortable: false,
-      render: (loan) => formatMoney(loan?.totalLoanAmount ?? loan?.disbursementAmount ?? loan?.disbursedAmount ?? loan?.principal),
+      render: (loan) => formatMoney(loan?.totalLoanAmount || loan?.totalRepaymentExpected || loan?.disbursementAmount || loan?.disbursedAmount || loan?.principal),
     },
     {
       key: 'status',
