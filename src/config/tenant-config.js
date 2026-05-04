@@ -1,7 +1,6 @@
 export const tenants = {
   epikx: {
     id: "epikx",
-    fineractTenantId: "default",
     name: "Epikx Finance",
     shortName: "EPIK",
     portalName: "Merchant Trust Management",
@@ -17,7 +16,6 @@ export const tenants = {
   },
   tpf: {
     id: "tpf",
-    fineractTenantId: "default",
     name: "True Path Finance",
     shortName: "TPF",
     portalName: "Partner Trust Management",
