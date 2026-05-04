@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import Header from './Header';
 import { useAuth } from '../context/AuthContext';
+import {resolveTenant} from "../config/runtime";
+import {getTenantConfig} from "../config/tenant-config";
 
 const ButtonLike = ({ children, className = '', ...props }) => (
     <button
@@ -12,23 +14,28 @@ const ButtonLike = ({ children, className = '', ...props }) => (
     </button>
 );
 
-const SideLink = ({ to, icon, label, onClick }) => (
-    <NavLink
-        to={to}
-        onClick={onClick}
-        className={({ isActive }) =>
-            `flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-all
+const SideLink = ({ to, icon, label, onClick }) => {
+    const tenantId = resolveTenant();
+    const config = getTenantConfig(tenantId);
+    
+    return (
+        <NavLink
+            to={to}
+            onClick={onClick}
+            className={({ isActive }) =>
+                `flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-all
        focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2
        ring-offset-white dark:ring-offset-gray-900
        ${isActive
-                ? 'bg-cyan-100 text-cyan-800 shadow-sm dark:bg-cyan-900/40 dark:text-cyan-200'
-                : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200'}`
-        }
-    >
-      <span className="w-5 text-center">{icon}</span>
-      <span className="truncate">{label}</span>
-    </NavLink>
-);
+                    ? 'bg-[var(--tenant-primary)] text-white shadow-sm'
+                    : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200'}`
+            }
+        >
+          <span className="w-5 text-center">{icon}</span>
+          <span className="truncate">{label}</span>
+        </NavLink>
+    );
+};
 
 /** Add perm codes as needed for your deployment */
 const NAV_GROUPS = [
@@ -42,6 +49,9 @@ const NAV_GROUPS = [
       { to: '/gateway/loans', label: 'GW Loans', icon: 'L', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_LOAN'] },
       { to: '/gateway/loans/arrears', label: 'Arrears Loans', icon: 'AR', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_LOAN'] },
       { to: '/gateway/reports', label: 'Gateway Reports', icon: 'GR', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_LOAN'] },
+      { to: '/gateway/notifications/templates', label: 'Notif Templates', icon: 'NT', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
+      { to: '/gateway/notifications/dispatches', label: 'Notif History', icon: 'NH', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
+      { to: '/gateway/queues', label: 'Queues', icon: 'Q', any: ['GW_OPS_READ', 'GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
       { to: '/gateway/product-catalog', label: 'Product Catalog', icon: 'P', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
       { to: '/gateway/access-mappings', label: 'Access Mappings', icon: 'AM', perm: ['READ_CONFIGURATION','GW_OPS_ALL'] },
       { to: '/gateway/loan-automation', label: 'Loan Automation', icon: 'A', any: ['GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
@@ -177,8 +187,8 @@ const Layout = () => {
   return (
       <div className="min-h-screen text-slate-900 dark:text-slate-100">
         <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-          <div className="absolute -top-28 -left-24 h-80 w-80 rounded-full bg-cyan-300/20 blur-3xl dark:bg-cyan-500/15" />
-          <div className="absolute top-0 right-0 h-[26rem] w-[26rem] rounded-full bg-emerald-300/20 blur-3xl dark:bg-emerald-500/10" />
+          <div className="absolute -top-28 -left-24 h-80 w-80 rounded-full bg-[var(--tenant-secondary)] opacity-20 blur-3xl" />
+          <div className="absolute top-0 right-0 h-[26rem] w-[26rem] rounded-full bg-[var(--tenant-accent)] opacity-20 blur-3xl" />
         </div>
         {/* Top bar with logout + theme toggle */}
         <Header onToggleSidebar={() => setOpen(v => !v)} />

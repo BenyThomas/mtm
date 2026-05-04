@@ -44,6 +44,7 @@ const attendantFormInit = {
   employeeCode: '',
   fullName: '',
   phone: '',
+  merchantRole: 'ATTENDANT',
   active: true,
 };
 
@@ -293,6 +294,7 @@ const MerchantCompanyDetails = () => {
         employeeCode: attendantForm.employeeCode.trim(),
         fullName: attendantForm.fullName.trim(),
         phone: attendantForm.phone.trim(),
+        merchantRole: attendantForm.merchantRole,
         active: !!attendantForm.active,
       });
       setAttendantOpen(false);
@@ -533,6 +535,12 @@ const MerchantCompanyDetails = () => {
       header: 'Phone',
       sortable: false,
       render: (row) => row?.phone || '-',
+    },
+    {
+      key: 'merchantRole',
+      header: 'Role',
+      sortable: false,
+      render: (row) => <Badge tone="cyan">{row?.merchantRole || 'ATTENDANT'}</Badge>,
     },
     {
       key: 'active',
@@ -1061,6 +1069,20 @@ const MerchantCompanyDetails = () => {
           <div>
             <label className="block text-sm font-medium">Full Name</label>
             <input value={attendantForm.fullName} onChange={(event) => setAttendantForm((prev) => ({ ...prev, fullName: event.target.value }))} className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" required />
+          </div>
+          <div>
+            <label className="block text-sm font-medium">Role</label>
+            <select
+              value={attendantForm.merchantRole}
+              onChange={(event) => setAttendantForm((prev) => ({ ...prev, merchantRole: event.target.value }))}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+              required
+            >
+              <option value="ATTENDANT">Attendant</option>
+              <option value="SUPERVISOR">Supervisor (Outlet Manager)</option>
+              <option value="FINANCE">Finance</option>
+              <option value="MANAGEMENT">Management (Company Admin)</option>
+            </select>
           </div>
           <div className="sm:col-span-2">
             <label className="block text-sm font-medium">Phone</label>

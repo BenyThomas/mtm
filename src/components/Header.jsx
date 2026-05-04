@@ -9,7 +9,7 @@ const getInitialTheme = () => {
 };
 
 const Header = ({ onToggleSidebar }) => {
-    const { user, tenant, logout } = useAuth();
+    const { user, tenant, tenantConfig, logout } = useAuth();
     const [theme, setTheme] = useState(getInitialTheme());
 
     useEffect(() => {
@@ -23,6 +23,8 @@ const Header = ({ onToggleSidebar }) => {
         () => user?.staffDisplayName || user?.username || 'User',
         [user]
     );
+
+    const config = tenantConfig || {};
 
     return (
         <header
@@ -38,7 +40,7 @@ const Header = ({ onToggleSidebar }) => {
                     >
                         Menu
                     </button>
-                    <span className="text-base font-bold tracking-tight sm:text-lg">Epik Finance</span>
+                    <span className="text-base font-bold tracking-tight sm:text-lg">{config.name || 'Trust Management'}</span>
                 </div>
 
                 <div className="flex items-center gap-2 sm:gap-3">
