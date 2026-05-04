@@ -6,6 +6,7 @@ import Card from '../components/Card';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { DEFAULT_TENANT, ENV_TENANT, resolveTenant, TENANT_EDITABLE } from '../config/runtime';
+import {getTenantConfig} from "../config/tenant-config";
 
 const Login = () => {
     const quotes = [
@@ -16,7 +17,7 @@ const Login = () => {
         'Our daily work turns capital into opportunity for those who need it most.',
     ];
 
-    const { login } = useAuth();
+    const { login, switchTenant } = useAuth();
     const { addToast } = useToast();
 
     const [username, setUsername] = useState(localStorage.getItem('last_login_user') || '');
@@ -28,7 +29,14 @@ const Login = () => {
     const [error, setError] = useState('');
     const [quoteIndex, setQuoteIndex] = useState(0);
 
+    const config = getTenantConfig(tenant);
     const showTenantField = TENANT_EDITABLE;
+
+    useEffect(() => {
+        // Sync the app-wide tenant with the login page's selected tenant
+        // so that the background and branding update immediately.
+        switchTenant(tenant);
+    }, [tenant, switchTenant]);
 
     useEffect(() => {
         const timer = setInterval(() => {
@@ -55,16 +63,26 @@ const Login = () => {
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center px-4 py-10">
+        <div 
+            className="min-h-screen flex items-center justify-center px-4 py-10"
+            style={{ 
+                background: config.theme.loginBackground,
+                transition: 'background 0.5s ease'
+            }}
+        >
             <div className="w-full max-w-5xl grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
                 <div className="relative overflow-hidden rounded-3xl border border-slate-200/70 bg-white/55 backdrop-blur-md p-8 shadow-[0_18px_60px_-42px_rgba(2,132,199,0.9)] dark:border-slate-700/70 dark:bg-slate-900/35">
-                    <div className="absolute -top-20 -right-24 h-72 w-72 rounded-full bg-cyan-400/20 blur-3xl" />
-                    <div className="absolute -bottom-24 -left-20 h-72 w-72 rounded-full bg-emerald-400/15 blur-3xl" />
+                    <div className="absolute -top-20 -right-24 h-72 w-72 rounded-full bg-[var(--tenant-secondary)] opacity-20 blur-3xl" />
+                    <div className="absolute -bottom-24 -left-20 h-72 w-72 rounded-full bg-[var(--tenant-accent)] opacity-15 blur-3xl" />
 
                     <div className="relative">
-                        <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/70 bg-white/70 px-3 py-1 text-xs font-semibold text-slate-700 dark:border-slate-700/70 dark:bg-slate-900/50 dark:text-slate-200">
-                            <span className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.15)]" />
-                            The Gateway
+                        <div className="flex items-center gap-4 mb-8">
+                            <img src={config.logoUrl} alt={config.name} className="h-12 w-auto" />
+                            <div className="h-8 w-[1px] bg-slate-200 dark:bg-slate-700" />
+                            <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/70 bg-white/70 px-3 py-1 text-xs font-semibold text-slate-700 dark:border-slate-700/70 dark:bg-slate-900/50 dark:text-slate-200">
+                                <span className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.15)]" />
+                                The Gateway
+                            </div>
                         </div>
 
                         <h1 className="mt-6 text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
@@ -80,7 +98,7 @@ const Login = () => {
                         <div className="mt-8 space-y-3 text-sm text-slate-700 dark:text-slate-200">
                             <div className="flex items-start gap-3">
                                 <div className="mt-0.5 h-8 w-8 rounded-xl bg-white/70 ring-1 ring-slate-200/70 grid place-items-center dark:bg-slate-900/60 dark:ring-slate-700/70">
-                                    <Building2 className="h-4 w-4 text-teal-600 dark:text-teal-300" />
+                                    <Building2 className="h-4 w-4 text-[var(--tenant-primary)]" />
                                 </div>
                                 <div>
                                     <div className="font-semibold">Careers</div>
@@ -90,7 +108,7 @@ const Login = () => {
 
                             <div className="flex items-start gap-3">
                                 <div className="mt-0.5 h-8 w-8 rounded-xl bg-white/70 ring-1 ring-slate-200/70 grid place-items-center dark:bg-slate-900/60 dark:ring-slate-700/70">
-                                    <Lock className="h-4 w-4 text-teal-600 dark:text-teal-300" />
+                                    <Lock className="h-4 w-4 text-[var(--tenant-primary)]" />
                                 </div>
                                 <div>
                                     <div className="font-semibold">Growth</div>
@@ -116,7 +134,7 @@ const Login = () => {
                                     autoFocus
                                     value={username}
                                     onChange={(e) => setUsername(e.target.value)}
-                                    className="w-full rounded-xl border px-10 py-2.5 text-sm dark:bg-slate-800/50 dark:border-slate-600"
+                                    className="w-full rounded-xl border px-10 py-2.5 text-sm dark:bg-slate-800/50 dark:border-slate-600 focus:ring-2 focus:ring-[var(--tenant-primary)] focus:border-[var(--tenant-primary)] outline-none"
                                     placeholder="e.g. mifos"
                                     autoComplete="username"
                                     required
@@ -184,7 +202,7 @@ const Login = () => {
                             </div>
                         ) : null}
 
-    .                      <Button type="submit" className="w-full" disabled={submitting}>
+                        <Button type="submit" className="w-full !bg-[var(--tenant-accent)]" disabled={submitting}>
                             {submitting ? 'Signing in...' : 'Sign In'}
                         </Button>
                     </form>

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
 import Home from './pages/Home';
@@ -130,6 +130,11 @@ import MerchantCustomers from "./pages/gateway/merchant/MerchantCustomers";
 import MerchantCustomerDetails from "./pages/gateway/merchant/MerchantCustomerDetails";
 import MerchantIndustryTypesConfig from "./pages/gateway/MerchantIndustryTypesConfig";
 import SelcomRepaymentSync from "./pages/gateway/SelcomRepaymentSync";
+import Queues from "./pages/gateway/Queues";
+
+import NotificationTemplates from "./pages/gateway/notifications/NotificationTemplates";
+import NotificationDispatches from "./pages/gateway/notifications/NotificationDispatches";
+import {ENV_TENANT, resolveTenant} from "./config/runtime";
 
 const NotFound = () => (
     <div>
@@ -324,6 +329,9 @@ const App = () => {
                             <Route path="/gateway/loans" element={<GwLoansList />} />
                             <Route path="/gateway/loans/arrears" element={<GwArrearsLoans />} />
                             <Route path="/gateway/reports" element={<GwReports />} />
+                            <Route path="/gateway/notifications/templates" element={<NotificationTemplates />} />
+                            <Route path="/gateway/notifications/dispatches" element={<NotificationDispatches />} />
+                            <Route path="/gateway/queues" element={<Queues />} />
                             <Route path="/gateway/loans/:platformLoanId" element={<GwLoanDetails />} />
                             <Route path="/gateway/customers/:customerId" element={<GwCustomerDetails />} />
                             <Route path="/gateway/data/:resource" element={<GatewayDataList />} />
