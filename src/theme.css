@@ -9,6 +9,12 @@
   --ring: rgba(14, 116, 144, 0.25);
   --brand: #0f766e;
   --brand-strong: #115e59;
+
+  /* Tenant branding variables */
+  --tenant-primary: #4586BF;
+  --tenant-secondary: #7EAED9;
+  --tenant-accent: #168C40;
+  --tenant-accent-light: #78BF91;
 }
 
 .dark:root {

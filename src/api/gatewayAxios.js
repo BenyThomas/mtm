@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { resolveTenant } from '../config/runtime';
+import { resolveFineractTenantId, resolveTenant } from '../config/runtime';
 
 /**
  * Shared Axios instance for the Gateway (digital-platform) back-office APIs.
@@ -26,12 +26,14 @@ function read(key) {
 }
 
 gatewayApi.interceptors.request.use((config) => {
-  const tenant = resolveTenant();
+  const tenant = resolveFineractTenantId();
+  const brandId = resolveTenant();
 
   const authKey = read('fineract_auth_key') || null;
 
   config.headers = config.headers ?? {};
   config.headers['Fineract-Platform-TenantId'] = tenant;
+  config.headers['X-Tenant-Brand-Id'] = brandId;
 
   if (authKey) {
     config.headers['Authorization'] = `Basic ${authKey}`;

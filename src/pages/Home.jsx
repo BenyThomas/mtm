@@ -5,6 +5,7 @@ import Button from '../components/Button';
 import Skeleton from '../components/Skeleton';
 import Sparkline from '../components/Sparkline';
 import KPICard from '../components/KPICard';
+import { useAuth } from '../context/AuthContext';
 import { useLoading } from '../context/LoadingContext';
 import { useToast } from '../context/ToastContext';
 import { useNavigate } from 'react-router-dom';
@@ -59,6 +60,7 @@ function extractOutstanding(loan) {
 }
 
 const Home = () => {
+    const { tenantConfig } = useAuth();
     const { start, finish } = useLoading();
     const { addToast } = useToast();
     const navigate = useNavigate();
@@ -218,15 +220,25 @@ const Home = () => {
     const healthLabel = riskScore >= 60 ? 'High Risk' : riskScore >= 35 ? 'Watchlist' : 'Stable';
     const nowLabel = new Date().toLocaleString('en-TZ', { dateStyle: 'medium', timeStyle: 'short' });
 
+    const bannerBackground = tenantConfig?.theme?.loginBackground 
+        ? tenantConfig.theme.loginBackground.replace('radial-gradient', 'radial-gradient') // keep as is if it's already a complex one
+        : 'gradient-to-br from-cyan-100 via-white to-teal-100';
+
     return (
         <div className="space-y-6">
-            <section className="relative overflow-hidden rounded-3xl border border-cyan-200/60 bg-gradient-to-br from-cyan-100 via-white to-teal-100 p-6 text-slate-900 shadow-xl sm:p-8">
+            <section 
+                className="relative overflow-hidden rounded-3xl border border-cyan-200/60 p-6 text-slate-900 shadow-xl sm:p-8"
+                style={{ background: tenantConfig?.theme?.loginBackground || undefined }}
+            >
+                {!tenantConfig?.theme?.loginBackground && (
+                    <div className="absolute inset-0 bg-gradient-to-br from-cyan-100 via-white to-teal-100" />
+                )}
                 <div className="absolute -left-24 -top-24 h-72 w-72 rounded-full bg-cyan-300/20 blur-3xl" />
                 <div className="absolute -right-24 top-10 h-72 w-72 rounded-full bg-emerald-300/20 blur-3xl" />
                 <div className="relative z-10 grid gap-6 lg:grid-cols-5">
                     <div className="lg:col-span-3">
-                        <p className="text-xs uppercase tracking-[0.18em] text-slate-700">Portfolio Command Center</p>
-                        <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-5xl">Epik Dashboard</h1>
+                        <p className="text-xs uppercase tracking-[0.18em] text-slate-700">{tenantConfig?.portalName || 'Portfolio Command Center'}</p>
+                        <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-5xl">{tenantConfig?.shortName || 'Epik'} Dashboard</h1>
                         <p className="mt-3 max-w-2xl text-sm text-slate-700 sm:text-base">
                             One view for client momentum, loan exposure, arrears pressure, and collection risk.
                         </p>
@@ -338,17 +350,17 @@ const Home = () => {
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                         <div className="rounded-2xl border border-slate-200/70 bg-white/70 p-4 dark:border-slate-700/70 dark:bg-slate-900/50">
                             <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Clients</div>
-                            <div className="mt-2 text-2xl font-semibold" style={{ color: BRAND_BLUE }}>{activeClients}</div>
+                            <div className="mt-2 text-2xl font-semibold" style={{ color: tenantConfig?.theme?.primary || BRAND_BLUE }}>{activeClients}</div>
                             <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">Currently active client accounts.</div>
                         </div>
                         <div className="rounded-2xl border border-slate-200/70 bg-white/70 p-4 dark:border-slate-700/70 dark:bg-slate-900/50">
                             <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Loans</div>
-                            <div className="mt-2 text-2xl font-semibold" style={{ color: BRAND_BLUE }}>{activeLoans}</div>
+                            <div className="mt-2 text-2xl font-semibold" style={{ color: tenantConfig?.theme?.primary || BRAND_BLUE }}>{activeLoans}</div>
                             <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">Disbursed and active loan contracts.</div>
                         </div>
                         <div className="rounded-2xl border border-slate-200/70 bg-white/70 p-4 dark:border-slate-700/70 dark:bg-slate-900/50">
                             <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Overdue Exposure</div>
-                            <div className="mt-2 text-2xl font-semibold" style={{ color: BRAND_RED }}>{overdueLoans.length}</div>
+                            <div className="mt-2 text-2xl font-semibold" style={{ color: tenantConfig?.theme?.accent || BRAND_RED }}>{overdueLoans.length}</div>
                             <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">{formatTZS(overdueOutstandingTotal)} outstanding overdue amount.</div>
                         </div>
                     </div>

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
 import Home from './pages/Home';
@@ -134,6 +134,7 @@ import Queues from "./pages/gateway/Queues";
 
 import NotificationTemplates from "./pages/gateway/notifications/NotificationTemplates";
 import NotificationDispatches from "./pages/gateway/notifications/NotificationDispatches";
+import {ENV_TENANT, resolveTenant} from "./config/runtime";
 
 const NotFound = () => (
     <div>

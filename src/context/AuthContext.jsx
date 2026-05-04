@@ -11,6 +11,7 @@ import api from '../api/axios';
 import gatewayApi from '../api/gatewayAxios';
 import { useToast } from './ToastContext';
 import { DEFAULT_TENANT, ENV_TENANT, persistTenant, resolveTenant, TENANT_EDITABLE } from '../config/runtime';
+import { getTenantConfig } from '../config/tenant-config';
 
 /**
  * AuthContext (Fineract)
@@ -113,6 +114,28 @@ export const AuthProvider = ({ children }) => {
     const [tenant, setTenant] = useState(
         resolveTenant() || DEFAULT_TENANT
     );
+    const [tenantConfig, setTenantConfig] = useState(() => getTenantConfig(tenant));
+
+    useEffect(() => {
+        const config = getTenantConfig(tenant);
+        setTenantConfig(config);
+        
+        if (config && config.theme) {
+            const root = document.documentElement;
+            root.style.setProperty('--tenant-primary', config.theme.primary);
+            root.style.setProperty('--tenant-secondary', config.theme.secondary);
+            root.style.setProperty('--tenant-accent', config.theme.accent);
+            root.style.setProperty('--tenant-accent-light', config.theme.accentLight);
+            
+            document.title = config.portalName || "Trust Management";
+
+            // Update Favicon
+            const favicon = document.querySelector('link[rel="icon"]');
+            if (favicon) {
+                favicon.href = config.faviconUrl || config.logoUrl || "/favicon.png";
+            }
+        }
+    }, [tenant]);
     const [user, setUser] = useState(() => {
         try {
             return JSON.parse(localStorage.getItem(STORAGE_KEYS.user) || '{}');
@@ -432,6 +455,7 @@ export const AuthProvider = ({ children }) => {
             isAuthenticated,
             checking,
             tenant,
+            tenantConfig,
             user,
             switchTenant,
             login,
@@ -440,7 +464,7 @@ export const AuthProvider = ({ children }) => {
             canAny,
             canAll,
         }),
-        [isAuthenticated, checking, tenant, user, switchTenant, login, logout, can, canAny, canAll]
+        [isAuthenticated, checking, tenant, tenantConfig, user, switchTenant, login, logout, can, canAny, canAll]
     );
 
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

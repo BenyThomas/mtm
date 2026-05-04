@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { resolveTenant } from '../config/runtime';
+import { resolveFineractTenantId, resolveTenant } from '../config/runtime';
 
 /**
  * Shared Axios instance for Fineract.
@@ -25,7 +25,8 @@ function read(key) {
 }
 
 api.interceptors.request.use((config) => {
-    const tenant = resolveTenant();
+    const tenant = resolveFineractTenantId();
+    const brandId = resolveTenant();
 
     const authKey =
         read('fineract_auth_key') ||
@@ -33,6 +34,7 @@ api.interceptors.request.use((config) => {
 
     config.headers = config.headers ?? {};
     config.headers['Fineract-Platform-TenantId'] = tenant;
+    config.headers['X-Tenant-Brand-Id'] = brandId;
 
     if (authKey) {
         // Server returns base64(username:password)
