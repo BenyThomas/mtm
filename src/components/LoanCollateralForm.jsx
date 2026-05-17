@@ -5,21 +5,12 @@ import Skeleton from './Skeleton';
 import api from '../api/axios';
 import { useToast } from '../context/ToastContext';
 
-/**
- * Props:
- * - loanId (number|string)
- * - initial (optional) existing collateral object
- * - template (optional) pre-fetched template JSON for /loans/{loanId}/collaterals/template
- * - onSubmit(payload) => Promise
- * - submitting (bool)
- */
 const LoanCollateralForm = ({ loanId, initial, template, onSubmit, submitting }) => {
     const { addToast } = useToast();
 
     const [tplLoading, setTplLoading] = useState(!template);
     const [typeOptions, setTypeOptions] = useState([]);
 
-    // Fields
     const [typeId, setTypeId] = useState(initial?.typeId || initial?.collateralTypeId || initial?.type?.id || '');
     const [description, setDescription] = useState(initial?.description || '');
     const [quantity, setQuantity] = useState(initial?.quantity ?? 1);
@@ -27,42 +18,75 @@ const LoanCollateralForm = ({ loanId, initial, template, onSubmit, submitting })
         initial?.value ?? initial?.total ?? initial?.totalValue ?? initial?.amount ?? ''
     );
 
-    // Normalize and set options from any template shape
-    const hydrateFromTemplate = (tpl) => {
-        const d = tpl || {};
-        const opts = d.allowedCollateralTypes || d.collateralTypeOptions || d.collateralTypes || d.types || [];
-        const norm = Array.isArray(opts)
-            ? opts.map(o => ({
-                id: o?.id ?? o?.value ?? o?.key,
-                name: o?.name ?? o?.text ?? o?.label ?? `Type #${o?.id ?? ''}`,
-            })).filter(x => x.id != null)
-            : [];
+    const loadTypeCatalog = async () => {
+        const r = await api.get('/ops/collateral-types', {
+            params: { limit: 200, orderBy: 'position', sortOrder: 'asc' },
+        });
+        const items = Array.isArray(r?.data?.items) ? r.data.items : [];
+        const norm = items
+            .map((o) => ({
+                id: o?.id,
+                name: o?.name ?? o?.value ?? `Type #${o?.id ?? ''}`,
+            }))
+            .filter((x) => x.id != null);
         setTypeOptions(norm);
         if (!initial && !typeId && norm.length) setTypeId(norm[0].id);
     };
 
-    // Use passed template if provided
-    useEffect(() => {
-        if (template) {
-            hydrateFromTemplate(template);
-            setTplLoading(false);
+    const hydrateFromTemplate = (tpl) => {
+        const d = tpl || {};
+        const opts = d.allowedCollateralTypes || d.collateralTypeOptions || d.collateralTypes || d.types || [];
+        const norm = Array.isArray(opts)
+            ? opts.map((o) => ({
+                id: o?.id ?? o?.value ?? o?.key,
+                name: o?.name ?? o?.text ?? o?.label ?? `Type #${o?.id ?? ''}`,
+            })).filter((x) => x.id != null)
+            : [];
+        if (norm.length) {
+            setTypeOptions(norm);
+            if (!initial && !typeId) setTypeId(norm[0].id);
+            return true;
         }
+        return false;
+    };
+
+    useEffect(() => {
+        if (!template) return;
+        let cancelled = false;
+        (async () => {
+            const hydrated = hydrateFromTemplate(template);
+            if (!hydrated && !cancelled) {
+                try {
+                    await loadTypeCatalog();
+                } catch (_e) {
+                    addToast('Failed to load collateral types', 'error');
+                }
+            }
+            if (!cancelled) setTplLoading(false);
+        })();
+        return () => { cancelled = true; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [template]);
 
-    // Fallback: fetch template ourselves
     useEffect(() => {
-        if (template) return; // already hydrated
+        if (template) return;
         let cancelled = false;
         (async () => {
             setTplLoading(true);
             try {
                 const r = await api.get(`/loans/${loanId}/collaterals/template`);
-                if (!cancelled) hydrateFromTemplate(r?.data || {});
+                const hydrated = !cancelled && hydrateFromTemplate(r?.data || {});
+                if (!cancelled && !hydrated) {
+                    await loadTypeCatalog();
+                }
             } catch (e) {
                 if (!cancelled) {
-                    setTypeOptions([]);
-                    addToast('Failed to load collateral template', 'error');
+                    try {
+                        await loadTypeCatalog();
+                    } catch (_e) {
+                        setTypeOptions([]);
+                        addToast('Failed to load collateral template', 'error');
+                    }
                 }
             } finally {
                 if (!cancelled) setTplLoading(false);
@@ -71,21 +95,20 @@ const LoanCollateralForm = ({ loanId, initial, template, onSubmit, submitting })
         return () => { cancelled = true; };
     }, [loanId, template, addToast]);
 
-    // React to new initial
     useEffect(() => {
         if (!initial) return;
         setTypeId(initial?.typeId || initial?.collateralTypeId || initial?.type?.id || '');
         setDescription(initial?.description || '');
         setQuantity(initial?.quantity ?? 1);
         setValue(initial?.value ?? initial?.total ?? initial?.totalValue ?? initial?.amount ?? '');
-    }, [initial?.id]); // eslint-disable-line
+    }, [initial?.id]);
 
     const errors = useMemo(() => {
-        const e = {};
-        if (!typeId) e.typeId = 'Type is required';
-        if (!value || Number(value) <= 0) e.value = 'Value must be > 0';
-        if (!quantity || Number(quantity) <= 0) e.quantity = 'Quantity must be > 0';
-        return e;
+        const next = {};
+        if (!typeId) next.typeId = 'Type is required';
+        if (!value || Number(value) <= 0) next.value = 'Value must be > 0';
+        if (!quantity || Number(quantity) <= 0) next.quantity = 'Quantity must be > 0';
+        return next;
     }, [typeId, value, quantity]);
 
     const submit = async (e) => {
@@ -94,15 +117,14 @@ const LoanCollateralForm = ({ loanId, initial, template, onSubmit, submitting })
             addToast('Please fix validation errors', 'error');
             return;
         }
-        const payload = {
+        await onSubmit({
             typeId: Number(typeId),
-            collateralTypeId: Number(typeId), // alternative key
+            collateralTypeId: Number(typeId),
             value: Number(value),
-            total: Number(value),             // alternative key
+            total: Number(value),
             quantity: Number(quantity),
             ...(description ? { description: description.trim() } : {}),
-        };
-        await onSubmit(payload);
+        });
     };
 
     return (
@@ -119,8 +141,8 @@ const LoanCollateralForm = ({ loanId, initial, template, onSubmit, submitting })
                                 onChange={(e) => e.target.value !== 'null' && setTypeId(e.target.value)}
                                 className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                             >
-                                <option value="">Select type…</option>
-                                {typeOptions.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+                                <option value="">Select type...</option>
+                                {typeOptions.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
                             </select>
                             {errors.typeId && <p className="text-xs text-red-500 mt-1">{errors.typeId}</p>}
                         </div>
@@ -165,7 +187,7 @@ const LoanCollateralForm = ({ loanId, initial, template, onSubmit, submitting })
 
             <div className="flex items-center justify-end gap-2">
                 <Button type="submit" disabled={submitting}>
-                    {submitting ? 'Saving…' : (initial ? 'Save Changes' : 'Add Collateral')}
+                    {submitting ? 'Saving...' : (initial ? 'Save Changes' : 'Add Collateral')}
                 </Button>
             </div>
         </form>

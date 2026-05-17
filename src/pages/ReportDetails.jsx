@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Download, Eye, FileSpreadsheet, FileText, Play } from 'lucide-react';
 import api from '../api/axios';
 import { downloadGwOpsReport, getGwOpsReport } from '../api/gateway/reports';
 import Card from '../components/Card';
@@ -30,14 +31,14 @@ const COMMON_QUERY_KEY = {
     loanOfficerId: 'R_loanOfficerId',
     currencyIdSelectAll: 'R_currencyId',
     currencyId: 'R_currencyId',
-    fundIdSelectAll: 'fundId',
-    fundId: 'fundId',
-    loanProductIdSelectAll: 'loanProductId',
-    loanProductId: 'loanProductId',
-    loanPurposeIdSelectAll: 'loanPurposeId',
-    loanPurposeId: 'loanPurposeId',
-    savingsProductIdSelectAll: 'savingsProductId',
-    savingsProductId: 'savingsProductId',
+    fundIdSelectAll: 'R_fundId',
+    fundId: 'R_fundId',
+    loanProductIdSelectAll: 'R_loanProductId',
+    loanProductId: 'R_loanProductId',
+    loanPurposeIdSelectAll: 'R_loanPurposeId',
+    loanPurposeId: 'R_loanPurposeId',
+    savingsProductIdSelectAll: 'R_savingsProductId',
+    savingsProductId: 'R_savingsProductId',
     SelectGLAccountNO: 'R_GLAccountNO',
     selectAccount: 'R_accountNo',
     transactionId: 'R_transactionId',
@@ -88,27 +89,38 @@ function getParameterName(param) {
 }
 
 function getQueryKey(param) {
-    const parameterName = getParameterName(param);
-    const reportParameterName = param?.reportParameterName;
+    const candidates = [
+        param?.reportParameterName,
+        param?.parameterName,
+        param?.name,
+    ].filter(Boolean);
 
-    if (reportParameterName) {
-        return reportParameterName.startsWith('R_') ? reportParameterName : `R_${reportParameterName}`;
+    for (const candidate of candidates) {
+        if (COMMON_QUERY_KEY[candidate]) {
+            return COMMON_QUERY_KEY[candidate];
+        }
     }
-    if (COMMON_QUERY_KEY[parameterName]) {
-        return COMMON_QUERY_KEY[parameterName];
+    for (const candidate of candidates) {
+        if (candidate.startsWith('R_') || RESERVED_CONTROL_PARAMS.has(candidate)) {
+            return candidate;
+        }
     }
-    if (parameterName.startsWith('R_') || RESERVED_CONTROL_PARAMS.has(parameterName)) {
-        return parameterName;
+    for (const candidate of candidates) {
+        if (/^[a-z][A-Za-z0-9]*$/.test(candidate) && !/select(one|all)?$/i.test(candidate)) {
+            return candidate;
+        }
     }
-    return `R_${parameterName}`;
+
+    const parameterName = getParameterName(param);
+    return parameterName ? `R_${parameterName}` : '';
 }
 
 function inferFieldType(param) {
     const name = getParameterName(param);
     const lower = name.toLowerCase();
     if (lower.includes('date')) return 'date';
-    if (lower.includes('office')) return 'office';
     if (lower.includes('loanofficer') || lower.includes('staff')) return 'loanOfficer';
+    if (lower.includes('office')) return 'office';
     if (lower.includes('currency')) return 'currency';
     if (lower.includes('fund')) return 'fund';
     if (lower.includes('loanproduct')) return 'loanProduct';
@@ -118,6 +130,23 @@ function inferFieldType(param) {
     if (lower.includes('cycle') || lower.includes('overdue') || lower.includes('fromx') || lower.includes('toy')) return 'number';
     if (lower.includes('id')) return 'number';
     return 'text';
+}
+
+function isParameterRequired(param) {
+    return Boolean(
+        param?.required ||
+        param?.mandatory ||
+        param?.isMandatory ||
+        param?.parameterRequired
+    );
+}
+
+function getDefaultFilterValue(param) {
+    const type = inferFieldType(param);
+    if (['loanOfficer', 'currency', 'fund', 'loanProduct', 'loanPurpose', 'savingsProduct'].includes(type)) {
+        return '-1';
+    }
+    return '';
 }
 
 function buildInitialValues(reportParameters) {
@@ -134,7 +163,7 @@ function buildInitialValues(reportParameters) {
             next[key] = todayISO;
             return;
         }
-        next[key] = '';
+        next[key] = getDefaultFilterValue(param);
     });
     return next;
 }
@@ -171,6 +200,13 @@ function normalizeExportOption(item) {
 
 function normalizedReportName(report) {
     return norm(report?.reportName || report?.name || '');
+}
+
+function isUnsupportedReport(report) {
+    const type = String(report?.reportType || report?.type || '').toLowerCase();
+    const name = String(report?.reportName || report?.name || '').toLowerCase();
+    const category = String(report?.reportCategory || report?.category || '').toLowerCase();
+    return /pentaho/.test(type) || /\bsms\b/.test(type) || /\bsms\b/.test(name) || /\bsms\b/.test(category);
 }
 
 function resolveGatewayOverride(report) {
@@ -368,6 +404,17 @@ const ReportDetails = () => {
     const neededTypes = useMemo(() => {
         return new Set(reportParameters.map((param) => inferFieldType(param)));
     }, [reportParameters]);
+    const hasDateParameters = useMemo(
+        () => reportParameters.some((param) => inferFieldType(param) === 'date'),
+        [reportParameters]
+    );
+    const orderedReportParameters = useMemo(() => {
+        return [...reportParameters].sort((a, b) => {
+            const reqDiff = Number(isParameterRequired(b)) - Number(isParameterRequired(a));
+            if (reqDiff !== 0) return reqDiff;
+            return humanizeLabel(getParameterName(a)).localeCompare(humanizeLabel(getParameterName(b)));
+        });
+    }, [reportParameters]);
 
     useEffect(() => {
         let cancelled = false;
@@ -407,34 +454,39 @@ const ReportDetails = () => {
         });
     }, [neededTypes, offices, reportParameters]);
 
-    useEffect(() => {
-        if (!neededTypes.has('currency') || !currencies) return;
-        const list = currencies?.selectedCurrencyOptions || currencies?.currencyOptions || [];
-        if (!Array.isArray(list) || !list.length) return;
-        setParamValues((current) => {
-            const currencyParam = reportParameters.find((param) => inferFieldType(param) === 'currency');
-            const key = currencyParam ? getParameterName(currencyParam) : null;
-            if (!key || current[key]) return current;
-            return { ...current, [key]: String(list[0].code || list[0].id || '') };
-        });
-    }, [neededTypes, currencies, reportParameters]);
-
     const onChangeValue = useCallback((key, value) => {
         setParamValues((current) => ({ ...current, [key]: value }));
     }, []);
 
-    const buildParams = useCallback(() => {
+    const buildReportParams = useCallback(() => {
         const built = {};
         reportParameters.forEach((param) => {
             const parameterName = getParameterName(param);
             const queryKey = getQueryKey(param);
             const value = paramValues[parameterName];
-            if (value !== undefined && value !== null && value !== '') {
-                built[queryKey] = value;
+            const finalValue =
+                value !== undefined && value !== null && value !== ''
+                    ? value
+                    : getDefaultFilterValue(param);
+            if (queryKey && finalValue !== undefined && finalValue !== null && finalValue !== '') {
+                built[queryKey] = finalValue;
             }
         });
         return built;
     }, [paramValues, reportParameters]);
+    const buildExecutionParams = useCallback((outputFormat) => {
+        const built = { ...buildReportParams() };
+        if (hasDateParameters) {
+            built.locale = 'en';
+            built.dateFormat = 'yyyy-MM-dd';
+        }
+        if (outputFormat === 'CSV') {
+            built.exportCSV = 'true';
+        } else if (outputFormat && outputFormat !== 'JSON') {
+            built['output-type'] = outputFormat;
+        }
+        return built;
+    }, [buildReportParams, hasDateParameters]);
 
     const requestPreview = useMemo(() => {
         if (!report?.reportName) return '';
@@ -442,16 +494,11 @@ const ReportDetails = () => {
             return gatewayOverride.previewPath;
         }
         const query = new URLSearchParams();
-        Object.entries(buildParams()).forEach(([key, value]) => query.set(key, String(value)));
-        if (format === 'CSV') {
-            query.set('exportCSV', 'true');
-        } else if (format !== 'JSON') {
-            query.set('output-type', format);
-        }
+        Object.entries(buildExecutionParams(format)).forEach(([key, value]) => query.set(key, String(value)));
         return `/runreports/${encodeURIComponent(report.reportName)}${query.toString() ? `?${query.toString()}` : ''}`;
-    }, [buildParams, format, report, gatewayOverride]);
+    }, [buildExecutionParams, format, report, gatewayOverride]);
 
-    const runReport = async (event) => {
+    const runReport = async (event, targetFormat = format) => {
         event?.preventDefault?.();
         if (!runnable) return;
 
@@ -461,9 +508,9 @@ const ReportDetails = () => {
         setRows([]);
 
         try {
-            const paramsToSend = buildParams();
+            const paramsToSend = buildExecutionParams(targetFormat);
             if (gatewayOverride) {
-                if (format === 'JSON') {
+                if (targetFormat === 'JSON') {
                     const data = await getGwOpsReport(gatewayOverride.reportKey, { groupBy: gatewayOverride.groupBy });
                     const matrix = rowsToMatrix(data?.items);
                     setHeaders(matrix.headers);
@@ -472,17 +519,17 @@ const ReportDetails = () => {
                         addToast('Report returned no rows.', 'info');
                     }
                 } else {
-                    const gatewayFormat = format === 'XLSX' ? 'xlsx' : 'pdf';
+                    const gatewayFormat = targetFormat === 'XLSX' ? 'xlsx' : 'pdf';
                     const response = await downloadGwOpsReport(gatewayOverride.reportKey, { groupBy: gatewayOverride.groupBy }, gatewayFormat);
                     const contentType = response?.headers?.['content-type'] || (gatewayFormat === 'xlsx'
                         ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
                         : 'application/pdf');
                     downloadBlob(new Blob([response.data], { type: contentType }), `${report.reportName.replace(/\s+/g, '_')}.${gatewayFormat}`);
-                    addToast(`Exported ${format}`, 'success');
+                    addToast(`Exported ${targetFormat}`, 'success');
                 }
                 return;
             }
-            if (isTable && format === 'JSON') {
+            if (isTable && targetFormat === 'JSON') {
                 const { data } = await api.get(`/runreports/${encodeURIComponent(report.reportName)}`, { params: paramsToSend });
                 const cols = Array.isArray(data?.columnHeaders) ? data.columnHeaders : [];
                 const objectRows = Array.isArray(data?.data)
@@ -500,19 +547,13 @@ const ReportDetails = () => {
                     addToast('Report returned no rows.', 'info');
                 }
             } else {
-                const exportParams = { ...paramsToSend };
-                if (format === 'CSV') {
-                    exportParams.exportCSV = true;
-                } else {
-                    exportParams['output-type'] = format;
-                }
                 const response = await api.get(`/runreports/${encodeURIComponent(report.reportName)}`, {
-                    params: exportParams,
+                    params: paramsToSend,
                     responseType: 'blob',
                 });
-                const ext = format.toLowerCase();
+                const ext = targetFormat.toLowerCase();
                 downloadBlob(response.data, `${report.reportName.replace(/\s+/g, '_')}.${ext}`);
-                addToast(`Exported ${format}`, 'success');
+                addToast(`Exported ${targetFormat}`, 'success');
             }
         } catch (err) {
             const http = err?.response?.status;
@@ -532,6 +573,7 @@ const ReportDetails = () => {
         const key = getParameterName(param);
         const type = inferFieldType(param);
         const label = humanizeLabel(param?.reportParameterName || key);
+        const required = isParameterRequired(param);
         const commonProps = {
             className: 'mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600',
             value: paramValues[key] ?? '',
@@ -541,7 +583,7 @@ const ReportDetails = () => {
         if (type === 'date') {
             return (
                 <div>
-                    <label className="block text-sm font-medium">{label}</label>
+                    <label className="block text-sm font-medium">{label}{required ? <span className="text-red-600"> *</span> : null}</label>
                     <input type="date" {...commonProps} />
                 </div>
             );
@@ -550,7 +592,7 @@ const ReportDetails = () => {
         if (type === 'number') {
             return (
                 <div>
-                    <label className="block text-sm font-medium">{label}</label>
+                    <label className="block text-sm font-medium">{label}{required ? <span className="text-red-600"> *</span> : null}</label>
                     <input type="number" {...commonProps} />
                 </div>
             );
@@ -559,7 +601,7 @@ const ReportDetails = () => {
         if (type === 'office') {
             return (
                 <div>
-                    <label className="block text-sm font-medium">{label}</label>
+                    <label className="block text-sm font-medium">{label}{required ? <span className="text-red-600"> *</span> : null}</label>
                     {loadingLists.offices ? (
                         <div className="mt-2"><Skeleton height="2.25rem" /></div>
                     ) : (
@@ -579,12 +621,12 @@ const ReportDetails = () => {
         if (type === 'loanOfficer') {
             return (
                 <div>
-                    <label className="block text-sm font-medium">{label}</label>
+                    <label className="block text-sm font-medium">{label}{required ? <span className="text-red-600"> *</span> : null}</label>
                     {loadingLists.staff ? (
                         <div className="mt-2"><Skeleton height="2.25rem" /></div>
                     ) : (
                         <select {...commonProps}>
-                            <option value="">All Loan Officers</option>
+                            <option value="-1">All Loan Officers</option>
                             {staff.map((member) => (
                                 <option key={member.id} value={member.id}>
                                     {member.displayName || [member.firstname, member.lastname].filter(Boolean).join(' ') || `Staff #${member.id}`}
@@ -601,16 +643,16 @@ const ReportDetails = () => {
             if (!Array.isArray(list) || !list.length) {
                 return (
                     <div>
-                        <label className="block text-sm font-medium">{label}</label>
+                        <label className="block text-sm font-medium">{label}{required ? <span className="text-red-600"> *</span> : null}</label>
                         <input type="text" {...commonProps} placeholder="Currency code" />
                     </div>
                 );
             }
             return (
                 <div>
-                    <label className="block text-sm font-medium">{label}</label>
+                    <label className="block text-sm font-medium">{label}{required ? <span className="text-red-600"> *</span> : null}</label>
                     <select {...commonProps}>
-                        <option value="">All</option>
+                        <option value="-1">All</option>
                         {list.map((item) => (
                             <option key={item.code || item.id} value={item.code || item.id}>
                                 {item.displayLabel || `${item.name || item.code} [${item.code || item.id}]`}
@@ -624,12 +666,12 @@ const ReportDetails = () => {
         if (type === 'fund') {
             return (
                 <div>
-                    <label className="block text-sm font-medium">{label}</label>
+                    <label className="block text-sm font-medium">{label}{required ? <span className="text-red-600"> *</span> : null}</label>
                     {loadingLists.funds ? (
                         <div className="mt-2"><Skeleton height="2.25rem" /></div>
                     ) : funds.length ? (
                         <select {...commonProps}>
-                            <option value="">All</option>
+                            <option value="-1">All</option>
                             {funds.map((item) => (
                                 <option key={item.id} value={item.id}>{item.name}</option>
                             ))}
@@ -644,12 +686,12 @@ const ReportDetails = () => {
         if (type === 'loanProduct') {
             return (
                 <div>
-                    <label className="block text-sm font-medium">{label}</label>
+                    <label className="block text-sm font-medium">{label}{required ? <span className="text-red-600"> *</span> : null}</label>
                     {loadingLists.loanProducts ? (
                         <div className="mt-2"><Skeleton height="2.25rem" /></div>
                     ) : loanProducts.length ? (
                         <select {...commonProps}>
-                            <option value="">All</option>
+                            <option value="-1">All</option>
                             {loanProducts.map((item) => (
                                 <option key={item.id} value={item.id}>{item.name}</option>
                             ))}
@@ -664,12 +706,12 @@ const ReportDetails = () => {
         if (type === 'loanPurpose') {
             return (
                 <div>
-                    <label className="block text-sm font-medium">{label}</label>
+                    <label className="block text-sm font-medium">{label}{required ? <span className="text-red-600"> *</span> : null}</label>
                     {loadingLists.loanPurposes ? (
                         <div className="mt-2"><Skeleton height="2.25rem" /></div>
                     ) : loanPurposes.length ? (
                         <select {...commonProps}>
-                            <option value="">All</option>
+                            <option value="-1">All</option>
                             {loanPurposes.map((item) => (
                                 <option key={item.id} value={item.id}>{item.name || item.value || `Code #${item.id}`}</option>
                             ))}
@@ -684,12 +726,12 @@ const ReportDetails = () => {
         if (type === 'savingsProduct') {
             return (
                 <div>
-                    <label className="block text-sm font-medium">{label}</label>
+                    <label className="block text-sm font-medium">{label}{required ? <span className="text-red-600"> *</span> : null}</label>
                     {loadingLists.savingsProducts ? (
                         <div className="mt-2"><Skeleton height="2.25rem" /></div>
                     ) : savingsProducts.length ? (
                         <select {...commonProps}>
-                            <option value="">All</option>
+                            <option value="-1">All</option>
                             {savingsProducts.map((item) => (
                                 <option key={item.id} value={item.id}>{item.name}</option>
                             ))}
@@ -704,7 +746,7 @@ const ReportDetails = () => {
         if (type === 'glAccount') {
             return (
                 <div>
-                    <label className="block text-sm font-medium">{label}</label>
+                    <label className="block text-sm font-medium">{label}{required ? <span className="text-red-600"> *</span> : null}</label>
                     {loadingLists.glAccounts ? (
                         <div className="mt-2"><Skeleton height="2.25rem" /></div>
                     ) : glAccounts.length ? (
@@ -725,7 +767,7 @@ const ReportDetails = () => {
 
         return (
             <div>
-                <label className="block text-sm font-medium">{label}</label>
+                <label className="block text-sm font-medium">{label}{required ? <span className="text-red-600"> *</span> : null}</label>
                 <input type="text" {...commonProps} />
             </div>
         );
@@ -762,6 +804,27 @@ const ReportDetails = () => {
         );
     }
 
+    if (isUnsupportedReport(report)) {
+        return (
+            <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <h1 className="text-2xl font-bold">{report.reportName}</h1>
+                        <div className="text-sm text-gray-500 dark:text-gray-400">
+                            {report.reportType}{report.reportCategory ? ` - ${report.reportCategory}` : ''}
+                        </div>
+                    </div>
+                    <Button variant="secondary" onClick={() => navigate('/reports')}>Back</Button>
+                </div>
+                <Card>
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
+                        This report is disabled in this deployment. Pentaho and SMS reports are not supported by the current backend image.
+                    </div>
+                </Card>
+            </div>
+        );
+    }
+
     return (
         <div className="space-y-6">
             <div className="flex items-center justify-between">
@@ -775,16 +838,40 @@ const ReportDetails = () => {
             </div>
 
             <Card className="rounded-2xl">
-                <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-lg font-semibold">Run Report</h2>
-                    <div className="text-sm text-gray-500 dark:text-gray-400">
+                <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
+                    <div>
+                        <h2 className="text-lg font-semibold">Run Report</h2>
+                        <div className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                            {reportParameters.length} parameter{reportParameters.length === 1 ? '' : 's'} • {availableOutputs.length || 1} output option{availableOutputs.length === 1 ? '' : 's'}
+                        </div>
+                    </div>
+                    <div className="text-sm text-gray-500 dark:text-gray-400 max-w-2xl">
                         {gatewayOverride ? 'Uses gateway arrears report override for clean branch, officer, and cleared-loan handling.' : 'Uses Fineract report metadata directly.'}
                     </div>
                 </div>
 
-                <div className="grid md:grid-cols-3 gap-3 mb-6">
-                    <div>
-                        <label className="block text-sm font-medium">Output</label>
+                <div className="mb-6 flex flex-wrap gap-2">
+                    {availableOutputs.map((item) => {
+                        const upper = String(item).toUpperCase();
+                        const isPreview = upper === 'JSON';
+                        const Icon = isPreview ? Eye : upper.includes('XLS') ? FileSpreadsheet : upper === 'PDF' ? FileText : Download;
+                        return (
+                            <Button
+                                key={item}
+                                variant={format === item ? 'primary' : 'secondary'}
+                                onClick={(event) => {
+                                    setFormat(item);
+                                    runReport(event, item);
+                                }}
+                                disabled={!runnable || running}
+                            >
+                                <Icon size={16} />
+                                {isPreview ? 'Preview' : `Download ${item}`}
+                            </Button>
+                        );
+                    })}
+                    <div className="ml-auto min-w-[220px]">
+                        <label className="block text-sm font-medium">Default Output</label>
                         <select
                             className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                             value={format}
@@ -798,32 +885,49 @@ const ReportDetails = () => {
                     </div>
                 </div>
 
-                {!gatewayOverride && reportParameters.length ? (
-                    <div className="grid md:grid-cols-3 gap-3">
-                        {reportParameters.map((param, index) => (
-                            <Field key={`${getParameterName(param)}-${index}`} param={param} />
-                        ))}
+                <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
+                    <div>
+                        {!gatewayOverride && orderedReportParameters.length ? (
+                            <div className="grid md:grid-cols-2 gap-3">
+                                {orderedReportParameters.map((param, index) => (
+                                    <Field key={`${getParameterName(param)}-${index}`} param={param} />
+                                ))}
+                            </div>
+                        ) : gatewayOverride ? (
+                            <div className="rounded-xl border bg-gray-50 p-3 text-sm text-gray-600 dark:bg-gray-800/40 dark:text-gray-300">
+                                Grouping is fixed from the report name: <span className="font-medium">{gatewayOverride.groupBy}</span>.
+                            </div>
+                        ) : (
+                            <div className="text-sm text-gray-500">This report does not declare parameters.</div>
+                        )}
                     </div>
-                ) : gatewayOverride ? (
-                    <div className="rounded-xl border bg-gray-50 p-3 text-sm text-gray-600 dark:bg-gray-800/40 dark:text-gray-300">
-                        Grouping is fixed from the report name: <span className="font-medium">{gatewayOverride.groupBy}</span>.
+
+                    <div className="space-y-4">
+                        <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 p-4 dark:border-slate-700/70 dark:bg-slate-900/30">
+                            <div className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Execution</div>
+                            <div className="mt-3 space-y-2 text-sm text-slate-700 dark:text-slate-200">
+                                <div>Type: <span className="font-medium">{report.reportType}</span></div>
+                                <div>Category: <span className="font-medium">{report.reportCategory || 'General'}</span></div>
+                                <div>Current output: <span className="font-medium">{format}</span></div>
+                                {hasDateParameters ? <div>Date format injected: <span className="font-medium">yyyy-MM-dd / en</span></div> : null}
+                            </div>
+                            <div className="mt-4">
+                                <Button onClick={runReport} disabled={!runnable || running}>
+                                    <Play size={16} />
+                                    {running ? 'Running...' : ((gatewayOverride || (isTable && format === 'JSON')) ? 'Run Current Output' : `Download ${format}`)}
+                                </Button>
+                            </div>
+                        </div>
+
+                        <div className="rounded-2xl border border-slate-200/70 bg-gray-50 p-3 text-xs text-gray-600 dark:border-slate-700/70 dark:bg-gray-800/40 dark:text-gray-300">
+                            <div className="font-semibold mb-1">Request preview</div>
+                            <div className="break-all">{requestPreview || 'No request generated yet.'}</div>
+                        </div>
+
+                        {!runnable ? (
+                            <div className="text-sm text-gray-500">Unsupported report type: {report.reportType}</div>
+                        ) : null}
                     </div>
-                ) : (
-                    <div className="text-sm text-gray-500">This report does not declare parameters.</div>
-                )}
-
-                <div className="mt-6 rounded-xl border bg-gray-50 p-3 text-xs text-gray-600 dark:bg-gray-800/40 dark:text-gray-300">
-                    <div className="font-semibold mb-1">Request preview</div>
-                    <div className="break-all">{requestPreview || 'No request generated yet.'}</div>
-                </div>
-
-                <div className="mt-4 flex items-center gap-2">
-                    <Button onClick={runReport} disabled={!runnable || running}>
-                        {running ? 'Running...' : ((gatewayOverride || (isTable && format === 'JSON')) ? 'Run' : `Download ${format}`)}
-                    </Button>
-                    {!runnable ? (
-                        <div className="text-sm text-gray-500">Unsupported report type: {report.reportType}</div>
-                    ) : null}
                 </div>
 
                 {isTable && format === 'JSON' ? (

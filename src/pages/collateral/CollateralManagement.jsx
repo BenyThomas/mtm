@@ -12,6 +12,7 @@ const CollateralManagement = () => {
 
     const [loading, setLoading] = useState(true);
     const [rows, setRows] = useState([]);
+    const [q, setQ] = useState('');
 
     const [template, setTemplate] = useState(null);
     const [tplLoading, setTplLoading] = useState(true);
@@ -24,11 +25,12 @@ const CollateralManagement = () => {
         return (Array.isArray(list) ? list : []).map((x, idx) => ({
             id: x.id ?? idx + 1,
             name: x.name || '',
-            typeId: x.typeId ?? x.collateralTypeId ?? x.type?.id,
-            typeName: x.type?.name ?? x.collateralTypeName ?? x.type ?? '',
+            currency: x.currency || '',
             quality: x.quality || '',
-            unitTypeId: x.unitTypeId || '',
+            unitType: x.unitType || x.unitTypeId || '',
             basePrice: x.basePrice ?? x.unitPrice ?? '',
+            pctToBase: x.pctToBase ?? '',
+            locale: x.locale || '',
             description: x.description || '',
         }));
     };
@@ -60,7 +62,7 @@ const CollateralManagement = () => {
         }
     };
 
-    useEffect(() => { loadTemplate(); load(); }, []); // eslint-disable-line
+    useEffect(() => { loadTemplate(); load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     const create = async (payload) => {
         setBusy(true);
@@ -113,11 +115,30 @@ const CollateralManagement = () => {
         }
     };
 
+    const filtered = rows.filter((r) => {
+        const t = q.trim().toLowerCase();
+        if (!t) return true;
+        return [r.id, r.name, r.currency, r.quality, r.unitType, r.description]
+            .map((v) => String(v || '').toLowerCase())
+            .some((s) => s.includes(t));
+    });
+
     return (
         <div className="space-y-4">
-            <div className="flex items-center justify-between">
-                <h1 className="text-2xl font-bold">Collateral Management</h1>
-                <div className="space-x-2">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                    <h1 className="text-2xl font-bold">Collateral Management</h1>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                        Manage collateral operations using the Fineract collateral management endpoints.
+                    </p>
+                </div>
+                <div className="flex items-center gap-2">
+                    <input
+                        value={q}
+                        onChange={(e) => setQ(e.target.value)}
+                        placeholder="Search collaterals..."
+                        className="w-full md:w-64 border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                    />
                     <Button variant="secondary" onClick={() => { loadTemplate(); load(); }}>Refresh</Button>
                     <Button onClick={() => setCreateOpen(true)} disabled={tplLoading}>New Collateral</Button>
                 </div>
@@ -126,7 +147,7 @@ const CollateralManagement = () => {
             <Card>
                 {loading ? (
                     <Skeleton height="12rem" />
-                ) : !rows.length ? (
+                ) : !filtered.length ? (
                     <div className="text-sm text-gray-600 dark:text-gray-400">No collaterals found.</div>
                 ) : (
                     <div className="overflow-x-auto">
@@ -135,24 +156,26 @@ const CollateralManagement = () => {
                             <tr className="text-left text-sm text-gray-500">
                                 <th className="py-2 pr-4">#</th>
                                 <th className="py-2 pr-4">Name</th>
-                                <th className="py-2 pr-4">Type</th>
+                                <th className="py-2 pr-4">Currency</th>
                                 <th className="py-2 pr-4">Quality</th>
                                 <th className="py-2 pr-4">Unit Type</th>
                                 <th className="py-2 pr-4">Base Price</th>
+                                <th className="py-2 pr-4">Pct To Base</th>
                                 <th className="py-2 pr-4">Description</th>
                                 <th className="py-2 pr-4"></th>
                             </tr>
                             </thead>
                             <tbody>
-                            {rows.map(r => (
+                            {filtered.map((r) => (
                                 <tr key={r.id} className="border-t border-gray-200 dark:border-gray-700 text-sm">
                                     <td className="py-2 pr-4">{r.id}</td>
-                                    <td className="py-2 pr-4">{r.name || '—'}</td>
-                                    <td className="py-2 pr-4">{r.typeName || r.typeId}</td>
-                                    <td className="py-2 pr-4">{r.quality || '—'}</td>
-                                    <td className="py-2 pr-4">{r.unitTypeId || '—'}</td>
+                                    <td className="py-2 pr-4">{r.name || '-'}</td>
+                                    <td className="py-2 pr-4">{r.currency || '-'}</td>
+                                    <td className="py-2 pr-4">{r.quality || '-'}</td>
+                                    <td className="py-2 pr-4">{r.unitType || '-'}</td>
                                     <td className="py-2 pr-4">{r.basePrice}</td>
-                                    <td className="py-2 pr-4">{r.description || '—'}</td>
+                                    <td className="py-2 pr-4">{r.pctToBase}</td>
+                                    <td className="py-2 pr-4">{r.description || '-'}</td>
                                     <td className="py-2 pr-4 whitespace-nowrap space-x-2">
                                         <Button variant="secondary" onClick={() => openEdit(r.id)}>Edit</Button>
                                         <Button variant="danger" onClick={() => remove(r.id)}>Delete</Button>
@@ -165,12 +188,10 @@ const CollateralManagement = () => {
                 )}
             </Card>
 
-            {/* Create */}
             <Modal open={createOpen} title="New Collateral" onClose={() => setCreateOpen(false)} footer={null}>
                 <CollateralManagementForm template={template} onSubmit={create} submitting={busy} />
             </Modal>
 
-            {/* Edit */}
             <Modal open={!!editItem} title="Edit Collateral" onClose={() => setEditItem(null)} footer={null}>
                 {editItem ? (
                     <CollateralManagementForm initial={editItem} template={template} onSubmit={save} submitting={busy} />

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import api from '../api/axios';
 import Card from '../components/Card';
@@ -10,6 +10,7 @@ import Modal from '../components/Modal';
 import ScheduleTable from '../components/ScheduleTable';
 import LoanAdvancedActionModal from '../components/LoanAdvancedActionModal';
 import { useToast } from '../context/ToastContext';
+import LoanCollaterals from './loans/LoanCollaterals';
 import {
     CheckCircle,        // Approve
     XCircle,            // Reject
@@ -22,8 +23,13 @@ import {
     ReceiptText,        // Record Repayment
     UserPlus,           // Assign Officer
     UserMinus,          // Unassign Officer
-    Settings2,          // More actions
-    Loader2             // Busy spinner
+    Loader2,            // Busy spinner
+    Eraser,             // Write Off
+    Archive,            // Close
+    BadgePercent,       // Waive Interest
+    CircleDollarSign,   // Prepay/Foreclose
+    History,            // Reschedule
+    RefreshCw
 } from 'lucide-react';
 
 
@@ -43,13 +49,145 @@ const txDateToISO = (d) => {
 };
 const txTypeLabel = (t) => t?.value || t?.code || '-';
 
+const parseError = (e, fallback) =>
+    e?.response?.data?.errors?.[0]?.defaultUserMessage ||
+    e?.response?.data?.defaultUserMessage ||
+    e?.response?.data?.message ||
+    fallback;
+
 const isISODate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
+const formatDisplayDate = (value) => {
+    const iso = txDateToISO(value);
+    if (!iso) return '-';
+    try {
+        const parsed = new Date(`${iso}T00:00:00`);
+        if (Number.isNaN(parsed.getTime())) return iso;
+        return new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'short', day: '2-digit' }).format(parsed);
+    } catch {
+        return iso;
+    }
+};
+const formatAmount = (value, currency) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return '-';
+    const rendered = new Intl.NumberFormat(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(numeric);
+    return currency ? `${rendered} ${currency}` : rendered;
+};
 const formatValue = (value) => {
     if (value === null || value === undefined || value === '') return '-';
     if (Array.isArray(value)) return value.join('-');
     if (typeof value === 'object') return value.value || value.code || value.name || '-';
     return String(value);
 };
+const SummaryMetric = ({ label, value, tone = 'slate' }) => {
+    const toneClass =
+        tone === 'emerald' ? 'border-emerald-200/70 bg-emerald-50/70 dark:border-emerald-900/60 dark:bg-emerald-900/20'
+            : tone === 'amber' ? 'border-amber-200/70 bg-amber-50/70 dark:border-amber-900/60 dark:bg-amber-900/20'
+                : tone === 'rose' ? 'border-rose-200/70 bg-rose-50/70 dark:border-rose-900/60 dark:bg-rose-900/20'
+                    : 'border-slate-200/70 bg-white/80 dark:border-slate-700/70 dark:bg-slate-900/50';
+
+    return (
+        <div className={`rounded-2xl border px-4 py-3 ${toneClass}`}>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</div>
+            <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-50">{value}</div>
+        </div>
+    );
+};
+
+const SummaryField = ({ label, value }) => (
+    <div className="rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3 dark:border-slate-700/70 dark:bg-slate-900/50">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</div>
+        <div className="mt-1 text-sm font-medium break-words text-slate-800 dark:text-slate-100">{value}</div>
+    </div>
+);
+
+const SummarySection = ({ title, children }) => (
+    <div className="rounded-3xl border border-slate-200/70 bg-slate-50/70 p-4 dark:border-slate-700/70 dark:bg-slate-900/30">
+        <div className="mb-4 text-sm font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">{title}</div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {children}
+        </div>
+    </div>
+);
+
+const loanActionButtonClass =
+    'border border-[color:var(--tenant-primary)]/20 bg-[color:var(--tenant-primary)]/8 text-[var(--tenant-primary)] hover:bg-[color:var(--tenant-primary)]/14 dark:border-[color:var(--tenant-primary)]/35 dark:bg-[color:var(--tenant-primary)]/12 dark:hover:bg-[color:var(--tenant-primary)]/18';
+
+const LoanIconActionButton = ({ title, className = '', children, ...props }) => (
+    <Button
+        size="sm"
+        variant="ghost"
+        className={`h-11 w-11 shrink-0 rounded-xl p-0 shadow-sm ${loanActionButtonClass} ${className}`.trim()}
+        title={title}
+        aria-label={title}
+        {...props}
+    >
+        {children}
+    </Button>
+);
+
+const ChargeTable = ({ title, items, currency, onAction }) => (
+    <Card>
+        <div className="mb-3 text-sm font-semibold">{title}</div>
+        {!items.length ? (
+            <div className="text-sm text-slate-600 dark:text-slate-300">No {title.toLowerCase()}.</div>
+        ) : (
+            <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                    <thead>
+                    <tr className="text-left text-slate-500 dark:text-slate-400">
+                        <th className="py-2 pr-4">Name</th>
+                        <th className="py-2 pr-4">Due</th>
+                        <th className="py-2 pr-4">Waived</th>
+                        <th className="py-2 pr-4">Paid</th>
+                        <th className="py-2 pr-4">Outstanding</th>
+                        <th className="py-2 pr-4 text-right">Actions</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    {items.map((charge) => (
+                        <tr key={charge.id || `${title}-${charge.name}`} className="border-t border-slate-200/70 dark:border-slate-700/70">
+                            <td className="py-2 pr-4">{charge.name || '-'}</td>
+                            <td className="py-2 pr-4">{formatAmount(charge.amount || charge.amountOrPercentage, currency)}</td>
+                            <td className="py-2 pr-4">{formatAmount(charge.amountWaived, currency)}</td>
+                            <td className="py-2 pr-4">{formatAmount(charge.amountPaid, currency)}</td>
+                            <td className="py-2 pr-4">{formatAmount(charge.amountOutstanding, currency)}</td>
+                            <td className="py-2 text-right">
+                                <div className="flex items-center justify-end gap-2">
+                                    {charge.amountOutstanding > 0 && (
+                                        <>
+                                            <button
+                                                onClick={() => onAction('waive', charge)}
+                                                className="text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                                            >
+                                                Waive
+                                            </button>
+                                            <button
+                                                onClick={() => onAction('pay', charge)}
+                                                className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300"
+                                            >
+                                                Pay
+                                            </button>
+                                        </>
+                                    )}
+                                    {(!charge.amountPaid || charge.amountPaid === 0) && (!charge.amountWaived || charge.amountWaived === 0) && (
+                                        <button
+                                            onClick={() => onAction('delete', charge)}
+                                            className="text-xs font-semibold text-rose-600 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300"
+                                        >
+                                            Delete
+                                        </button>
+                                    )}
+                                </div>
+                            </td>
+                        </tr>
+                    ))}
+                    </tbody>
+                </table>
+            </div>
+        )}
+    </Card>
+);
 
 const LoanDetails = () => {
     const { id } = useParams();
@@ -124,6 +262,24 @@ const LoanDetails = () => {
     const [unassignBusy, setUnassignBusy] = useState(false);
     const [unassignedOnDate, setUnassignedOnDate] = useState(dateISO());
     const [advancedActionOpen, setAdvancedActionOpen] = useState(false);
+    const [selectedCommand, setSelectedCommand] = useState('');
+
+    // Add Charge
+    const [addChargeOpen, setAddChargeOpen] = useState(false);
+    const [addChargeBusy, setAddChargeBusy] = useState(false);
+    const [chargeOptions, setChargeOptions] = useState([]);
+    const [selectedChargeId, setSelectedChargeId] = useState('');
+    const [addChargeAmount, setAddChargeAmount] = useState('');
+    const [addChargeDate, setAddChargeDate] = useState(dateISO());
+
+    // Charge Actions (Waive/Pay)
+    const [chargeActionOpen, setChargeActionOpen] = useState(false);
+    const [chargeActionBusy, setChargeActionBusy] = useState(false);
+    const [selectedChargeForAction, setSelectedChargeForAction] = useState(null);
+    const [chargeActionType, setChargeActionType] = useState(''); // 'waive' or 'pay'
+    const [chargeActionAmount, setChargeActionAmount] = useState('');
+    const [chargeActionDate, setChargeActionDate] = useState(dateISO());
+    const [chargeActionPaymentType, setChargeActionPaymentType] = useState('');
 
     // Transactions filters
     const [fromDate, setFromDate] = useState('');
@@ -143,7 +299,7 @@ const LoanDetails = () => {
         setLoading(true);
         try {
             // Loan with schedule
-            const res = await api.get(`/loans/${id}`, { params: { associations: 'repaymentSchedule' } });
+            const res = await api.get(`/loans/${id}`, { params: { associations: 'repaymentSchedule,charges' } });
             setLoan(res.data);
 
             // Template (for payment types and possibly officers)
@@ -163,6 +319,7 @@ const LoanDetails = () => {
                     if (!repayPaymentTypeId && opts[0]) setRepayPaymentTypeId(String(opts[0].id));
                     if (!paymentTypeIdForDisburse && opts[0]) setPaymentTypeIdForDisburse(String(opts[0].id));
                     if (!paymentTypeIdForDisburseSav && opts[0]) setPaymentTypeIdForDisburseSav(String(opts[0].id));
+                    if (!chargeActionPaymentType && opts[0]) setChargeActionPaymentType(String(opts[0].id));
                 }
 
                 // If your template exposes officer options (some setups do)
@@ -202,6 +359,103 @@ const LoanDetails = () => {
         }
     };
 
+    const handleChargeAction = (action, charge) => {
+        setSelectedChargeForAction(charge);
+        if (action === 'waive') {
+            setChargeActionType('waive');
+            setChargeActionAmount(charge.amountOutstanding);
+            setChargeActionOpen(true);
+        } else if (action === 'pay') {
+            setChargeActionType('pay');
+            setChargeActionAmount(charge.amountOutstanding);
+            setChargeActionOpen(true);
+        } else if (action === 'delete') {
+            confirmDeleteCharge(charge);
+        }
+    };
+
+    const confirmDeleteCharge = async (charge) => {
+        if (!window.confirm(`Are you sure you want to delete the charge '${charge.name}'?`)) return;
+        try {
+            await api.delete(`/loans/${id}/charges/${charge.id}`);
+            addToast('Charge deleted', 'success');
+            fetchAll();
+        } catch (e) {
+            addToast(parseError(e, 'Failed to delete charge'), 'error');
+        }
+    };
+
+    const fetchChargeTemplate = async () => {
+        try {
+            const res = await api.get(`/loans/${id}/charges/template`);
+            const opts = res.data?.chargeOptions || [];
+            setChargeOptions(opts);
+            if (opts.length > 0) {
+                setSelectedChargeId(String(opts[0].id));
+                setAddChargeAmount(String(opts[0].amount || ''));
+            }
+        } catch (e) {
+            addToast('Failed to load charge template', 'error');
+        }
+    };
+
+    useEffect(() => {
+        if (addChargeOpen) fetchChargeTemplate();
+    }, [addChargeOpen]);
+
+    const handleAddCharge = async () => {
+        if (!selectedChargeId) {
+            addToast('Please select a charge', 'error');
+            return;
+        }
+        setAddChargeBusy(true);
+        try {
+            const payload = {
+                chargeId: selectedChargeId,
+                amount: Number(addChargeAmount),
+                dueDate: addChargeDate,
+                locale: 'en',
+                dateFormat: 'yyyy-MM-dd',
+            };
+            await api.post(`/loans/${id}/charges`, payload);
+            addToast('Charge added successfully', 'success');
+            setAddChargeOpen(false);
+            fetchAll();
+        } catch (e) {
+            addToast(parseError(e, 'Failed to add charge'), 'error');
+        } finally {
+            setAddChargeBusy(false);
+        }
+    };
+
+    const handleExecuteChargeAction = async () => {
+        if (!selectedChargeForAction) return;
+        setChargeActionBusy(true);
+        try {
+            let command;
+            if (chargeActionType === 'waive') {
+                command = selectedChargeForAction.penalty ? 'waivePenalty' : 'waiveLoanCharge';
+            } else {
+                command = 'payLoanCharge';
+            }
+            const payload = {
+                amount: Number(chargeActionAmount),
+                transactionDate: chargeActionDate,
+                paymentTypeId: chargeActionType === 'pay' ? (chargeActionPaymentType ? Number(chargeActionPaymentType) : undefined) : undefined,
+                locale: 'en',
+                dateFormat: 'yyyy-MM-dd',
+            };
+            await api.post(`/loans/${id}/charges/${selectedChargeForAction.id}?command=${command}`, payload);
+            addToast(`Charge ${chargeActionType === 'waive' ? 'waived' : 'paid'} successfully`, 'success');
+            setChargeActionOpen(false);
+            fetchAll();
+        } catch (e) {
+            addToast(parseError(e, `Failed to ${chargeActionType} charge`), 'error');
+        } finally {
+            setChargeActionBusy(false);
+        }
+    };
+
     useEffect(() => {
         fetchAll();
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -212,6 +466,7 @@ const LoanDetails = () => {
         if (/approved/i.test(code)) return 'blue';
         if (/active|disbursed/i.test(code)) return 'green';
         if (/submitted|pending/i.test(code)) return 'yellow';
+        if (/rejected|withdrawn/i.test(code)) return 'red';
         if (/closed|writtenoff/i.test(code)) return 'gray';
         return 'gray';
     };
@@ -220,11 +475,15 @@ const LoanDetails = () => {
     const statusCodeRaw = (loan?.status?.code || loan?.status?.value || '').toLowerCase();
 
     // Basic buckets (tuned for Fineract)
-    const isSubmittedOnly = /submitted|pending/.test(statusCodeRaw); // before approval
+    const isSubmittedOnly = /submitted|pending/.test(statusCodeRaw);
     const isApprovedOnly =
         /approved/.test(statusCodeRaw) && !/active|disbursed/.test(statusCodeRaw);
     const isDisbursedActive = /active|disbursed/.test(statusCodeRaw);
-    const isClosedLike = /closed|writtenoff|overpaid/.test(statusCodeRaw);
+    const isOverpaid = /overpaid/.test(statusCodeRaw);
+    const isClosed = /closed/.test(statusCodeRaw); // covers all closed types (obligations met, written off, etc)
+    const isRejected = /rejected/.test(statusCodeRaw);
+    const isWithdrawn = /withdrawn/.test(statusCodeRaw);
+    const isTerminal = isClosed || isRejected || isWithdrawn;
 
     // Optional timeline guards (safer than strings if your API returns them)
     const tl = loan?.timeline || {};
@@ -252,22 +511,41 @@ const LoanDetails = () => {
     const hasOfficerAssigned = !!(loan?.loanOfficerId || loan?.loanOfficerName);
 
     // Final visibility rules
-    const canApprove = isSubmittedOnly && !isClosedLike;
-    const canUndoApproval = isApprovedOnly && !isClosedLike && !hasDisbursal;
-    const canDisburse = isApprovedOnly && !isClosedLike;
-    const canDisburseToSavings = isApprovedOnly && !isClosedLike;
-    const canUndoDisbursal = isDisbursedActive && !isClosedLike;
+    const canApprove = isSubmittedOnly && !isTerminal;
+    const canUndoApproval = isApprovedOnly && !isTerminal && !hasDisbursal;
+    const canDisburse = isApprovedOnly && !isTerminal;
+    const canDisburseToSavings = isApprovedOnly && !isTerminal;
+    const canUndoDisbursal = isDisbursedActive && !isTerminal;
 
-    const canReject = isSubmittedOnly && !isClosedLike;
-    const canWithdraw = isSubmittedOnly && !isClosedLike;
+    const canReject = isSubmittedOnly && !isTerminal;
+    const canWithdraw = isSubmittedOnly && !isTerminal;
 
-    const canAssignOfficer = !isClosedLike; // usually allowed anytime before close
-    const canUnassignOfficer = !isClosedLike && hasOfficerAssigned;
+    const canAssignOfficer = !isTerminal && !hasOfficerAssigned;
+    const canUnassignOfficer = !isTerminal && hasOfficerAssigned;
 
-    const canRecoverGuarantee = isDisbursedActive && !isClosedLike;
+    const canRecoverGuarantee = isDisbursedActive && !isTerminal;
 
     // Repayment: allowed while Active/Disbursed
     const canRecordRepayment = useMemo(() => isDisbursedActive, [isDisbursedActive]);
+
+    const canWriteOff = isDisbursedActive;
+    const canClose = isDisbursedActive || isOverpaid;
+    const canWaiveInterest = isDisbursedActive;
+    const canForeclose = isDisbursedActive;
+    const canReschedule = isDisbursedActive;
+    const isWrittenOffLike = /written|writeoff/.test(statusCodeRaw);
+    const canUndoWriteOff = isWrittenOffLike;
+    const canUndoWaiveInterest = !isClosed && !isRejected && !isWithdrawn;
+    const canCloseAsRescheduled = !isClosed && !isRejected && !isWithdrawn && !isWrittenOffLike;
+    const currencyCode = loan?.summary?.currency?.code || loan?.currency?.code || '';
+    const nonPenaltyCharges = useMemo(
+        () => (Array.isArray(loan?.charges) ? loan.charges.filter((item) => !item?.penalty) : []),
+        [loan?.charges]
+    );
+    const penaltyCharges = useMemo(
+        () => (Array.isArray(loan?.charges) ? loan.charges.filter((item) => item?.penalty) : []),
+        [loan?.charges]
+    );
 
     // --- Actions ---
 
@@ -576,6 +854,192 @@ const LoanDetails = () => {
             setUnassignBusy(false);
         }
     };
+    const openAdvancedAction = (command = '') => {
+        setSelectedCommand(command);
+        setAdvancedActionOpen(true);
+    };
+    const loanActions = useMemo(() => {
+        const actions = [];
+        if (canApprove) {
+            actions.push({
+                key: 'approve',
+                title: 'Approve',
+                icon: CheckCircle,
+                onClick: () => setApproveOpen(true),
+            });
+        }
+        if (canReject) {
+            actions.push({
+                key: 'reject',
+                title: 'Reject',
+                icon: XCircle,
+                onClick: () => setRejectOpen(true),
+            });
+        }
+        if (canWithdraw) {
+            actions.push({
+                key: 'withdraw',
+                title: 'Withdraw',
+                icon: UserX,
+                onClick: () => setWithdrawOpen(true),
+            });
+        }
+        if (canUndoApproval) {
+            actions.push({
+                key: 'undo-approval',
+                title: undoApprovalBusy ? 'Undo Approval (Working)' : 'Undo Approval',
+                icon: undoApprovalBusy ? Loader2 : Undo2,
+                iconClassName: undoApprovalBusy ? 'animate-spin' : '',
+                onClick: undoApproval,
+            });
+        }
+        if (canDisburse) {
+            actions.push({
+                key: 'disburse',
+                title: 'Disburse',
+                icon: Wallet,
+                onClick: () => setDisburseOpen(true),
+            });
+        }
+        if (canDisburseToSavings) {
+            actions.push({
+                key: 'disburse-savings',
+                title: 'Disburse to Savings',
+                icon: PiggyBank,
+                onClick: () => setDisburseSavOpen(true),
+            });
+        }
+        if (canUndoDisbursal) {
+            actions.push({
+                key: 'undo-disbursal',
+                title: undoDisbursalBusy ? 'Undo Disbursal (Working)' : 'Undo Disbursal',
+                icon: undoDisbursalBusy ? Loader2 : RotateCcw,
+                iconClassName: undoDisbursalBusy ? 'animate-spin' : '',
+                onClick: undoDisbursal,
+            });
+        }
+        if (canRecoverGuarantee) {
+            actions.push({
+                key: 'recover-guarantee',
+                title: recoverGuaranteeBusy ? 'Recover Guarantee (Working)' : 'Recover Guarantee',
+                icon: recoverGuaranteeBusy ? Loader2 : ShieldCheck,
+                iconClassName: recoverGuaranteeBusy ? 'animate-spin' : '',
+                onClick: recoverGuarantee,
+            });
+        }
+        if (canRecordRepayment) {
+            actions.push({
+                key: 'repayment',
+                title: 'Record Repayment',
+                icon: ReceiptText,
+                onClick: () => setRepayOpen(true),
+            });
+        }
+        if (canAssignOfficer) {
+            actions.push({
+                key: 'assign-officer',
+                title: 'Assign Officer',
+                icon: UserPlus,
+                onClick: () => setAssignOpen(true),
+            });
+        }
+        if (canUnassignOfficer) {
+            actions.push({
+                key: 'unassign-officer',
+                title: 'Unassign Officer',
+                icon: UserMinus,
+                onClick: () => setUnassignOpen(true),
+            });
+        }
+        if (canUndoWriteOff) {
+            actions.push({
+                key: 'undo-writeoff',
+                title: 'Undo Write Off',
+                icon: Undo2,
+                onClick: () => openAdvancedAction('undowriteoff'),
+            });
+        }
+        if (canWaiveInterest) {
+            actions.push({
+                key: 'waive-interest',
+                title: 'Waive Interest',
+                icon: BadgePercent,
+                onClick: () => openAdvancedAction('waiveInterest'),
+            });
+        }
+        if (canUndoWaiveInterest) {
+            actions.push({
+                key: 'undo-waive-interest',
+                title: 'Undo Interest Waiver',
+                icon: Undo2,
+                onClick: () => openAdvancedAction('undoWaiveInterest'),
+            });
+        }
+        if (canForeclose) {
+            actions.push({
+                key: 'prepay-foreclose',
+                title: 'Prepay / Foreclose',
+                icon: CircleDollarSign,
+                onClick: () => openAdvancedAction('prepayLoan'),
+            });
+        }
+        if (canWriteOff) {
+            actions.push({
+                key: 'writeoff',
+                title: 'Write Off',
+                icon: Eraser,
+                onClick: () => openAdvancedAction('writeoff'),
+            });
+        }
+        if (canClose) {
+            actions.push({
+                key: 'close',
+                title: 'Close Loan',
+                icon: Archive,
+                onClick: () => openAdvancedAction('close'),
+            });
+        }
+        if (canCloseAsRescheduled) {
+            actions.push({
+                key: 'close-rescheduled',
+                title: 'Close As Rescheduled',
+                icon: CheckCircle,
+                onClick: () => openAdvancedAction('close-rescheduled'),
+            });
+        }
+        if (canReschedule) {
+            actions.push({
+                key: 'reschedule',
+                title: 'Reschedule',
+                icon: History,
+                onClick: () => openAdvancedAction('reschedule'),
+            });
+        }
+        return actions;
+    }, [
+        canApprove,
+        canReject,
+        canWithdraw,
+        canUndoApproval,
+        undoApprovalBusy,
+        canDisburse,
+        canDisburseToSavings,
+        canUndoDisbursal,
+        undoDisbursalBusy,
+        canRecoverGuarantee,
+        recoverGuaranteeBusy,
+        canRecordRepayment,
+        canAssignOfficer,
+        canUnassignOfficer,
+        canUndoWriteOff,
+        canWaiveInterest,
+        canUndoWaiveInterest,
+        canForeclose,
+        canWriteOff,
+        canClose,
+        canCloseAsRescheduled,
+        canReschedule,
+    ]);
 
     // Filters + CSV
     const filteredTx = useMemo(() => {
@@ -726,143 +1190,22 @@ const LoanDetails = () => {
                     </div>
                 </div>
 
-                {/* Stage-aware action buttons */}
-                <div className="flex flex-wrap gap-2">
-                    {/* Submitted → Approve / Reject / Withdraw */}
-                    {canApprove && (
-                        <Button
-                            variant="secondary"
-                            onClick={() => setApproveOpen(true)}
-                            title="Approve"
-                            aria-label="Approve"
-                            className="p-2"
+                <div className="flex flex-wrap items-center gap-2">
+                    {loanActions.map((action) => (
+                        <LoanIconActionButton
+                            key={action.key}
+                            title={action.title}
+                            onClick={action.onClick}
                         >
-                            <CheckCircle className="w-5 h-5" />
-                        </Button>
-                    )}
-                    {canReject && (
-                        <Button
-                            variant="secondary"
-                            onClick={() => setRejectOpen(true)}
-                            title="Reject"
-                            aria-label="Reject"
-                            className="p-2"
-                        >
-                            <XCircle className="w-5 h-5" />
-                        </Button>
-                    )}
-                    {canWithdraw && (
-                        <Button
-                            variant="secondary"
-                            onClick={() => setWithdrawOpen(true)}
-                            title="Withdraw"
-                            aria-label="Withdraw"
-                            className="p-2"
-                        >
-                            <UserX className="w-5 h-5" />
-                        </Button>
-                    )}
-
-                    {/* Approved (not yet active) → Undo Approval / Disburse */}
-                    {canUndoApproval && (
-                        <Button
-                            variant="secondary"
-                            onClick={undoApproval}
-                            title="Undo Approval"
-                            aria-label="Undo Approval"
-                            className="p-2"
-                        >
-                            {undoApprovalBusy ? <Loader2 className="w-5 h-5 animate-spin" /> : <Undo2 className="w-5 h-5" />}
-                        </Button>
-                    )}
-                    {canDisburse && (
-                        <Button
-                            variant="secondary"
-                            onClick={() => setDisburseOpen(true)}
-                            title="Disburse"
-                            aria-label="Disburse"
-                            className="p-2"
-                        >
-                            <Wallet className="w-5 h-5" />
-                        </Button>
-                    )}
-                    {canDisburseToSavings && (
-                        <Button
-                            variant="secondary"
-                            onClick={() => setDisburseSavOpen(true)}
-                            title="Disburse to Savings"
-                            aria-label="Disburse to Savings"
-                            className="p-2"
-                        >
-                            <PiggyBank className="w-5 h-5" />
-                        </Button>
-                    )}
-
-                    {/* Active/Disbursed → Undo Disbursal / Recover Guarantee / Repay */}
-                    {canUndoDisbursal && (
-                        <Button
-                            variant="secondary"
-                            onClick={undoDisbursal}
-                            title="Undo Disbursal"
-                            aria-label="Undo Disbursal"
-                            className="p-2"
-                        >
-                            {undoDisbursalBusy ? <Loader2 className="w-5 h-5 animate-spin" /> : <RotateCcw className="w-5 h-5" />}
-                        </Button>
-                    )}
-                    {canRecoverGuarantee && (
-                        <Button
-                            onClick={recoverGuarantee}
-                            title="Recover Guarantee"
-                            aria-label="Recover Guarantee"
-                            className="p-2"
-                        >
-                            {recoverGuaranteeBusy ? <Loader2 className="w-5 h-5 animate-spin" /> : <ShieldCheck className="w-5 h-5" />}
-                        </Button>
-                    )}
-                    {canRecordRepayment && (
-                        <Button
-                            onClick={() => setRepayOpen(true)}
-                            title="Add Repayment"
-                            aria-label="Add Repayment"
-                            className="p-2"
-                        >
-                            <ReceiptText className="w-5 h-5" />
-                        </Button>
-                    )}
-
-                    {/* Officer Assignment */}
-                    {canAssignOfficer && (
-                        <Button
-                            variant="secondary"
-                            onClick={() => setAssignOpen(true)}
-                            title="Assign Officer"
-                            aria-label="Assign Officer"
-                            className="p-2"
-                        >
-                            <UserPlus className="w-5 h-5" />
-                        </Button>
-                    )}
-                    {canUnassignOfficer && (
-                        <Button
-                            variant="secondary"
-                            onClick={() => setUnassignOpen(true)}
-                            title="Unassign Officer"
-                            aria-label="Unassign Officer"
-                            className="p-2"
-                        >
-                            <UserMinus className="w-5 h-5" />
-                        </Button>
-                    )}
-                    <Button
-                        variant="secondary"
-                        onClick={() => setAdvancedActionOpen(true)}
-                        title="More Loan Actions"
-                        aria-label="More Loan Actions"
-                        className="p-2"
+                            <action.icon className={`h-5 w-5 ${action.iconClassName || ''}`.trim()} />
+                        </LoanIconActionButton>
+                    ))}
+                    <LoanIconActionButton
+                        title="Refresh Loan"
+                        onClick={fetchAll}
                     >
-                        <Settings2 className="w-5 h-5" />
-                    </Button>
+                        <RefreshCw className="h-5 w-5" />
+                    </LoanIconActionButton>
                 </div>
 
             </div>
@@ -872,130 +1215,78 @@ const LoanDetails = () => {
                 tabs={[
                     { key: 'summary', label: 'Summary' },
                     { key: 'schedule', label: 'Schedule' },
+                    { key: 'charges', label: 'Charges' },
+                    { key: 'collaterals', label: 'Collaterals' },
                     { key: 'transactions', label: 'Transactions' },
                 ]}
             >
                 {/* Summary */}
                 <div data-tab="summary" className="space-y-4">
                     <Card>
-                        <div className="grid gap-4 text-sm md:grid-cols-2 xl:grid-cols-3">
-                            <div>
-                                <div className="text-gray-500">Loan ID</div>
-                                <div className="font-medium">{formatValue(loan.id)}</div>
+                        <div className="space-y-4">
+                            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                                <SummaryMetric
+                                    label="Outstanding"
+                                    value={formatAmount(loan.summary?.totalOutstanding, currencyCode)}
+                                    tone={Number(loan.summary?.totalOutstanding ?? 0) > 0 ? 'amber' : 'slate'}
+                                />
+                                <SummaryMetric
+                                    label="Disbursed"
+                                    value={formatAmount(loan.summary?.principalDisbursed, currencyCode)}
+                                    tone="emerald"
+                                />
+                                <SummaryMetric
+                                    label="Total Repaid"
+                                    value={formatAmount(loan.summary?.totalRepayment, currencyCode)}
+                                    tone="slate"
+                                />
+                                <SummaryMetric
+                                    label="Overdue"
+                                    value={formatAmount(loan.summary?.totalOverdue, currencyCode)}
+                                    tone={Number(loan.summary?.totalOverdue ?? 0) > 0 ? 'rose' : 'slate'}
+                                />
                             </div>
-                            <div>
-                                <div className="text-gray-500">Account No</div>
-                                <div className="font-medium">{formatValue(loan.accountNo)}</div>
-                            </div>
-                            <div>
-                                <div className="text-gray-500">Status</div>
-                                <div className="font-medium">{formatValue(loan.status)}</div>
-                            </div>
-                            <div>
-                                <div className="text-gray-500">Client</div>
-                                <div className="font-medium">{formatValue(loan.clientName)}</div>
-                            </div>
-                            <div>
-                                <div className="text-gray-500">Product</div>
-                                <div className="font-medium">{formatValue(loan.loanProductName)}</div>
-                            </div>
-                            <div>
-                                <div className="text-gray-500">Loan Officer</div>
-                                <div className="font-medium">{formatValue(loan.loanOfficerName)}</div>
-                            </div>
-                            <div>
-                                <div className="text-gray-500">Principal</div>
-                                <div className="font-medium">
-                                    {loan.principal || loan.approvedPrincipal || loan.proposedPrincipal || '-'}
-                                </div>
-                            </div>
-                            <div>
-                                <div className="text-gray-500">Approved Principal</div>
-                                <div className="font-medium">{formatValue(loan.approvedPrincipal)}</div>
-                            </div>
-                            <div>
-                                <div className="text-gray-500">Disbursed Principal</div>
-                                <div className="font-medium">{formatValue(loan.summary?.principalDisbursed)}</div>
-                            </div>
-                            <div>
-                                <div className="text-gray-500">Interest Rate / Period</div>
-                                <div className="font-medium">{formatValue(loan.interestRatePerPeriod)}</div>
-                            </div>
-                            <div>
-                                <div className="text-gray-500">Interest Method</div>
-                                <div className="font-medium">{formatValue(loan.interestType)}</div>
-                            </div>
-                            <div>
-                                <div className="text-gray-500">Term</div>
-                                <div className="font-medium">
-                                    {loan.termFrequency} × {loan.termPeriodFrequencyType?.value || loan.termFrequencyType?.value || ''}
-                                </div>
-                            </div>
-                            <div>
-                                <div className="text-gray-500">Repayment</div>
-                                <div className="font-medium">
-                                    {loan.repaymentEvery} × {loan.repaymentFrequencyType?.value || ''}
-                                </div>
-                            </div>
-                            <div>
-                                <div className="text-gray-500">Currency</div>
-                                <div
-                                    className="font-medium">{loan.summary?.currency?.code || loan.currency?.code || '-'}</div>
-                            </div>
-                            <div>
-                                <div className="text-gray-500">Submitted On</div>
-                                <div className="font-medium">{formatValue(loan.timeline?.submittedOnDate)}</div>
-                            </div>
-                            <div>
-                                <div className="text-gray-500">Approved On</div>
-                                <div className="font-medium">{formatValue(loan.timeline?.approvedOnDate)}</div>
-                            </div>
-                            <div>
-                                <div className="text-gray-500">Expected Disbursement</div>
-                                <div className="font-medium">{formatValue(loan.timeline?.expectedDisbursementDate)}</div>
-                            </div>
-                            <div>
-                                <div className="text-gray-500">Actual Disbursement</div>
-                                <div className="font-medium">{formatValue(loan.timeline?.actualDisbursementDate)}</div>
-                            </div>
-                            <div>
-                                <div className="text-gray-500">Maturity Date</div>
-                                <div className="font-medium">{formatValue(loan.timeline?.expectedMaturityDate || loan.timeline?.actualMaturityDate)}</div>
-                            </div>
-                            <div>
-                                <div className="text-gray-500">Days in Arrears</div>
-                                <div className="font-medium">{formatValue(loan.summary?.totalOverdue)}</div>
-                            </div>
-                            <div>
-                                <div className="text-gray-500">Principal (Total / Paid / Outstanding)</div>
-                                <div className="font-medium">
-                                    {loan.summary?.totalPrincipal ?? '-'} / {loan.summary?.principalPaid ?? '-'} / {loan.summary?.principalOutstanding ?? '-'}
-                                </div>
-                            </div>
-                            <div>
-                                <div className="text-gray-500">Interest (Charged / Paid / Outstanding)</div>
-                                <div className="font-medium">
-                                    {loan.summary?.interestCharged ?? '-'} / {loan.summary?.interestPaid ?? '-'} / {loan.summary?.interestOutstanding ?? '-'}
-                                </div>
-                            </div>
-                            <div>
-                                <div className="text-gray-500">Total (Expected / Repaid / Outstanding)</div>
-                                <div className="font-medium">
-                                    {loan.summary?.totalRepaymentExpected ?? '-'} / {loan.summary?.totalRepayment ?? '-'} / {loan.summary?.totalOutstanding ?? '-'}
-                                </div>
-                            </div>
-                            <div>
-                                <div className="text-gray-500">Fees (Charged / Paid / Outstanding)</div>
-                                <div className="font-medium">
-                                    {loan.summary?.feeChargesCharged ?? '-'} / {loan.summary?.feeChargesPaid ?? '-'} / {loan.summary?.feeChargesOutstanding ?? '-'}
-                                </div>
-                            </div>
-                            <div>
-                                <div className="text-gray-500">Penalties (Charged / Paid / Outstanding)</div>
-                                <div className="font-medium">
-                                    {loan.summary?.penaltyChargesCharged ?? '-'} / {loan.summary?.penaltyChargesPaid ?? '-'} / {loan.summary?.penaltyChargesOutstanding ?? '-'}
-                                </div>
-                            </div>
+
+                            <SummarySection title="Loan Snapshot">
+                                <SummaryField label="Loan ID" value={formatValue(loan.id)} />
+                                <SummaryField label="Account No" value={formatValue(loan.accountNo)} />
+                                <SummaryField label="External ID" value={formatValue(loan.externalId)} />
+                                <SummaryField label="Status" value={formatValue(loan.status)} />
+                                <SummaryField label="Client" value={formatValue(loan.clientName)} />
+                                <SummaryField label="Product" value={formatValue(loan.loanProductName)} />
+                                <SummaryField label="Loan Officer" value={formatValue(loan.loanOfficerName)} />
+                                <SummaryField label="Currency" value={currencyCode || '-'} />
+                                <SummaryField label="Transaction Strategy" value={formatValue(loan.transactionProcessingStrategyName || loan.transactionProcessingStrategyCode)} />
+                            </SummarySection>
+
+                            <SummarySection title="Financials">
+                                <SummaryField label="Principal Requested" value={formatAmount(loan.principal || loan.proposedPrincipal, currencyCode)} />
+                                <SummaryField label="Approved Principal" value={formatAmount(loan.approvedPrincipal, currencyCode)} />
+                                <SummaryField label="Disbursed Principal" value={formatAmount(loan.summary?.principalDisbursed, currencyCode)} />
+                                <SummaryField label="Principal Total / Paid / Outstanding" value={`${formatAmount(loan.summary?.totalPrincipal, currencyCode)} / ${formatAmount(loan.summary?.principalPaid, currencyCode)} / ${formatAmount(loan.summary?.principalOutstanding, currencyCode)}`} />
+                                <SummaryField label="Interest Charged / Paid / Outstanding" value={`${formatAmount(loan.summary?.interestCharged, currencyCode)} / ${formatAmount(loan.summary?.interestPaid, currencyCode)} / ${formatAmount(loan.summary?.interestOutstanding, currencyCode)}`} />
+                                <SummaryField label="Fees Charged / Paid / Outstanding" value={`${formatAmount(loan.summary?.feeChargesCharged, currencyCode)} / ${formatAmount(loan.summary?.feeChargesPaid, currencyCode)} / ${formatAmount(loan.summary?.feeChargesOutstanding, currencyCode)}`} />
+                                <SummaryField label="Penalties Charged / Paid / Outstanding" value={`${formatAmount(loan.summary?.penaltyChargesCharged, currencyCode)} / ${formatAmount(loan.summary?.penaltyChargesPaid, currencyCode)} / ${formatAmount(loan.summary?.penaltyChargesOutstanding, currencyCode)}`} />
+                                <SummaryField label="Total Expected / Repaid / Outstanding" value={`${formatAmount(loan.summary?.totalRepaymentExpected, currencyCode)} / ${formatAmount(loan.summary?.totalRepayment, currencyCode)} / ${formatAmount(loan.summary?.totalOutstanding, currencyCode)}`} />
+                                <SummaryField label="Days in Arrears" value={formatValue(loan.daysInArrears ?? loan.summary?.daysInArrears)} />
+                            </SummarySection>
+
+                            <SummarySection title="Terms">
+                                <SummaryField label="Interest Rate / Period" value={formatValue(loan.interestRatePerPeriod)} />
+                                <SummaryField label="Interest Method" value={formatValue(loan.interestType)} />
+                                <SummaryField label="Interest Calculation" value={formatValue(loan.interestCalculationPeriodType)} />
+                                <SummaryField label="Amortization" value={formatValue(loan.amortizationType)} />
+                                <SummaryField label="Term" value={`${formatValue(loan.termFrequency)} x ${loan.termPeriodFrequencyType?.value || loan.termFrequencyType?.value || '-'}`} />
+                                <SummaryField label="Repayment" value={`${formatValue(loan.repaymentEvery)} x ${loan.repaymentFrequencyType?.value || '-'}`} />
+                            </SummarySection>
+
+                            <SummarySection title="Lifecycle">
+                                <SummaryField label="Submitted On" value={formatDisplayDate(loan.timeline?.submittedOnDate)} />
+                                <SummaryField label="Approved On" value={formatDisplayDate(loan.timeline?.approvedOnDate)} />
+                                <SummaryField label="Expected Disbursement" value={formatDisplayDate(loan.timeline?.expectedDisbursementDate)} />
+                                <SummaryField label="Actual Disbursement" value={formatDisplayDate(loan.timeline?.actualDisbursementDate)} />
+                                <SummaryField label="Maturity Date" value={formatDisplayDate(loan.timeline?.expectedMaturityDate || loan.timeline?.actualMaturityDate)} />
+                            </SummarySection>
                         </div>
                     </Card>
                 </div>
@@ -1007,6 +1298,32 @@ const LoanDetails = () => {
                     ) : (
                         <ScheduleTable schedule={loan.repaymentSchedule}/>
                     )}
+                </div>
+
+                <div data-tab="charges" className="space-y-4">
+                    {!isTerminal && (
+                        <div className="flex justify-end">
+                            <Button size="sm" onClick={() => setAddChargeOpen(true)}>Add Charge</Button>
+                        </div>
+                    )}
+                    <div className="grid gap-4 xl:grid-cols-2">
+                        <ChargeTable
+                            title="Charges"
+                            items={nonPenaltyCharges}
+                            currency={currencyCode}
+                            onAction={handleChargeAction}
+                        />
+                        <ChargeTable
+                            title="Penalties"
+                            items={penaltyCharges}
+                            currency={currencyCode}
+                            onAction={handleChargeAction}
+                        />
+                    </div>
+                </div>
+
+                <div data-tab="collaterals" className="space-y-4">
+                    <LoanCollaterals loanId={id} />
                 </div>
 
                 {/* Transactions */}
@@ -1110,7 +1427,7 @@ const LoanDetails = () => {
                 footer={
                     <>
                         <Button variant="secondary" onClick={() => setApproveOpen(false)}>Cancel</Button>
-                        <Button onClick={approve} disabled={approveBusy}>{approveBusy ? 'Approving…' : 'Approve'}</Button>
+                        <Button onClick={approve} disabled={approveBusy}>{approveBusy ? 'Approvingâ€¦' : 'Approve'}</Button>
                     </>
                 }
             >
@@ -1171,7 +1488,7 @@ const LoanDetails = () => {
                 footer={
                     <>
                         <Button variant="secondary" onClick={() => setDisburseOpen(false)}>Cancel</Button>
-                        <Button onClick={disburse} disabled={disburseBusy}>{disburseBusy ? 'Disbursing…' : 'Disburse'}</Button>
+                        <Button onClick={disburse} disabled={disburseBusy}>{disburseBusy ? 'Disbursingâ€¦' : 'Disburse'}</Button>
                     </>
                 }
             >
@@ -1236,7 +1553,7 @@ const LoanDetails = () => {
                     <>
                         <Button variant="secondary" onClick={() => setDisburseSavOpen(false)}>Cancel</Button>
                         <Button onClick={disburseToSavings} disabled={disburseSavBusy}>
-                            {disburseSavBusy ? 'Disbursing…' : 'Disburse to Savings'}
+                            {disburseSavBusy ? 'Disbursingâ€¦' : 'Disburse to Savings'}
                         </Button>
                     </>
                 }
@@ -1302,7 +1619,7 @@ const LoanDetails = () => {
                     <>
                         <Button variant="secondary" onClick={() => setRepayOpen(false)}>Cancel</Button>
                         <Button onClick={postRepayment} disabled={repayBusy}>
-                            {repayBusy ? 'Posting…' : 'Post Repayment'}
+                            {repayBusy ? 'Postingâ€¦' : 'Post Repayment'}
                         </Button>
                     </>
                 }
@@ -1363,7 +1680,7 @@ const LoanDetails = () => {
                     <>
                         <Button variant="secondary" onClick={() => setRejectOpen(false)}>Cancel</Button>
                         <Button onClick={reject} disabled={rejectBusy}>
-                            {rejectBusy ? 'Rejecting…' : 'Reject'}
+                            {rejectBusy ? 'Rejectingâ€¦' : 'Reject'}
                         </Button>
                     </>
                 }
@@ -1400,7 +1717,7 @@ const LoanDetails = () => {
                     <>
                         <Button variant="secondary" onClick={() => setWithdrawOpen(false)}>Cancel</Button>
                         <Button onClick={withdraw} disabled={withdrawBusy}>
-                            {withdrawBusy ? 'Withdrawing…' : 'Withdraw'}
+                            {withdrawBusy ? 'Withdrawingâ€¦' : 'Withdraw'}
                         </Button>
                     </>
                 }
@@ -1439,7 +1756,7 @@ const LoanDetails = () => {
                             Close
                         </Button>
                         <Button onClick={assignOfficer} disabled={assignBusy}>
-                            {assignBusy ? 'Assigning…' : 'Assign Officer'}
+                            {assignBusy ? 'Assigningâ€¦' : 'Assign Officer'}
                         </Button>
                     </>
                 }
@@ -1485,7 +1802,7 @@ const LoanDetails = () => {
                     <>
                         <Button variant="secondary" onClick={() => setUnassignOpen(false)}>Cancel</Button>
                         <Button onClick={unassignOfficer} disabled={unassignBusy}>
-                            {unassignBusy ? 'Unassigning…' : 'Unassign'}
+                            {unassignBusy ? 'Unassigningâ€¦' : 'Unassign'}
                         </Button>
                     </>
                 }
@@ -1507,6 +1824,7 @@ const LoanDetails = () => {
                 open={advancedActionOpen}
                 loanId={id}
                 paymentTypeOptions={paymentTypeOptions}
+                initialCommand={selectedCommand}
                 onClose={() => setAdvancedActionOpen(false)}
                 onDone={() => {
                     setAdvancedActionOpen(false);
@@ -1608,8 +1926,117 @@ const LoanDetails = () => {
                     </div>
                 </div>
             </Modal>
+
+            {/* Add Charge Modal */}
+            <Modal
+                open={addChargeOpen}
+                title="Add Loan Charge"
+                onClose={() => setAddChargeOpen(false)}
+                footer={
+                    <>
+                        <Button variant="secondary" onClick={() => setAddChargeOpen(false)}>Cancel</Button>
+                        <Button onClick={handleAddCharge} disabled={addChargeBusy}>
+                            {addChargeBusy ? 'Adding...' : 'Add Charge'}
+                        </Button>
+                    </>
+                }
+            >
+                <div className="space-y-3">
+                    <div>
+                        <label className="block text-sm font-medium">Charge *</label>
+                        <select
+                            value={selectedChargeId}
+                            onChange={(e) => {
+                                const id = e.target.value;
+                                setSelectedChargeId(id);
+                                const opt = chargeOptions.find(o => String(o.id) === id);
+                                if (opt) setAddChargeAmount(String(opt.amount || ''));
+                            }}
+                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                        >
+                            <option value="">Select a charge</option>
+                            {chargeOptions.map(o => (
+                                <option key={o.id} value={o.id}>{o.name}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium">Amount *</label>
+                        <input
+                            type="number"
+                            value={addChargeAmount}
+                            onChange={(e) => setAddChargeAmount(e.target.value)}
+                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium">Due Date *</label>
+                        <input
+                            type="date"
+                            value={addChargeDate}
+                            onChange={(e) => setAddChargeDate(e.target.value)}
+                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                        />
+                    </div>
+                </div>
+            </Modal>
+
+            {/* Waive/Pay Charge Modal */}
+            <Modal
+                open={chargeActionOpen}
+                title={`${chargeActionType === 'waive' ? 'Waive' : 'Pay'} Loan Charge`}
+                onClose={() => setChargeActionOpen(false)}
+                footer={
+                    <>
+                        <Button variant="secondary" onClick={() => setChargeActionOpen(false)}>Cancel</Button>
+                        <Button onClick={handleExecuteChargeAction} disabled={chargeActionBusy}>
+                            {chargeActionBusy ? 'Processing...' : (chargeActionType === 'waive' ? 'Waive' : 'Pay')}
+                        </Button>
+                    </>
+                }
+            >
+                <div className="space-y-3">
+                    <div className="text-sm font-medium">
+                        Charge: {selectedChargeForAction?.name}
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium">Date *</label>
+                        <input
+                            type="date"
+                            value={chargeActionDate}
+                            onChange={(e) => setChargeActionDate(e.target.value)}
+                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium">Amount *</label>
+                        <input
+                            type="number"
+                            value={chargeActionAmount}
+                            onChange={(e) => setChargeActionAmount(e.target.value)}
+                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                        />
+                    </div>
+                    {chargeActionType === 'pay' && (
+                        <div>
+                            <label className="block text-sm font-medium">Payment Type *</label>
+                            <select
+                                value={chargeActionPaymentType}
+                                onChange={(e) => setChargeActionPaymentType(e.target.value)}
+                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                            >
+                                {paymentTypeOptions.map(p => (
+                                    <option key={p.id} value={p.id}>{p.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
+                </div>
+            </Modal>
         </div>
     );
 };
 
 export default LoanDetails;
+
+
