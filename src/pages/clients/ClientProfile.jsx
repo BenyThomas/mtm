@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { Pencil, RefreshCw } from 'lucide-react';
 import api from '../../api/axios';
 import Card from '../../components/Card';
 import Tabs from '../../components/Tabs';
@@ -15,6 +16,10 @@ import ClientTransactions from './ClientTransactions';
 import ClientCollaterals from './ClientCollaterals';
 import LoanTab from './LoanTab';
 import ClientFamilyMembersTab from '../ClientFamilyMembersTab';
+import ClientImageTab from './ClientImageTab';
+import ClientNotesTimelineTab from './ClientNotesTimelineTab';
+import ClientAccountsOverview from './ClientAccountsOverview';
+import { getVisibleClientActions } from '../../utils/clientActions';
 
 const statusTone = (s) => {
     const code = s?.code || s?.value || '';
@@ -36,6 +41,40 @@ const fullName = (client) =>
     [client?.firstname, client?.middlename, client?.lastname].filter(Boolean).join(' ') ||
     '-';
 
+const OverviewField = ({ label, value, emphasis = false }) => (
+    <div className="rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3 dark:border-slate-700/70 dark:bg-slate-900/50">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</div>
+        <div className={`mt-1 break-words ${emphasis ? 'text-base font-semibold text-slate-900 dark:text-slate-50' : 'text-sm text-slate-700 dark:text-slate-200'}`}>
+            {value}
+        </div>
+    </div>
+);
+
+const OverviewSection = ({ title, children }) => (
+    <div className="rounded-3xl border border-slate-200/70 bg-slate-50/70 p-4 dark:border-slate-700/70 dark:bg-slate-900/30">
+        <div className="mb-4 text-sm font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">{title}</div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {children}
+        </div>
+    </div>
+);
+
+const actionButtonClass = () =>
+    'border border-[color:var(--tenant-primary)]/20 bg-[color:var(--tenant-primary)]/8 text-[var(--tenant-primary)] hover:bg-[color:var(--tenant-primary)]/14 dark:border-[color:var(--tenant-primary)]/35 dark:bg-[color:var(--tenant-primary)]/12 dark:hover:bg-[color:var(--tenant-primary)]/18';
+
+const IconActionButton = ({ icon: Icon, title, className = '', ...props }) => (
+    <Button
+        size="sm"
+        variant="ghost"
+        className={`h-11 w-11 shrink-0 rounded-xl p-0 shadow-sm ${actionButtonClass()} ${className}`.trim()}
+        title={title}
+        aria-label={title}
+        {...props}
+    >
+        <Icon size={20} strokeWidth={2.5} />
+    </Button>
+);
+
 const ClientProfile = () => {
     const { id } = useParams();
     const navigate = useNavigate();
@@ -43,7 +82,7 @@ const ClientProfile = () => {
     const [loading, setLoading] = useState(true);
     const [client, setClient] = useState(null);
     const [accounts, setAccounts] = useState(null);
-    const [commandOpen, setCommandOpen] = useState(false);
+    const [commandOpen, setCommandOpen] = useState('');
 
     const load = async () => {
         setLoading(true);
@@ -67,7 +106,12 @@ const ClientProfile = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id]);
 
-    const savings = useMemo(() => accounts?.savingsAccounts || [], [accounts]);
+    const hasAssignedStaff = Boolean(client?.staffId || client?.staffName);
+    const savingsAccounts = Array.isArray(accounts?.savingsAccounts) ? accounts.savingsAccounts : [];
+    const clientActions = useMemo(
+        () => getVisibleClientActions(client, { hasAssignedStaff, savingsAccounts }),
+        [client, hasAssignedStaff, savingsAccounts]
+    );
 
     if (loading) {
         return (
@@ -92,7 +136,7 @@ const ClientProfile = () => {
         <div className="space-y-6">
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold">{fullName(client)}</h1>
+                    <h1 className="text-2xl font-bold uppercase">{fullName(client)}</h1>
                     <div className="mt-1 text-sm text-gray-600 dark:text-gray-300">
                         Client #{client.id} {client.accountNo ? `• ${client.accountNo}` : ''}
                         {client.status ? (
@@ -101,19 +145,37 @@ const ClientProfile = () => {
                             </span>
                         ) : null}
                         {client.officeName ? <span className="ml-2">• {client.officeName}</span> : null}
+                        {client.staffName ? <span className="ml-2">• {client.staffName}</span> : null}
                     </div>
                 </div>
-                <div className="space-x-2">
-                    <Button variant="secondary" onClick={() => setCommandOpen(true)}>Actions</Button>
-                    <Button variant="secondary" onClick={load}>Refresh</Button>
+                    <div className="flex items-center gap-2">
+                        {clientActions.map((action) => (
+                            <IconActionButton
+                                key={action.command}
+                                icon={action.icon}
+                                title={action.title}
+                                onClick={() => setCommandOpen(action.command)}
+                            />
+                        ))}
+                        <IconActionButton
+                            icon={Pencil}
+                            title="Edit client"
+                            onClick={() => navigate(`/clients/${id}/edit`)}
+                        />
+                        <IconActionButton
+                            icon={RefreshCw}
+                            title="Refresh client"
+                            onClick={load}
+                        />
+                    </div>
                 </div>
-            </div>
 
             <Tabs
                 tabs={[
                     { key: 'overview', label: 'Overview' },
+                    { key: 'image', label: 'Image' },
+                    { key: 'accounts', label: 'Accounts' },
                     { key: 'loans', label: 'Loans' },
-                    { key: 'savings', label: 'Savings' },
                     { key: 'documents', label: 'Documents' },
                     { key: 'timeline', label: 'Timeline' },
                     { key: 'charges', label: 'Charges' },
@@ -126,26 +188,51 @@ const ClientProfile = () => {
             >
                 <div data-tab="overview" className="space-y-4">
                     <Card>
-                        <div className="grid gap-4 text-sm md:grid-cols-2 xl:grid-cols-3">
-                            <div><div className="text-gray-500">Display Name</div><div className="font-medium">{fullName(client)}</div></div>
-                            <div><div className="text-gray-500">Client ID</div><div className="font-medium">{formatValue(client.id)}</div></div>
-                            <div><div className="text-gray-500">Account No</div><div className="font-medium">{formatValue(client.accountNo)}</div></div>
-                            <div><div className="text-gray-500">Status</div><div className="font-medium">{formatValue(client.status)}</div></div>
-                            <div><div className="text-gray-500">Office</div><div className="font-medium">{formatValue(client.officeName)}</div></div>
-                            <div><div className="text-gray-500">Staff</div><div className="font-medium">{formatValue(client.staffName)}</div></div>
-                            <div><div className="text-gray-500">Submitted On</div><div className="font-medium">{formatValue(client.submittedOnDate)}</div></div>
-                            <div><div className="text-gray-500">Activation Date</div><div className="font-medium">{formatValue(client.activationDate)}</div></div>
-                            <div><div className="text-gray-500">Closed On</div><div className="font-medium">{formatValue(client.closedOnDate)}</div></div>
-                            <div><div className="text-gray-500">External ID</div><div className="font-medium">{formatValue(client.externalId)}</div></div>
-                            <div><div className="text-gray-500">Mobile</div><div className="font-medium">{formatValue(client.mobileNo)}</div></div>
-                            <div><div className="text-gray-500">Email</div><div className="font-medium">{formatValue(client.emailAddress)}</div></div>
-                            <div><div className="text-gray-500">Date of Birth</div><div className="font-medium">{formatValue(client.dateOfBirth)}</div></div>
-                            <div><div className="text-gray-500">Gender</div><div className="font-medium">{formatValue(client.gender)}</div></div>
-                            <div><div className="text-gray-500">Client Type</div><div className="font-medium">{formatValue(client.clientType)}</div></div>
-                            <div><div className="text-gray-500">Client Classification</div><div className="font-medium">{formatValue(client.clientClassification)}</div></div>
-                            <div><div className="text-gray-500">Legal Form</div><div className="font-medium">{formatValue(client.legalForm)}</div></div>
+                        <div className="space-y-4">
+                            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                                <OverviewField label="Client Name" value={fullName(client)} emphasis />
+                                <OverviewField label="Status" value={formatValue(client.status)} emphasis />
+                                <OverviewField label="Office" value={formatValue(client.officeName)} />
+                                <OverviewField label="Assigned Staff" value={formatValue(client.staffName)} />
+                            </div>
+
+                            <OverviewSection title="Identity">
+                                <OverviewField label="Client ID" value={formatValue(client.id)} />
+                                <OverviewField label="Account No" value={formatValue(client.accountNo)} />
+                                <OverviewField label="External ID" value={formatValue(client.externalId)} />
+                                <OverviewField label="Legal Form" value={formatValue(client.legalForm)} />
+                                <OverviewField label="Client Type" value={formatValue(client.clientType)} />
+                                <OverviewField label="Classification" value={formatValue(client.clientClassification)} />
+                            </OverviewSection>
+
+                            <OverviewSection title="Personal Details">
+                                <OverviewField label="First Name" value={formatValue(client.firstname)} />
+                                <OverviewField label="Middle Name" value={formatValue(client.middlename)} />
+                                <OverviewField label="Last Name" value={formatValue(client.lastname)} />
+                                <OverviewField label="Date of Birth" value={formatValue(client.dateOfBirth)} />
+                                <OverviewField label="Gender" value={formatValue(client.gender)} />
+                            </OverviewSection>
+
+                            <OverviewSection title="Contact">
+                                <OverviewField label="Mobile" value={formatValue(client.mobileNo)} />
+                                <OverviewField label="Email" value={formatValue(client.emailAddress)} />
+                            </OverviewSection>
+
+                            <OverviewSection title="Lifecycle">
+                                <OverviewField label="Submitted On" value={formatValue(client.submittedOnDate)} />
+                                <OverviewField label="Activation Date" value={formatValue(client.activationDate)} />
+                                <OverviewField label="Closed On" value={formatValue(client.closedOnDate)} />
+                            </OverviewSection>
                         </div>
                     </Card>
+                </div>
+
+                <div data-tab="image" className="space-y-4">
+                    <ClientImageTab clientId={id} />
+                </div>
+
+                <div data-tab="accounts" className="space-y-4">
+                    <ClientAccountsOverview accounts={accounts} />
                 </div>
 
                 <div data-tab="loans" className="space-y-4">
@@ -156,60 +243,12 @@ const ClientProfile = () => {
                     </Card>
                 </div>
 
-                <div data-tab="savings" className="space-y-4">
-                    <Card>
-                        <div className="mb-3 flex items-center justify-between">
-                            <div className="font-semibold">Savings Accounts</div>
-                        </div>
-
-                        {!savings.length ? (
-                            <div className="text-sm text-gray-600 dark:text-gray-400">No savings accounts.</div>
-                        ) : (
-                            <div className="overflow-x-auto">
-                                <table className="min-w-full">
-                                    <thead>
-                                    <tr className="text-left text-sm text-gray-500">
-                                        <th className="py-2 pr-4">#</th>
-                                        <th className="py-2 pr-4">Account No</th>
-                                        <th className="py-2 pr-4">Product</th>
-                                        <th className="py-2 pr-4">Status</th>
-                                        <th className="py-2 pr-4">Balance</th>
-                                        <th className="py-2 pr-4"></th>
-                                    </tr>
-                                    </thead>
-                                    <tbody>
-                                    {savings.map((s) => {
-                                        const sum = s.summary || s;
-                                        const balance = sum.accountBalance ?? sum.balance ?? '-';
-                                        const currency = (sum.currency && (sum.currency.code || sum.currency.name)) || s.currencyCode || '';
-                                        return (
-                                            <tr key={s.id} className="border-t border-gray-200 text-sm dark:border-gray-700">
-                                                <td className="py-2 pr-4">{s.id}</td>
-                                                <td className="py-2 pr-4">{s.accountNo || '-'}</td>
-                                                <td className="py-2 pr-4">{s.productName || s.savingsProductName || '-'}</td>
-                                                <td className="py-2 pr-4">
-                                                    <Badge tone={statusTone(s.status)}>{s.status?.value || s.status?.code || '-'}</Badge>
-                                                </td>
-                                                <td className="py-2 pr-4">{balance} {currency}</td>
-                                                <td className="py-2 pr-4">
-                                                    <Button variant="secondary" onClick={() => navigate(`/savings/${s.id}`)}>View</Button>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
-                    </Card>
-                </div>
-
                 <div data-tab="documents" className="space-y-4">
                     <ClientDocumentsTab clientId={id} />
                 </div>
 
                 <div data-tab="timeline" className="space-y-4">
-                    <Card>Client timeline and notes appear here.</Card>
+                    <ClientNotesTimelineTab clientId={id} client={client} />
                 </div>
 
                 <div data-tab="charges" className="space-y-4">
@@ -238,11 +277,13 @@ const ClientProfile = () => {
             </Tabs>
 
             <ClientCommandModal
-                open={commandOpen}
+                open={Boolean(commandOpen)}
                 client={client}
-                onClose={() => setCommandOpen(false)}
+                initialCommand={commandOpen || 'activate'}
+                lockCommand
+                onClose={() => setCommandOpen('')}
                 onDone={() => {
-                    setCommandOpen(false);
+                    setCommandOpen('');
                     load();
                 }}
             />

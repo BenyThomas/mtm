@@ -115,7 +115,7 @@ const NAV_GROUPS = [
       { to: '/config/business-dates', label: 'Business Dates', icon: '📅', perm: 'READ_BUSINESS_DATE' },
       { to: '/config/holidays', label: 'Holidays', icon: '🎌', perm: 'READ_HOLIDAY' },
       { to: '/organization/working-days', label: 'Working Days', icon: '📅', perm: 'READ_WORKINGDAYS' },
-      { to: '/collateral-management', label: 'Collateral Catalog', icon: '🧱', perm: 'READ_COLLATERAL' },
+      { to: '/collateral-management', label: 'Collateral Types', icon: '🧱', perm: 'READ_COLLATERAL' },
     ],
   },
   {

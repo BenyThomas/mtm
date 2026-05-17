@@ -22,6 +22,63 @@ const ScheduleTable = ({ schedule }) => {
         return `${y}-${mm}-${dd}`;
     };
 
+    const formatDate = (value) => {
+        const iso = Array.isArray(value) ? arrDateToISO(value) : (typeof value === 'string' ? value.slice(0, 10) : '');
+        if (!iso) return '-';
+        try {
+            const parsed = new Date(`${iso}T00:00:00`);
+            if (Number.isNaN(parsed.getTime())) return iso;
+            return new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'short', day: '2-digit' }).format(parsed);
+        } catch {
+            return iso;
+        }
+    };
+
+    const currency = schedule?.currency?.code || '';
+    const format = (v) => {
+        if (v == null || v === '') return '-';
+        if (v === '-') return v;
+        const num = Number(v);
+        if (isNaN(num)) return String(v);
+        return `${num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${currency ? ` ${currency}` : ''}`;
+    };
+
+    const detailFields = (p) => ([
+        { label: 'Paid On', value: formatDate(p.obligationsMetOnDate) },
+        { label: 'From Date', value: formatDate(p.fromDate) },
+        { label: 'Due Date', value: formatDate(p.dueDate) },
+        { label: 'Principal Original Due', value: format(p.principalOriginalDue) },
+        { label: 'Principal Due', value: format(p.principalDue) },
+        { label: 'Principal Paid', value: format(p.principalPaid) },
+        { label: 'Principal Written Off', value: format(p.principalWrittenOff) },
+        { label: 'Principal Outstanding', value: format(p.principalOutstanding ?? p.principalLoanBalanceOutstanding) },
+        { label: 'Interest Original Due', value: format(p.interestOriginalDue) },
+        { label: 'Interest Due', value: format(p.interestDue) },
+        { label: 'Interest Paid', value: format(p.interestPaid) },
+        { label: 'Interest Waived', value: format(p.interestWaived) },
+        { label: 'Interest Written Off', value: format(p.interestWrittenOff) },
+        { label: 'Interest Outstanding', value: format(p.interestOutstanding) },
+        { label: 'Fees Due', value: format(p.feeChargesDue) },
+        { label: 'Fees Paid', value: format(p.feeChargesPaid) },
+        { label: 'Fees Waived', value: format(p.feeChargesWaived) },
+        { label: 'Fees Written Off', value: format(p.feeChargesWrittenOff) },
+        { label: 'Fees Outstanding', value: format(p.feeChargesOutstanding) },
+        { label: 'Penalty Due', value: format(p.penaltyChargesDue) },
+        { label: 'Penalty Paid', value: format(p.penaltyChargesPaid) },
+        { label: 'Penalty Waived', value: format(p.penaltyChargesWaived) },
+        { label: 'Penalty Written Off', value: format(p.penaltyChargesWrittenOff) },
+        { label: 'Penalty Outstanding', value: format(p.penaltyChargesOutstanding) },
+        { label: 'Total Original Due', value: format(p.totalOriginalDueForPeriod) },
+        { label: 'Installment', value: format(p.totalInstallmentAmountForPeriod ?? p.totalDueForPeriod) },
+        { label: 'Total Paid', value: format(p.totalPaidForPeriod) },
+        { label: 'Total Outstanding', value: format(p.totalOutstandingForPeriod) },
+        { label: 'Loan Balance', value: format(p.principalLoanBalanceOutstanding) },
+        { label: 'Days in Period', value: p.daysInPeriod ?? '-' },
+        { label: 'Down Payment Period', value: typeof p.downPaymentPeriod === 'boolean' ? (p.downPaymentPeriod ? 'Yes' : 'No') : '-' },
+        { label: 'Down Payment Amount', value: format(p.downPaymentAmount) },
+        { label: 'Completed', value: typeof p.complete === 'boolean' ? (p.complete ? 'Yes' : 'No') : '-' },
+    ]).filter((item) => item.value !== '-' && item.value !== null && item.value !== undefined);
+
     const isPast = (iso) => {
         if (!iso) return false;
         const today = new Date();
@@ -88,8 +145,39 @@ const ScheduleTable = ({ schedule }) => {
         }
     };
 
+    const overdueInstallments = periods.filter((p) => periodStatus(p) === 'Overdue').length;
+    const totalExpected =
+        schedule?.totalRepaymentExpected ??
+        periods.reduce((sum, p) => sum + Number(p?.totalDueForPeriod ?? p?.totalInstallmentAmountForPeriod ?? 0), 0);
+    const totalPaid =
+        schedule?.totalPaidInAdvance ??
+        periods.reduce((sum, p) => sum + Number(p?.totalPaidForPeriod ?? 0), 0);
+    const totalOutstanding =
+        schedule?.totalOutstanding ??
+        periods.reduce((sum, p) => sum + Number(p?.totalOutstandingForPeriod ?? 0), 0);
+
     return (
-        <div className="overflow-x-auto">
+        <div className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3 dark:border-slate-700/70 dark:bg-slate-900/50">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Total Expected</div>
+                    <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">{format(totalExpected)}</div>
+                </div>
+                <div className="rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3 dark:border-slate-700/70 dark:bg-slate-900/50">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Total Paid</div>
+                    <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">{format(totalPaid)}</div>
+                </div>
+                <div className="rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3 dark:border-slate-700/70 dark:bg-slate-900/50">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Total Outstanding</div>
+                    <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">{format(totalOutstanding)}</div>
+                </div>
+                <div className="rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3 dark:border-slate-700/70 dark:bg-slate-900/50">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Overdue Installments</div>
+                    <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">{overdueInstallments}</div>
+                </div>
+            </div>
+
+            <div className="overflow-x-auto">
             <table className="min-w-full">
                 <thead>
                 <tr className="text-left text-sm text-gray-500 dark:text-gray-400">
@@ -120,15 +208,9 @@ const ScheduleTable = ({ schedule }) => {
                             p.totalDueForPeriod ??
                             p.totalInstallmentAmountForPeriod ??
                             Number(principal) + Number(interest) + Number(fees) + Number(penalties);
-                        const balance = p.principalLoanBalanceOutstanding ?? '-';
-                        const currency = schedule?.currency?.code || '';
-                        const format = (v) => {
-                            if (v == null || v === '-') return v;
-                            const num = Number(v);
-                            if (isNaN(num)) return v;
-                            return `${num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
-                        };
+                        const balance = p.principalLoanBalanceOutstanding ?? p.principalOutstanding ?? '-';
                         const s = periodStatus(p);
+                        const fields = detailFields(p);
 
                         return (
                             <React.Fragment key={idx}>
@@ -138,8 +220,8 @@ const ScheduleTable = ({ schedule }) => {
                                     )}`}
                                 >
                                     <td className="py-2 pr-4">{p.period ?? (idx === 0 ? 'D' : idx)}</td>
-                                    <td className="py-2 pr-4">{dueISO}</td>
-                                    <td className="py-2 pr-4">{arrDateToISO(p.obligationsMetOnDate) || '-'}</td>
+                                    <td className="py-2 pr-4">{formatDate(p.dueDate)}</td>
+                                    <td className="py-2 pr-4">{formatDate(p.obligationsMetOnDate)}</td>
                                     <td className="py-2 pr-4">{format(principal)}</td>
                                     <td className="py-2 pr-4">{format(interest)}</td>
                                     <td className="py-2 pr-4">{format(fees)}</td>
@@ -170,90 +252,14 @@ const ScheduleTable = ({ schedule }) => {
 
                                 {isOpen && (
                                     <tr className={`${detailsRowClassForStatus(s)} text-xs`}>
-                                        <td colSpan={8} className="py-3 pr-4 text-gray-700 dark:text-gray-200">
-                                            <div className="grid sm:grid-cols-3 gap-3">
-                                                <div>
-                                                    <div className="text-gray-600 dark:text-gray-300">Paid On</div>
-                                                    <div className="font-medium">
-                                                        {arrDateToISO(p.obligationsMetOnDate) || '-'}
+                                        <td colSpan={11} className="py-3 pr-4 text-gray-700 dark:text-gray-200">
+                                            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                                                {fields.map((field) => (
+                                                    <div key={`${idx}-${field.label}`}>
+                                                        <div className="text-gray-600 dark:text-gray-300">{field.label}</div>
+                                                        <div className="font-medium">{field.value}</div>
                                                     </div>
-                                                </div>
-                                                <div>
-                                                    <div className="text-gray-600 dark:text-gray-300">Principal Paid</div>
-                                                    <div className="font-medium">
-                                                        {format(p.principalPaid ?? 0)}
-                                                    </div>
-                                                </div>
-                                                <div>
-                                                    <div className="text-gray-600 dark:text-gray-300">Interest Paid</div>
-                                                    <div className="font-medium">
-                                                        {format(p.interestPaid ?? 0)}
-                                                    </div>
-                                                </div>
-                                                <div>
-                                                    <div className="text-gray-600 dark:text-gray-300">Fees Paid</div>
-                                                    <div className="font-medium">
-                                                        {format(p.feeChargesPaid ?? 0)}
-                                                    </div>
-                                                </div>
-                                                <div>
-                                                    <div className="text-gray-600 dark:text-gray-300">Penalty Paid</div>
-                                                    <div className="font-medium">
-                                                        {format(p.penaltyChargesPaid ?? 0)}
-                                                    </div>
-                                                </div>
-                                                <div>
-                                                    <div className="text-gray-600 dark:text-gray-300">Principal Due</div>
-                                                    <div className="font-medium">
-                                                        {format(p.principalDue ?? p.principalOriginalDue ?? '-')}
-                                                    </div>
-                                                </div>
-                                                <div>
-                                                    <div className="text-gray-600 dark:text-gray-300">Interest Due</div>
-                                                    <div className="font-medium">
-                                                        {format(p.interestDue ?? p.interestOriginalDue ?? '-')}
-                                                    </div>
-                                                </div>
-                                                <div>
-                                                    <div className="text-gray-600 dark:text-gray-300">Fees Due</div>
-                                                    <div className="font-medium">
-                                                        {format(p.feeChargesDue ?? 0)}
-                                                    </div>
-                                                </div>
-                                                <div>
-                                                    <div className="text-gray-600 dark:text-gray-300">Penalty Due</div>
-                                                    <div className="font-medium">
-                                                        {format(p.penaltyChargesDue ?? 0)}
-                                                    </div>
-                                                </div>
-                                                <div>
-                                                    <div className="text-gray-600 dark:text-gray-300">
-                                                        Principal Outstanding
-                                                    </div>
-                                                    <div className="font-medium">
-                                                        {format(p.principalLoanBalanceOutstanding ?? '-')}
-                                                    </div>
-                                                </div>
-                                                <div>
-                                                    <div className="text-gray-600 dark:text-gray-300">Installment</div>
-                                                    <div className="font-medium">
-                                                        {format(p.totalInstallmentAmountForPeriod ??
-                                                            p.totalDueForPeriod ??
-                                                            '-')}
-                                                    </div>
-                                                </div>
-                                                <div>
-                                                    <div className="text-gray-600 dark:text-gray-300">Paid</div>
-                                                    <div className="font-medium">
-                                                        {format(p.totalPaidForPeriod ?? 0)}
-                                                    </div>
-                                                </div>
-                                                <div>
-                                                    <div className="text-gray-600 dark:text-gray-300">Outstanding</div>
-                                                    <div className="font-medium">
-                                                        {format(p.totalOutstandingForPeriod ?? 0)}
-                                                    </div>
-                                                </div>
+                                                ))}
                                             </div>
                                         </td>
                                     </tr>
@@ -263,6 +269,7 @@ const ScheduleTable = ({ schedule }) => {
                     })}
                 </tbody>
             </table>
+        </div>
         </div>
     );
 };

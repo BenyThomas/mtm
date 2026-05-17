@@ -2,156 +2,110 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Card from './Card';
 import Button from './Button';
 import Skeleton from './Skeleton';
+import MiniCombobox from './MiniCombobox';
 import api from '../api/axios';
 import { useToast } from '../context/ToastContext';
 
-/**
- * Props:
- * - clientId
- * - initial (optional)
- * - template (optional) pre-fetched /clients/{clientId}/collaterals/template
- * - onSubmit(payload)
- * - submitting
- */
-const ClientCollateralForm = ({ clientId, initial, template, onSubmit, submitting }) => {
+const normalizeCollateralOptions = (list) => {
+    return (Array.isArray(list) ? list : [])
+        .map((item) => ({
+            id: item?.id ?? item?.collateralId,
+            name: item?.name || `Collateral #${item?.id ?? item?.collateralId ?? ''}`,
+            currency: item?.currency || '',
+            quality: item?.quality || '',
+            unitType: item?.unitType || item?.unitTypeId || '',
+            basePrice: item?.basePrice ?? item?.unitPrice ?? '',
+            description: item?.description || '',
+        }))
+        .filter((item) => item.id != null);
+};
+
+const ClientCollateralForm = ({ clientId, initial, onSubmit, submitting }) => {
     const { addToast } = useToast();
 
-    const [tplLoading, setTplLoading] = useState(!template);
-    const [typeOptions, setTypeOptions] = useState([]);
-    const [qualityOptions, setQualityOptions] = useState([]);
-    const [unitTypeOptions, setUnitTypeOptions] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [collateralOptions, setCollateralOptions] = useState([]);
 
-    const [typeId, setTypeId] = useState(initial?.typeId || initial?.collateralTypeId || initial?.type?.id || '');
-    const [name, setName] = useState(initial?.name || '');
-    const [description, setDescription] = useState(initial?.description || '');
+    const [collateralId, setCollateralId] = useState(
+        initial?.collateralId || initial?.collateral?.id || initial?.id || null
+    );
     const [quantity, setQuantity] = useState(initial?.quantity ?? 1);
-    const [unitPrice, setUnitPrice] = useState(initial?.unitPrice ?? initial?.value ?? '');
-    const [quality, setQuality] = useState(initial?.quality || '');
-    const [unitTypeId, setUnitTypeId] = useState(initial?.unitTypeId || '');
 
-    const hydrateFromTemplate = (tpl) => {
-        const d = tpl || {};
-        const types = d.allowedCollateralTypes || d.collateralTypeOptions || d.collateralTypes || [];
-        const qualities = d.qualityOptions || d.qualities || [];
-        const unitTypes = d.unitTypeOptions || d.units || [];
-
-        const normTypes = Array.isArray(types) ? types.map(o => ({
-            id: o?.id ?? o?.value ?? o?.key, name: o?.name ?? o?.text ?? o?.label ?? `Type #${o?.id ?? ''}`
-        })).filter(x => x.id != null) : [];
-
-        const normQual = Array.isArray(qualities) ? qualities.map(o => ({
-            id: o?.id ?? o?.value ?? o?.key ?? o, name: o?.name ?? o?.text ?? o?.label ?? String(o)
-        })) : [];
-
-        const normUnits = Array.isArray(unitTypes) ? unitTypes.map(o => ({
-            id: o?.id ?? o?.value ?? o?.key ?? o, name: o?.name ?? o?.text ?? o?.label ?? String(o)
-        })) : [];
-
-        setTypeOptions(normTypes);
-        setQualityOptions(normQual);
-        setUnitTypeOptions(normUnits);
-        if (!initial && !typeId && normTypes.length) setTypeId(normTypes[0].id);
-    };
-
-    // Use passed template if provided
     useEffect(() => {
-        if (template) {
-            hydrateFromTemplate(template);
-            setTplLoading(false);
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [template]);
-
-    // Fallback: fetch ourselves
-    useEffect(() => {
-        if (template) return;
         let cancelled = false;
         (async () => {
-            setTplLoading(true);
+            setLoading(true);
             try {
-                const r = await api.get(`/clients/${clientId}/collaterals/template`);
-                if (!cancelled) hydrateFromTemplate(r?.data || {});
+                const r = await api.get('/collateral-management');
+                const list = Array.isArray(r?.data) ? r.data : (r?.data?.pageItems || []);
+                const options = normalizeCollateralOptions(list);
+                if (!cancelled) {
+                    setCollateralOptions(options);
+                    if (!initial && !collateralId && options.length) {
+                        setCollateralId(options[0].id);
+                    }
+                }
             } catch (e) {
-                if (!cancelled) addToast('Failed to load client collateral template', 'error');
+                if (!cancelled) {
+                    setCollateralOptions([]);
+                    addToast(e?.response?.data?.defaultUserMessage || 'Failed to load collateral options', 'error');
+                }
             } finally {
-                if (!cancelled) setTplLoading(false);
+                if (!cancelled) setLoading(false);
             }
         })();
         return () => { cancelled = true; };
-    }, [clientId, template, addToast]);
+    }, [addToast, initial, collateralId]);
 
     useEffect(() => {
         if (!initial) return;
-        setTypeId(initial?.typeId || initial?.collateralTypeId || initial?.type?.id || '');
-        setName(initial?.name || '');
-        setDescription(initial?.description || '');
+        setCollateralId(initial?.collateralId || initial?.collateral?.id || initial?.id || null);
         setQuantity(initial?.quantity ?? 1);
-        setUnitPrice(initial?.unitPrice ?? initial?.value ?? '');
-        setQuality(initial?.quality || '');
-        setUnitTypeId(initial?.unitTypeId || '');
-    }, [initial?.id]); // eslint-disable-line
+    }, [initial?.id]);
+
+    const selectedCollateral = useMemo(
+        () => collateralOptions.find((item) => String(item.id) === String(collateralId)),
+        [collateralOptions, collateralId]
+    );
 
     const errors = useMemo(() => {
-        const e = {};
-        if (!typeId) e.typeId = 'Type is required';
-        if (!quantity || Number(quantity) <= 0) e.quantity = 'Quantity must be > 0';
-        if (!unitPrice || Number(unitPrice) <= 0) e.unitPrice = 'Unit price must be > 0';
-        return e;
-    }, [typeId, quantity, unitPrice]);
-
-    const total = useMemo(() => {
-        const q = Number(quantity) || 0;
-        const p = Number(unitPrice) || 0;
-        return (q * p).toFixed(2);
-    }, [quantity, unitPrice]);
+        const next = {};
+        if (!collateralId) next.collateralId = 'Collateral is required';
+        if (!quantity || Number(quantity) <= 0) next.quantity = 'Quantity must be greater than 0';
+        return next;
+    }, [collateralId, quantity]);
 
     const submit = async (e) => {
         e.preventDefault();
         if (Object.keys(errors).length) return;
-
-        const payload = {
-            typeId: Number(typeId),
-            collateralTypeId: Number(typeId),
+        await onSubmit({
+            collateralId: Number(collateralId),
+            locale: 'en',
             quantity: Number(quantity),
-            unitPrice: Number(unitPrice),
-            total: Number(total),
-            value: Number(total),
-            ...(name ? { name: name.trim() } : {}),
-            ...(description ? { description: description.trim() } : {}),
-            ...(quality ? { quality } : {}),
-            ...(unitTypeId ? { unitTypeId: Number(unitTypeId) } : {}),
-        };
-        await onSubmit(payload);
+        });
     };
 
     return (
         <form onSubmit={submit} className="space-y-6">
             <Card>
-                {tplLoading ? (
+                {loading ? (
                     <Skeleton height="10rem" />
                 ) : (
                     <div className="grid md:grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-sm font-medium">Collateral Type *</label>
-                            <select
-                                value={typeId}
-                                onChange={(e) => setTypeId(e.target.value)}
-                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
-                            >
-                                <option value="">Select type…</option>
-                                {typeOptions.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-                            </select>
-                            {errors.typeId && <p className="text-xs text-red-500 mt-1">{errors.typeId}</p>}
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-medium">Name</label>
-                            <input
-                                value={name}
-                                onChange={(e) => setName(e.target.value)}
-                                placeholder="Name/identifier for this collateral"
-                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                        <div className="md:col-span-2">
+                            <MiniCombobox
+                                label="Collateral"
+                                value={collateralId}
+                                onChange={setCollateralId}
+                                options={collateralOptions.map((item) => ({
+                                    id: Number(item.id),
+                                    label: item.name,
+                                }))}
+                                placeholder="Type to search collateral..."
+                                disabled={loading}
+                                required
                             />
+                            {errors.collateralId && <p className="text-xs text-red-500 mt-1">{errors.collateralId}</p>}
                         </div>
 
                         <div>
@@ -166,72 +120,39 @@ const ClientCollateralForm = ({ clientId, initial, template, onSubmit, submittin
                             {errors.quantity && <p className="text-xs text-red-500 mt-1">{errors.quantity}</p>}
                         </div>
 
-                        <div>
-                            <label className="block text-sm font-medium">Unit Price *</label>
-                            <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={unitPrice}
-                                onChange={(e) => setUnitPrice(e.target.value)}
-                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
-                            />
-                            {errors.unitPrice && <p className="text-xs text-red-500 mt-1">{errors.unitPrice}</p>}
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-medium">Total</label>
-                            <input
-                                value={total}
-                                readOnly
-                                className="mt-1 w-full border rounded-md p-2 bg-gray-50 dark:bg-gray-800 dark:border-gray-700"
-                            />
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-medium">Quality</label>
-                            <select
-                                value={quality}
-                                onChange={(e) => setQuality(e.target.value)}
-                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
-                            >
-                                <option value="">—</option>
-                                {qualityOptions.map(o => (
-                                    <option key={o.id ?? o.name} value={o.id ?? o.name}>{o.name ?? o.id}</option>
-                                ))}
-                            </select>
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-medium">Unit Type</label>
-                            <select
-                                value={unitTypeId}
-                                onChange={(e) => setUnitTypeId(e.target.value)}
-                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
-                            >
-                                <option value="">—</option>
-                                {unitTypeOptions.map(o => (
-                                    <option key={o.id ?? o.name} value={o.id ?? o.name}>{o.name ?? o.id}</option>
-                                ))}
-                            </select>
-                        </div>
-
-                        <div className="md:col-span-2">
-                            <label className="block text-sm font-medium">Description</label>
-                            <input
-                                value={description}
-                                onChange={(e) => setDescription(e.target.value)}
-                                placeholder="Optional"
-                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
-                            />
-                        </div>
+                        {selectedCollateral ? (
+                            <div className="md:col-span-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 p-4">
+                                <div className="grid md:grid-cols-2 gap-3 text-sm">
+                                    <div>
+                                        <span className="text-gray-500 dark:text-gray-400">Currency</span>
+                                        <div className="font-medium">{selectedCollateral.currency || '-'}</div>
+                                    </div>
+                                    <div>
+                                        <span className="text-gray-500 dark:text-gray-400">Base Price</span>
+                                        <div className="font-medium">{selectedCollateral.basePrice || '-'}</div>
+                                    </div>
+                                    <div>
+                                        <span className="text-gray-500 dark:text-gray-400">Quality</span>
+                                        <div className="font-medium">{selectedCollateral.quality || '-'}</div>
+                                    </div>
+                                    <div>
+                                        <span className="text-gray-500 dark:text-gray-400">Unit Type</span>
+                                        <div className="font-medium">{selectedCollateral.unitType || '-'}</div>
+                                    </div>
+                                    <div className="md:col-span-2">
+                                        <span className="text-gray-500 dark:text-gray-400">Description</span>
+                                        <div className="font-medium">{selectedCollateral.description || '-'}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : null}
                     </div>
                 )}
             </Card>
 
             <div className="flex items-center justify-end gap-2">
                 <Button type="submit" disabled={submitting}>
-                    {submitting ? 'Saving…' : (initial ? 'Save Changes' : 'Add Collateral')}
+                    {submitting ? 'Saving...' : (initial ? 'Save Changes' : 'Add Collateral')}
                 </Button>
             </div>
         </form>

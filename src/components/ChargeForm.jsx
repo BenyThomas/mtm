@@ -1,23 +1,70 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+    BadgeDollarSign,
+    CalendarRange,
+    Landmark,
+    Percent,
+    ReceiptText,
+    ShieldAlert,
+    WalletCards,
+} from 'lucide-react';
 import api from '../api/axios';
-import Card from './Card';
 import Button from './Button';
 import Skeleton from './Skeleton';
 import { useToast } from '../context/ToastContext';
 
-/**
- * This form builds a full payload for POST /charges including all known keys:
- * {
- *   active, amount, chargeAppliesTo, chargeCalculationType, chargePaymentMode,
- *   chargeTimeType, currencyCode, enablePaymentType, feeFrequency, feeInterval,
- *   feeOnMonthDay, locale, maxCap, minCap, monthDayFormat, name, paymentTypeId,
- *   penalty, taxGroupId
- * }
- *
- * Notes:
- * - We still validate only a subset (name, currencyCode, amount, appliesTo, timeType, calcType).
- * - We include all fields in the payload (with sensible defaults) to satisfy your requirement.
- */
+const fieldClassName = 'mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition focus:border-[var(--tenant-primary)] focus:ring-2 focus:ring-[color:var(--tenant-primary)]/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100';
+const helpClassName = 'mt-1 text-xs text-slate-500 dark:text-slate-400';
+const errorClassName = 'mt-1 text-xs text-red-500';
+
+const parseOptionsWithValue = (arr) => {
+    if (!Array.isArray(arr)) return [];
+    return arr
+        .map((o) => ({
+            id: o?.id ?? o?.code ?? o?.value ?? '',
+            code: o?.code ?? '',
+            name: o?.value ?? o?.label ?? o?.text ?? String(o?.id ?? ''),
+        }))
+        .filter((x) => x.id || x.code);
+};
+
+const normalizeNamedOptions = (arr, idKey = 'id', nameKey = 'name') => {
+    if (!Array.isArray(arr)) return [];
+    return arr
+        .map((o) => ({
+            id: o?.[idKey] ?? o?.value ?? o?.key,
+            code: o?.code || o?.currencyCode || '',
+            name:
+                o?.[nameKey] ??
+                o?.text ??
+                o?.label ??
+                o?.name ??
+                String(o?.id ?? ''),
+        }))
+        .filter((x) => x.id || x.code);
+};
+
+const labelForOption = (options, value) => {
+    const match = options.find((option) => String(option.id) === String(value));
+    return match?.name || 'Not selected';
+};
+
+const sectionClassName = 'rounded-2xl border border-slate-200/70 bg-slate-50/70 p-4 dark:border-slate-700/70 dark:bg-slate-900/35';
+
+const ChargeFormSection = ({ title, description, icon: Icon, children }) => (
+    <section className={sectionClassName}>
+        <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[color:var(--tenant-primary)]/20 bg-[color:var(--tenant-primary)]/10 text-[var(--tenant-primary)] dark:border-[color:var(--tenant-primary)]/30 dark:bg-[color:var(--tenant-primary)]/15">
+                <Icon size={18} />
+            </div>
+            <div className="min-w-0">
+                <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-50">{title}</h3>
+                {description ? <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{description}</p> : null}
+            </div>
+        </div>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">{children}</div>
+    </section>
+);
 
 const ChargeForm = ({ initial, onSubmit, submitting }) => {
     const { addToast } = useToast();
@@ -32,39 +79,24 @@ const ChargeForm = ({ initial, onSubmit, submitting }) => {
     const [paymentTypeOptions, setPaymentTypeOptions] = useState([]);
     const [feeFrequencyOptions, setFeeFrequencyOptions] = useState([]);
 
-    // Fields
     const [name, setName] = useState(initial?.name || '');
     const [currencyCode, setCurrencyCode] = useState(initial?.currencyCode || initial?.currency?.code || '');
     const [amount, setAmount] = useState(initial?.amount ?? initial?.amountPercentage ?? '');
     const [active, setActive] = useState(typeof initial?.active === 'boolean' ? initial.active : true);
     const [penalty, setPenalty] = useState(typeof initial?.penalty === 'boolean' ? initial.penalty : false);
 
-    const [chargeAppliesTo, setChargeAppliesTo] = useState(
-        initial?.chargeAppliesTo?.id || initial?.chargeAppliesTo || ''
-    );
-    const [chargeTimeType, setChargeTimeType] = useState(
-        initial?.chargeTimeType?.id || initial?.chargeTimeType || ''
-    );
-    const [chargeCalculationType, setChargeCalculationType] = useState(
-        initial?.chargeCalculationType?.id || initial?.chargeCalculationType || ''
-    );
-    const [chargePaymentMode, setChargePaymentMode] = useState(
-        initial?.chargePaymentMode?.id || initial?.chargePaymentMode || ''
-    );
-
+    const [chargeAppliesTo, setChargeAppliesTo] = useState(initial?.chargeAppliesTo?.id || initial?.chargeAppliesTo || '');
+    const [chargeTimeType, setChargeTimeType] = useState(initial?.chargeTimeType?.id || initial?.chargeTimeType || '');
+    const [chargeCalculationType, setChargeCalculationType] = useState(initial?.chargeCalculationType?.id || initial?.chargeCalculationType || '');
+    const [chargePaymentMode, setChargePaymentMode] = useState(initial?.chargePaymentMode?.id || initial?.chargePaymentMode || '');
     const [taxGroupId, setTaxGroupId] = useState(initial?.taxGroup?.id || initial?.taxGroupId || '');
 
-    // New fields required by your schema
-    const [enablePaymentType, setEnablePaymentType] = useState(
-        typeof initial?.enablePaymentType === 'boolean' ? initial.enablePaymentType : false
-    );
+    const [enablePaymentType, setEnablePaymentType] = useState(typeof initial?.enablePaymentType === 'boolean' ? initial.enablePaymentType : false);
     const [paymentTypeId, setPaymentTypeId] = useState(initial?.paymentTypeId || '');
 
     const [feeFrequency, setFeeFrequency] = useState(initial?.feeFrequency || '');
-    const [feeInterval, setFeeInterval] = useState(
-        initial?.feeInterval != null ? String(initial.feeInterval) : ''
-    );
-    const [feeOnMonthDay, setFeeOnMonthDay] = useState(initial?.feeOnMonthDay || ''); // Expect "MM-dd" text
+    const [feeInterval, setFeeInterval] = useState(initial?.feeInterval != null ? String(initial.feeInterval) : '');
+    const [feeOnMonthDay, setFeeOnMonthDay] = useState(initial?.feeOnMonthDay || '');
     const [monthDayFormat, setMonthDayFormat] = useState(initial?.monthDayFormat || 'MM-dd');
 
     const [maxCap, setMaxCap] = useState(initial?.maxCap != null ? String(initial.maxCap) : '');
@@ -72,33 +104,17 @@ const ChargeForm = ({ initial, onSubmit, submitting }) => {
 
     const [errors, setErrors] = useState({});
 
-    // Helpers to normalize option arrays
-    const parseOptionsWithValue = (arr) => {
-        if (!Array.isArray(arr)) return [];
-        return arr
-            .map((o) => ({
-                id: o?.id ?? o?.code ?? o?.value ?? '',
-                code: o?.code ?? '',
-                name: o?.value ?? o?.label ?? o?.text ?? String(o?.id ?? ''),
-            }))
-            .filter((x) => x.id || x.code);
-    };
+    const selectedTimeTypeLabel = useMemo(
+        () => labelForOption(timeTypeOptions, chargeTimeType).toLowerCase(),
+        [chargeTimeType, timeTypeOptions]
+    );
+    const selectedCalcTypeLabel = useMemo(
+        () => labelForOption(calcTypeOptions, chargeCalculationType).toLowerCase(),
+        [chargeCalculationType, calcTypeOptions]
+    );
 
-    const norm = (arr, idKey = 'id', nameKey = 'name') => {
-        if (!Array.isArray(arr)) return [];
-        return arr
-            .map((o) => ({
-                id: o?.[idKey] ?? o?.value ?? o?.key,
-                name:
-                    o?.[nameKey] ??
-                    o?.text ??
-                    o?.label ??
-                    o?.name ??
-                    String(o?.id ?? ''),
-                code: o?.code || o?.currencyCode,
-            }))
-            .filter((x) => x.id || x.code);
-    };
+    const showsRecurringFields = selectedTimeTypeLabel.includes('overdue') || selectedTimeTypeLabel.includes('installment');
+    const showsCapFields = selectedCalcTypeLabel.includes('percentage') || selectedCalcTypeLabel.includes('percent');
 
     useEffect(() => {
         let cancelled = false;
@@ -111,34 +127,33 @@ const ChargeForm = ({ initial, onSubmit, submitting }) => {
                 const appliesTo = d?.chargeAppliesToOptions || [];
                 const timeTypes = d?.chargeTimeTypeOptions || [];
                 const calcTypes = d?.chargeCalculationTypeOptions || d?.calculationTypeOptions || [];
-                const paymentModes = d?.chargePaymetModeOptions || [];
+                const paymentModes = d?.chargePaymetModeOptions || d?.chargePaymentModeOptions || [];
                 const taxes = d?.taxGroupOptions || [];
                 const paymentTypesFromTemplate = d?.paymentTypeOptions || [];
                 const feeFreqOpts = d?.feeFrequencyOptions || [];
 
                 if (!cancelled) {
                     setCurrencyOptions(
-                        norm(currencies, 'code', 'name').map((c) => ({
+                        normalizeNamedOptions(currencies, 'code', 'name').map((c) => ({
                             id: c.code,
-                            name: `${c.code}${c.name ? ` — ${c.name}` : ''}`,
+                            code: c.code,
+                            name: `${c.code}${c.name ? ` - ${c.name}` : ''}`,
                         }))
                     );
                     setAppliesToOptions(parseOptionsWithValue(appliesTo));
                     setTimeTypeOptions(parseOptionsWithValue(timeTypes));
                     setCalcTypeOptions(parseOptionsWithValue(calcTypes));
                     setPaymentModeOptions(parseOptionsWithValue(paymentModes));
-                    setTaxGroupOptions(norm(taxes));
+                    setTaxGroupOptions(normalizeNamedOptions(taxes));
                     setPaymentTypeOptions(parseOptionsWithValue(paymentTypesFromTemplate));
                     setFeeFrequencyOptions(parseOptionsWithValue(feeFreqOpts));
                 }
 
-                // Fallback: if no paymentTypeOptions in template, try /paymenttypes
                 if (!cancelled && (!paymentTypesFromTemplate || !paymentTypesFromTemplate.length)) {
                     try {
                         const pt = await api.get('/paymenttypes');
                         const arr = Array.isArray(pt?.data) ? pt.data : [];
                         if (!cancelled) {
-                            // /paymenttypes returns objects with id & name; normalize to {id, name}
                             const parsed = arr.map((p) => ({
                                 id: p?.id,
                                 code: p?.code ?? '',
@@ -147,10 +162,10 @@ const ChargeForm = ({ initial, onSubmit, submitting }) => {
                             setPaymentTypeOptions(parsed.filter((x) => x.id));
                         }
                     } catch {
-                        // ignore if not available
+                        // ignore if the endpoint is unavailable in this tenant
                     }
                 }
-            } catch (_e) {
+            } catch {
                 if (!cancelled) {
                     setCurrencyOptions([]);
                     setAppliesToOptions([]);
@@ -168,10 +183,8 @@ const ChargeForm = ({ initial, onSubmit, submitting }) => {
         return () => {
             cancelled = true;
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // Rehydrate when editing
     useEffect(() => {
         if (!initial) return;
         setName(initial?.name || '');
@@ -179,39 +192,38 @@ const ChargeForm = ({ initial, onSubmit, submitting }) => {
         setAmount(initial?.amount ?? initial?.amountPercentage ?? '');
         setActive(typeof initial?.active === 'boolean' ? initial.active : true);
         setPenalty(typeof initial?.penalty === 'boolean' ? initial.penalty : false);
-
         setChargeAppliesTo(initial?.chargeAppliesTo?.id || initial?.chargeAppliesTo || '');
         setChargeTimeType(initial?.chargeTimeType?.id || initial?.chargeTimeType || '');
         setChargeCalculationType(initial?.chargeCalculationType?.id || initial?.chargeCalculationType || '');
         setChargePaymentMode(initial?.chargePaymentMode?.id || initial?.chargePaymentMode || '');
         setTaxGroupId(initial?.taxGroup?.id || initial?.taxGroupId || '');
-
         setEnablePaymentType(typeof initial?.enablePaymentType === 'boolean' ? initial.enablePaymentType : false);
         setPaymentTypeId(initial?.paymentTypeId || '');
-
         setFeeFrequency(initial?.feeFrequency || '');
         setFeeInterval(initial?.feeInterval != null ? String(initial.feeInterval) : '');
         setFeeOnMonthDay(initial?.feeOnMonthDay || '');
         setMonthDayFormat(initial?.monthDayFormat || 'MM-dd');
-
         setMaxCap(initial?.maxCap != null ? String(initial.maxCap) : '');
         setMinCap(initial?.minCap != null ? String(initial.minCap) : '');
-
         setErrors({});
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [initial?.id]);
 
+    const clearError = (key) => {
+        if (errors[key]) setErrors((current) => ({ ...current, [key]: '' }));
+    };
+
     const validate = () => {
-        const e = {};
-        if (!name.trim()) e.name = 'Name is required';
-        if (!currencyCode) e.currencyCode = 'Currency is required';
-        if (amount === '' || amount === null) e.amount = 'Amount is required';
-        if (!chargeAppliesTo) e.chargeAppliesTo = 'Applies To is required';
-        if (!chargeTimeType) e.chargeTimeType = 'Time Type is required';
-        if (!chargeCalculationType) e.chargeCalculationType = 'Calculation Type is required';
-        if (enablePaymentType && !paymentTypeId) e.paymentTypeId = 'Payment Type is required when enabled';
-        setErrors(e);
-        return Object.keys(e).length === 0;
+        const nextErrors = {};
+        if (!name.trim()) nextErrors.name = 'Name is required';
+        if (!currencyCode) nextErrors.currencyCode = 'Currency is required';
+        if (amount === '' || amount === null) nextErrors.amount = 'Amount is required';
+        if (!chargeAppliesTo) nextErrors.chargeAppliesTo = 'Applies To is required';
+        if (!chargeTimeType) nextErrors.chargeTimeType = 'Time Type is required';
+        if (!chargeCalculationType) nextErrors.chargeCalculationType = 'Calculation Type is required';
+        if (enablePaymentType && !paymentTypeId) nextErrors.paymentTypeId = 'Payment Type is required when enabled';
+        if (showsRecurringFields && feeOnMonthDay && !monthDayFormat) nextErrors.monthDayFormat = 'Month day format is required when Fee On Month Day is provided';
+        setErrors(nextErrors);
+        return Object.keys(nextErrors).length === 0;
     };
 
     const submit = async (ev) => {
@@ -221,243 +233,226 @@ const ChargeForm = ({ initial, onSubmit, submitting }) => {
             return;
         }
 
-        // Ensure we send ALL fields with defaults if empty
         const payload = {
             name: name.trim(),
             currencyCode: currencyCode || '',
             amount: Number(amount) || 0,
             active: Boolean(active),
             penalty: Boolean(penalty),
-
             chargeAppliesTo: Number(chargeAppliesTo) || 0,
             chargeTimeType: Number(chargeTimeType) || 0,
             chargeCalculationType: Number(chargeCalculationType) || 0,
-            chargePaymentMode: chargePaymentMode === '' ? 0 : Number(chargePaymentMode), // default 0
-
+            chargePaymentMode: chargePaymentMode === '' ? 0 : Number(chargePaymentMode),
             taxGroupId: taxGroupId === '' ? 0 : Number(taxGroupId),
-
             enablePaymentType: Boolean(enablePaymentType),
-            paymentTypeId: enablePaymentType
-                ? (paymentTypeId === '' ? 0 : Number(paymentTypeId))
-                : 0,
-
-            feeFrequency: String(feeFrequency || ''),     // as per your schema
-            feeInterval: String(feeInterval || ''),       // schema says string
-            feeOnMonthDay: String(feeOnMonthDay || ''),   // e.g. "03-15" if using MM-dd
-            monthDayFormat: String(monthDayFormat || ''), // e.g. "MM-dd"
-
+            paymentTypeId: enablePaymentType ? (paymentTypeId === '' ? 0 : Number(paymentTypeId)) : 0,
+            feeFrequency: String(feeFrequency || ''),
+            feeInterval: String(feeInterval || ''),
+            feeOnMonthDay: String(feeOnMonthDay || ''),
+            monthDayFormat: String(monthDayFormat || ''),
             maxCap: maxCap === '' ? 0 : Number(maxCap),
             minCap: minCap === '' ? 0 : Number(minCap),
-
             locale: 'en',
         };
 
         await onSubmit(payload);
     };
 
+    const summaryItems = [
+        { label: 'Applies To', value: labelForOption(appliesToOptions, chargeAppliesTo) },
+        { label: 'Time Type', value: labelForOption(timeTypeOptions, chargeTimeType) },
+        { label: 'Calculation', value: labelForOption(calcTypeOptions, chargeCalculationType) },
+        { label: 'Currency', value: currencyCode || 'Not selected' },
+    ];
+
     return (
         <form onSubmit={submit} className="space-y-6">
-            <Card>
-                {tplLoading ? (
-                    <Skeleton height="8rem" />
-                ) : (
-                    <div className="grid md:grid-cols-2 gap-4">
-                        {/* Name */}
+            {tplLoading ? (
+                <Skeleton height="24rem" />
+            ) : (
+                <>
+                    <div className="rounded-2xl border border-[color:var(--tenant-primary)]/15 bg-gradient-to-br from-[color:var(--tenant-primary)]/10 via-white to-white p-4 dark:border-[color:var(--tenant-primary)]/25 dark:from-[color:var(--tenant-primary)]/15 dark:via-slate-900 dark:to-slate-900">
+                        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                            <div>
+                                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--tenant-primary)]">Charge Setup</div>
+                                <h2 className="mt-2 text-xl font-semibold text-slate-900 dark:text-slate-50">
+                                    {initial?.id ? `Edit Charge #${initial.id}` : 'Create Charge'}
+                                </h2>
+                                <p className="mt-1 max-w-2xl text-sm text-slate-600 dark:text-slate-300">
+                                    Configure the charge definition, application timing, calculation logic, and optional payment controls in one flow.
+                                </p>
+                            </div>
+                            <div className="grid gap-2 sm:grid-cols-2">
+                                {summaryItems.map((item) => (
+                                    <div key={item.label} className="rounded-xl border border-white/80 bg-white/80 px-3 py-2 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/60">
+                                        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{item.label}</div>
+                                        <div className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">{item.value}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    <ChargeFormSection
+                        title="Core Definition"
+                        description="Set the charge identity, monetary base, and high-level application target."
+                        icon={ReceiptText}
+                    >
                         <div>
-                            <label className="block text-sm font-medium">Name *</label>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Name *</label>
                             <input
                                 value={name}
                                 onChange={(e) => {
                                     setName(e.target.value);
-                                    if (errors.name) setErrors((x) => ({ ...x, name: '' }));
+                                    clearError('name');
                                 }}
                                 placeholder="e.g. Registration Fee"
-                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                                className={fieldClassName}
                             />
-                            {errors.name && <p className="text-xs text-red-500 mt-1">{errors.name}</p>}
+                            {errors.name ? <p className={errorClassName}>{errors.name}</p> : null}
                         </div>
 
-                        {/* Currency */}
                         <div>
-                            <label className="block text-sm font-medium">Currency *</label>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Currency *</label>
                             <select
                                 value={currencyCode}
                                 onChange={(e) => {
                                     setCurrencyCode(e.target.value);
-                                    if (errors.currencyCode) setErrors((x) => ({ ...x, currencyCode: '' }));
+                                    clearError('currencyCode');
                                 }}
-                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                                className={fieldClassName}
                             >
-                                <option value="">Select currency…</option>
+                                <option value="">Select currency...</option>
                                 {currencyOptions.map((c) => (
                                     <option key={c.id} value={c.id}>
                                         {c.name}
                                     </option>
                                 ))}
                             </select>
-                            {errors.currencyCode && <p className="text-xs text-red-500 mt-1">{errors.currencyCode}</p>}
+                            {errors.currencyCode ? <p className={errorClassName}>{errors.currencyCode}</p> : null}
                         </div>
 
-                        {/* Amount */}
                         <div>
-                            <label className="block text-sm font-medium">Amount *</label>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Amount *</label>
                             <input
                                 type="number"
                                 value={amount}
                                 onChange={(e) => {
                                     setAmount(e.target.value);
-                                    if (errors.amount) setErrors((x) => ({ ...x, amount: '' }));
+                                    clearError('amount');
                                 }}
-                                placeholder="e.g. 5000 (or % if percentage type)"
-                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                                placeholder="e.g. 5000"
+                                className={fieldClassName}
                             />
-                            {errors.amount && <p className="text-xs text-red-500 mt-1">{errors.amount}</p>}
+                            <p className={helpClassName}>Use a fixed amount or percentage value depending on the selected calculation type.</p>
+                            {errors.amount ? <p className={errorClassName}>{errors.amount}</p> : null}
                         </div>
 
-                        {/* Applies To */}
                         <div>
-                            <label className="block text-sm font-medium">Applies To *</label>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Applies To *</label>
                             <select
                                 value={chargeAppliesTo}
                                 onChange={(e) => {
                                     setChargeAppliesTo(e.target.value);
-                                    if (errors.chargeAppliesTo) setErrors((x) => ({ ...x, chargeAppliesTo: '' }));
+                                    clearError('chargeAppliesTo');
                                 }}
-                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                                className={fieldClassName}
                             >
-                                <option value="">Select…</option>
+                                <option value="">Select target...</option>
                                 {appliesToOptions.map((o) => (
                                     <option key={o.id} value={o.id}>
                                         {o.name}
                                     </option>
                                 ))}
                             </select>
-                            {errors.chargeAppliesTo && <p className="text-xs text-red-500 mt-1">{errors.chargeAppliesTo}</p>}
+                            {errors.chargeAppliesTo ? <p className={errorClassName}>{errors.chargeAppliesTo}</p> : null}
                         </div>
+                    </ChargeFormSection>
 
-                        {/* Time Type */}
+                    <ChargeFormSection
+                        title="Application Logic"
+                        description="Control when the charge is triggered and how the amount is computed."
+                        icon={BadgeDollarSign}
+                    >
                         <div>
-                            <label className="block text-sm font-medium">Time Type *</label>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Time Type *</label>
                             <select
                                 value={chargeTimeType}
                                 onChange={(e) => {
                                     setChargeTimeType(e.target.value);
-                                    if (errors.chargeTimeType) setErrors((x) => ({ ...x, chargeTimeType: '' }));
+                                    clearError('chargeTimeType');
                                 }}
-                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                                className={fieldClassName}
                             >
-                                <option value="">Select…</option>
+                                <option value="">Select time type...</option>
                                 {timeTypeOptions.map((o) => (
                                     <option key={o.id} value={o.id}>
                                         {o.name}
                                     </option>
                                 ))}
                             </select>
-                            {errors.chargeTimeType && <p className="text-xs text-red-500 mt-1">{errors.chargeTimeType}</p>}
+                            {errors.chargeTimeType ? <p className={errorClassName}>{errors.chargeTimeType}</p> : null}
                         </div>
 
-                        {/* Calculation Type */}
                         <div>
-                            <label className="block text-sm font-medium">Calculation Type *</label>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Calculation Type *</label>
                             <select
                                 value={chargeCalculationType}
                                 onChange={(e) => {
                                     setChargeCalculationType(e.target.value);
-                                    if (errors.chargeCalculationType) setErrors((x) => ({ ...x, chargeCalculationType: '' }));
+                                    clearError('chargeCalculationType');
                                 }}
-                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                                className={fieldClassName}
                             >
-                                <option value="">Select…</option>
+                                <option value="">Select calculation type...</option>
                                 {calcTypeOptions.map((o) => (
                                     <option key={o.id} value={o.id}>
                                         {o.name}
                                     </option>
                                 ))}
                             </select>
-                            {errors.chargeCalculationType && (
-                                <p className="text-xs text-red-500 mt-1">{errors.chargeCalculationType}</p>
-                            )}
+                            {errors.chargeCalculationType ? <p className={errorClassName}>{errors.chargeCalculationType}</p> : null}
                         </div>
 
-                        {/* Payment Mode */}
                         <div>
-                            <label className="block text-sm font-medium">Payment Mode</label>
-                            <select
-                                value={chargePaymentMode}
-                                onChange={(e) => setChargePaymentMode(e.target.value)}
-                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
-                            >
-                                <option value="">(Default 0)</option>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Payment Mode</label>
+                            <select value={chargePaymentMode} onChange={(e) => setChargePaymentMode(e.target.value)} className={fieldClassName}>
+                                <option value="">Default server value</option>
                                 {paymentModeOptions.map((o) => (
                                     <option key={o.id} value={o.id}>
                                         {o.name}
                                     </option>
                                 ))}
                             </select>
-                            <p className="text-xs text-gray-500 mt-1">If empty, we will send 0.</p>
+                            <p className={helpClassName}>If left empty, the payload sends 0 and lets Fineract apply its default payment mode.</p>
                         </div>
 
-                        {/* Tax Group */}
                         <div>
-                            <label className="block text-sm font-medium">Tax Group</label>
-                            <select
-                                value={taxGroupId}
-                                onChange={(e) => setTaxGroupId(e.target.value)}
-                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
-                            >
-                                <option value="">(None → 0)</option>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Tax Group</label>
+                            <select value={taxGroupId} onChange={(e) => setTaxGroupId(e.target.value)} className={fieldClassName}>
+                                <option value="">No tax group</option>
                                 {taxGroupOptions.map((o) => (
                                     <option key={o.id} value={o.id}>
                                         {o.name}
                                     </option>
                                 ))}
                             </select>
-                            <p className="text-xs text-gray-500 mt-1">If none selected, we will send 0.</p>
+                            <p className={helpClassName}>Leave this empty when the charge should not be tied to a tax group.</p>
                         </div>
+                    </ChargeFormSection>
 
-                        {/* Enable Payment Type */}
-                        <div className="col-span-full">
-                            <label className="inline-flex items-center gap-2">
-                                <input
-                                    type="checkbox"
-                                    checked={enablePaymentType}
-                                    onChange={(e) => setEnablePaymentType(e.target.checked)}
-                                />
-                                <span className="text-sm">Enable Payment Type</span>
-                            </label>
-                        </div>
-
-                        {/* Payment Type Id */}
+                    <ChargeFormSection
+                        title="Recurring and Cap Controls"
+                        description="These fields are relevant for recurring charges and percentage-based calculations."
+                        icon={CalendarRange}
+                    >
                         <div>
-                            <label className="block text-sm font-medium">Payment Type</label>
-                            <select
-                                value={paymentTypeId}
-                                onChange={(e) => setPaymentTypeId(e.target.value)}
-                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600 disabled:opacity-60"
-                                disabled={!enablePaymentType}
-                            >
-                                <option value="">(None → 0)</option>
-                                {paymentTypeOptions.map((o) => (
-                                    <option key={o.id} value={o.id}>
-                                        {o.name}
-                                    </option>
-                                ))}
-                            </select>
-                            {errors.paymentTypeId && <p className="text-xs text-red-500 mt-1">{errors.paymentTypeId}</p>}
-                        </div>
-
-                        {/* Fee Frequency (SELECT from template options) */}
-                        <div>
-                            <label className="block text-sm font-medium">Fee Frequency</label>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Fee Frequency</label>
                             {feeFrequencyOptions.length ? (
-                                <select
-                                    value={feeFrequency}
-                                    onChange={(e) => setFeeFrequency(e.target.value)} // send option.code
-                                    className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
-                                >
-                                    <option value="">(None)</option>
+                                <select value={feeFrequency} onChange={(e) => setFeeFrequency(e.target.value)} className={fieldClassName}>
+                                    <option value="">No frequency</option>
                                     {feeFrequencyOptions.map((o) => (
-                                        <option key={o.id} value={o.id }>
+                                        <option key={o.id} value={o.id}>
                                             {o.name}
                                         </option>
                                     ))}
@@ -466,96 +461,163 @@ const ChargeForm = ({ initial, onSubmit, submitting }) => {
                                 <input
                                     value={feeFrequency}
                                     onChange={(e) => setFeeFrequency(e.target.value)}
-                                    placeholder='e.g. "frequencyperiodFrequencyType.months"'
-                                    className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                                    placeholder="e.g. frequencyperiodFrequencyType.months"
+                                    className={fieldClassName}
                                 />
                             )}
-                            <p className="text-xs text-gray-500 mt-1">
-                                We send the option <code>code</code> (e.g. <code>frequencyperiodFrequencyType.days</code>).
-                            </p>
+                            <p className={helpClassName}>Set when the charge recurs over time. Relevant now: {showsRecurringFields ? 'yes' : 'only if needed'}.</p>
                         </div>
 
-                        {/* Fee Interval (string per schema) */}
                         <div>
-                            <label className="block text-sm font-medium">Fee Interval</label>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Fee Interval</label>
                             <input
                                 value={feeInterval}
                                 onChange={(e) => setFeeInterval(e.target.value)}
                                 placeholder="e.g. 1, 3, 12"
-                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                                className={fieldClassName}
                             />
-                            <p className="text-xs text-gray-500 mt-1">Raw string is sent as-is.</p>
+                            <p className={helpClassName}>Sent as a raw string to preserve the server contract.</p>
                         </div>
 
-                        {/* Fee On Month Day (MM-dd) */}
                         <div>
-                            <label className="block text-sm font-medium">Fee On Month Day</label>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Fee On Month Day</label>
                             <input
                                 value={feeOnMonthDay}
                                 onChange={(e) => setFeeOnMonthDay(e.target.value)}
-                                placeholder="MM-dd (e.g. 03-15)"
-                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                                placeholder="MM-dd"
+                                className={fieldClassName}
                             />
-                            <p className="text-xs text-gray-500 mt-1">
-                                We will send <code>monthDayFormat</code> along with this value.
-                            </p>
+                            <p className={helpClassName}>Use with recurring monthly or annual charges when Fineract expects a fixed day.</p>
                         </div>
 
-                        {/* Month Day Format */}
                         <div>
-                            <label className="block text-sm font-medium">Month Day Format</label>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Month Day Format</label>
                             <input
                                 value={monthDayFormat}
-                                onChange={(e) => setMonthDayFormat(e.target.value)}
-                                placeholder="e.g. MM-dd"
-                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                                onChange={(e) => {
+                                    setMonthDayFormat(e.target.value);
+                                    clearError('monthDayFormat');
+                                }}
+                                placeholder="MM-dd"
+                                className={fieldClassName}
                             />
-                        </div>
-
-                        {/* Caps */}
-                        <div>
-                            <label className="block text-sm font-medium">Min Cap</label>
-                            <input
-                                type="number"
-                                value={minCap}
-                                onChange={(e) => setMinCap(e.target.value)}
-                                placeholder="0"
-                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
-                            />
+                            {errors.monthDayFormat ? <p className={errorClassName}>{errors.monthDayFormat}</p> : null}
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium">Max Cap</label>
-                            <input
-                                type="number"
-                                value={maxCap}
-                                onChange={(e) => setMaxCap(e.target.value)}
-                                placeholder="0"
-                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
-                            />
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Min Cap</label>
+                            <input type="number" value={minCap} onChange={(e) => setMinCap(e.target.value)} placeholder="0" className={fieldClassName} />
+                            <p className={helpClassName}>Relevant now: {showsCapFields ? 'yes' : 'typically only for percentage charges'}.</p>
                         </div>
 
-                        {/* Active / Penalty */}
-                        <div className="col-span-full flex items-center gap-6">
-                            <label className="inline-flex items-center gap-2">
-                                <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
-                                <span className="text-sm">Active</span>
-                            </label>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Max Cap</label>
+                            <input type="number" value={maxCap} onChange={(e) => setMaxCap(e.target.value)} placeholder="0" className={fieldClassName} />
+                            <p className={helpClassName}>Set a ceiling when the calculated amount should not exceed a maximum.</p>
+                        </div>
+                    </ChargeFormSection>
 
-                            <label className="inline-flex items-center gap-2">
-                                <input type="checkbox" checked={penalty} onChange={(e) => setPenalty(e.target.checked)} />
-                                <span className="text-sm">Penalty</span>
-                            </label>
+                    <ChargeFormSection
+                        title="Payment and Status Controls"
+                        description="Attach optional payment-type restrictions and operational flags."
+                        icon={WalletCards}
+                    >
+                        <div className="md:col-span-2">
+                            <div className="grid gap-3 sm:grid-cols-2">
+                                <label className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-700 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                    <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
+                                    <span>Active</span>
+                                </label>
+                                <label className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-700 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                    <input type="checkbox" checked={penalty} onChange={(e) => setPenalty(e.target.checked)} />
+                                    <span>Penalty charge</span>
+                                </label>
+                                <label className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-700 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 sm:col-span-2">
+                                    <input type="checkbox" checked={enablePaymentType} onChange={(e) => setEnablePaymentType(e.target.checked)} />
+                                    <span>Restrict charge to a specific payment type</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Payment Type</label>
+                            <select
+                                value={paymentTypeId}
+                                onChange={(e) => {
+                                    setPaymentTypeId(e.target.value);
+                                    clearError('paymentTypeId');
+                                }}
+                                className={`${fieldClassName} disabled:opacity-60`}
+                                disabled={!enablePaymentType}
+                            >
+                                <option value="">Select payment type...</option>
+                                {paymentTypeOptions.map((o) => (
+                                    <option key={o.id} value={o.id}>
+                                        {o.name}
+                                    </option>
+                                ))}
+                            </select>
+                            {errors.paymentTypeId ? <p className={errorClassName}>{errors.paymentTypeId}</p> : null}
+                        </div>
+
+                        <div className="rounded-xl border border-slate-200/70 bg-white/80 px-4 py-3 text-xs text-slate-600 dark:border-slate-700/70 dark:bg-slate-800/50 dark:text-slate-300">
+                            <div className="flex items-start gap-2">
+                                <ShieldAlert size={16} className="mt-0.5 shrink-0 text-[var(--tenant-primary)]" />
+                                <div>
+                                    <div className="font-semibold text-slate-800 dark:text-slate-100">Payload coverage</div>
+                                    <div className="mt-1">
+                                        This form sends all supported charge fields: amount, applies-to, time type, calculation type, payment mode, tax group, payment type controls, recurring fee fields, caps, active, penalty, locale.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </ChargeFormSection>
+
+                    <div className="grid gap-3 rounded-2xl border border-slate-200/70 bg-white/80 p-4 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/50 lg:grid-cols-4">
+                        <div className="flex items-center gap-3 rounded-xl border border-slate-200/70 bg-slate-50 px-3 py-3 dark:border-slate-700/70 dark:bg-slate-800/50">
+                            <Landmark size={18} className="text-[var(--tenant-primary)]" />
+                            <div>
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Target</div>
+                                <div className="text-sm font-medium text-slate-900 dark:text-slate-100">{labelForOption(appliesToOptions, chargeAppliesTo)}</div>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-3 rounded-xl border border-slate-200/70 bg-slate-50 px-3 py-3 dark:border-slate-700/70 dark:bg-slate-800/50">
+                            <CalendarRange size={18} className="text-[var(--tenant-primary)]" />
+                            <div>
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Timing</div>
+                                <div className="text-sm font-medium text-slate-900 dark:text-slate-100">{labelForOption(timeTypeOptions, chargeTimeType)}</div>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-3 rounded-xl border border-slate-200/70 bg-slate-50 px-3 py-3 dark:border-slate-700/70 dark:bg-slate-800/50">
+                            <Percent size={18} className="text-[var(--tenant-primary)]" />
+                            <div>
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Calculation</div>
+                                <div className="text-sm font-medium text-slate-900 dark:text-slate-100">{labelForOption(calcTypeOptions, chargeCalculationType)}</div>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-3 rounded-xl border border-slate-200/70 bg-slate-50 px-3 py-3 dark:border-slate-700/70 dark:bg-slate-800/50">
+                            <WalletCards size={18} className="text-[var(--tenant-primary)]" />
+                            <div>
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Flags</div>
+                                <div className="flex flex-wrap gap-2 pt-1">
+                                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${active ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200' : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200'}`}>
+                                        {active ? 'Active' : 'Inactive'}
+                                    </span>
+                                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${penalty ? 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200' : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200'}`}>
+                                        {penalty ? 'Penalty' : 'Standard'}
+                                    </span>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                )}
-            </Card>
 
-            <div className="flex items-center justify-end gap-2">
-                <Button type="submit" disabled={submitting}>
-                    {submitting ? 'Saving…' : initial ? 'Save Changes' : 'Create Charge'}
-                </Button>
-            </div>
+                    <div className="flex items-center justify-end gap-3">
+                        <Button type="submit" disabled={submitting}>
+                            {submitting ? 'Saving...' : initial ? 'Save Charge' : 'Create Charge'}
+                        </Button>
+                    </div>
+                </>
+            )}
         </form>
     );
 };
