@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import api from '../api/axios';
+import { getGwOpsReport } from '../api/gateway/reports';
 import Card from '../components/Card';
 import Button from '../components/Button';
 import Skeleton from '../components/Skeleton';
@@ -25,16 +26,23 @@ function formatTZS(n) {
         return `${Number(n).toLocaleString()} TZS`;
     }
 }
-function cx(...xs) { return xs.filter(Boolean).join(' '); }
 
-// Normalize Fineract list results (array OR { pageItems: [...] })
+function cx(...xs) {
+    return xs.filter(Boolean).join(' ');
+}
+
 function toItems(payload) {
     if (Array.isArray(payload)) return payload;
+    if (payload && Array.isArray(payload.items)) return payload.items;
     if (payload && Array.isArray(payload.pageItems)) return payload.pageItems;
     return [];
 }
 
-// Is entity active?
+function numberValue(value) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+}
+
 function isActiveStatus(s) {
     if (!s) return false;
     if (typeof s.active === 'boolean') return s.active;
@@ -42,21 +50,37 @@ function isActiveStatus(s) {
     return v.includes('active');
 }
 
-// Best-effort outstanding for a loan
-function extractOutstanding(loan) {
-    const sum = loan?.summary;
-    if (sum && typeof sum.totalOutstanding === 'number') return sum.totalOutstanding;
-    // Fallback: sum known parts if available
-    const parts = [
-        sum?.principalOutstanding,
-        sum?.interestOutstanding,
-        sum?.feeChargesOutstanding,
-        sum?.penaltyChargesOutstanding,
-    ].map((x) => Number(x || 0));
-    const total = parts.reduce((a, b) => a + b, 0);
-    if (total > 0) return total;
-    // Fallback to principalOutstanding/loan amount
-    return Number(loan?.principalOutstanding || loan?.principal || loan?.loanAmount || 0);
+async function fetchAllClients() {
+    const pageSize = 200;
+    const all = [];
+    let offset = 0;
+
+    while (true) {
+        const response = await api.get('/clients', {
+            params: {
+                offset,
+                limit: pageSize,
+                orderBy: 'displayName',
+                sortOrder: 'ASC',
+            },
+        });
+        const payload = response?.data;
+        const pageItems = toItems(payload);
+        all.push(...pageItems);
+
+        const reportedTotal = numberValue(payload?.totalFilteredRecords || payload?.totalRecords);
+        if (pageItems.length === 0) break;
+        if (reportedTotal > 0 && all.length >= reportedTotal) break;
+        if (pageItems.length < pageSize) break;
+
+        offset += pageItems.length;
+    }
+
+    return all;
+}
+
+function findParBucket(rows, bucket) {
+    return rows.find((row) => String(row?.bucket || '').toUpperCase() === bucket.toUpperCase()) || null;
 }
 
 const Home = () => {
@@ -67,13 +91,16 @@ const Home = () => {
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-
-    const [clientsRaw, setClientsRaw] = useState([]);
-    const [loansRaw, setLoansRaw] = useState([]);
-
-    // Overdue loans (from /loans?overdue=true) and aggregated outstanding
-    const [overdueLoans, setOverdueLoans] = useState([]);
-    const [overdueOutstandingTotal, setOverdueOutstandingTotal] = useState(0);
+    const [metrics, setMetrics] = useState({
+        activeClients: 0,
+        activeLoans: 0,
+        portfolioOutstanding: 0,
+        par30: 0,
+        par30Amount: 0,
+        overdueLoans: 0,
+        overdueOutstanding: 0,
+        parBuckets: [],
+    });
 
     useEffect(() => {
         let cancelled = false;
@@ -84,37 +111,31 @@ const Home = () => {
             start();
 
             try {
-                // 1) Clients
-                const clientsRes = await api.get('/clients');
-                const clients = toItems(clientsRes.data);
-                if (!cancelled) setClientsRaw(clients);
+                const [clients, regulatoryReport, arrearsReport, parReport] = await Promise.all([
+                    fetchAllClients(),
+                    getGwOpsReport('regulatorySummary'),
+                    getGwOpsReport('arrears'),
+                    getGwOpsReport('par'),
+                ]);
 
-                // 2) All loans
-                const loansRes = await api.get('/loans');
-                const loans = toItems(loansRes.data);
-                if (!cancelled) setLoansRaw(loans);
+                if (cancelled) return;
 
-                // 3) Overdue loans (paged shape)
-                try {
-                    const overdueRes = await api.get('/loans', { params: { overdue: true } });
-                    const overdue = toItems(overdueRes.data);
+                const activeClients = clients.filter((client) => isActiveStatus(client.status) || client.active === true).length;
+                const regulatorySummary = regulatoryReport?.summary || {};
+                const arrearsSummary = arrearsReport?.summary || {};
+                const parBuckets = toItems(parReport);
+                const par30Bucket = findParBucket(parBuckets, 'PAR>30');
 
-                    // compute outstanding from the official overdue endpoint
-                    const totalOut = overdue.reduce((acc, loan) => acc + extractOutstanding(loan), 0);
-
-                    if (!cancelled) {
-                        setOverdueLoans(overdue);
-                        setOverdueOutstandingTotal(totalOut);
-                    }
-                } catch {
-                    // Fallback: derive overdue from all loans if endpoint not supported
-                    const fallback = loans.filter((loan) => Number(loan.daysInArrears || loan.overdueDays || 0) > 0);
-                    const totalOut = fallback.reduce((acc, loan) => acc + extractOutstanding(loan), 0);
-                    if (!cancelled) {
-                        setOverdueLoans(fallback);
-                        setOverdueOutstandingTotal(totalOut);
-                    }
-                }
+                setMetrics({
+                    activeClients,
+                    activeLoans: numberValue(regulatorySummary.activeLoans),
+                    portfolioOutstanding: numberValue(regulatorySummary.activePortfolio),
+                    par30: numberValue(regulatorySummary.par30Ratio || par30Bucket?.ratio),
+                    par30Amount: numberValue(regulatorySummary.par30Amount || par30Bucket?.amount),
+                    overdueLoans: numberValue(arrearsSummary.arrearsLoans),
+                    overdueOutstanding: numberValue(arrearsSummary.totalOverdue),
+                    parBuckets,
+                });
             } catch (e) {
                 if (!cancelled) {
                     setError('Failed to load dashboard data');
@@ -128,105 +149,71 @@ const Home = () => {
             }
         };
 
-        load();
-        return () => { cancelled = true; };
-    }, []);
+        void load();
+        return () => {
+            cancelled = true;
+        };
+    }, [addToast, finish, start]);
 
-    // ===== Filters: active only =====
-    const activeClientsArr = useMemo(
-        () => clientsRaw.filter((c) => isActiveStatus(c.status) || c.active === true),
-        [clientsRaw]
-    );
-
-    const activeLoansArr = useMemo(
-        () => loansRaw.filter((l) => isActiveStatus(l.status)),
-        [loansRaw]
-    );
-
-    // ===== KPIs =====
-    const activeClients = activeClientsArr.length;
-
-    const { activeLoans, portfolioOutstanding, par30 } = useMemo(() => {
-        const activeLoansCount = activeLoansArr.length;
-
-        // Portfolio Outstanding = sum outstanding for active loans
-        const outstanding = activeLoansArr.reduce((acc, loan) => acc + extractOutstanding(loan), 0);
-
-        // PAR>30 using all loans list (daysInArrears > 30)
-        let eligible = 0, over30 = 0;
-        loansRaw.forEach((loan) => {
-            const principal = Number(
-                loan?.summary?.totalOutstanding ??
-                loan?.principalOutstanding ??
-                loan?.principal ??
-                loan?.loanAmount ?? 0
-            );
-            const overdueDays = Number(loan.daysInArrears || loan.overdueDays || 0);
-            if (principal > 0) {
-                eligible += 1;
-                if (overdueDays > 30) over30 += 1;
-            }
-        });
-
-        const denom = eligible || activeLoansCount || loansRaw.length || 0;
-        const par = denom ? (over30 / denom) * 100 : 0;
-
-        return { activeLoans: activeLoansCount, portfolioOutstanding: outstanding, par30: par };
-    }, [activeLoansArr, loansRaw]);
-
-    // ===== Sparklines =====
-    const loanAmountSeries = useMemo(() => {
-        if (!activeLoansArr.length) return [];
-        const series = activeLoansArr
-            .map((loan) =>
-                Number(
-                    loan?.summary?.totalOutstanding ??
-                    loan?.principalOutstanding ??
-                    loan?.principal ??
-                    loan?.loanAmount ?? 0
-                )
-            )
-            .filter((n) => n >= 0);
-        return series.some((n) => n > 0) ? series.slice(0, 20) : [];
-    }, [activeLoansArr]);
+    const {
+        activeClients,
+        activeLoans,
+        portfolioOutstanding,
+        par30,
+        overdueLoans,
+        overdueOutstanding,
+        parBuckets,
+    } = metrics;
 
     const clientCountSeries = useMemo(() => {
-        const n = activeClientsArr.length;
-        if (!n) return [];
-        const window = Math.min(20, n);
-        return new Array(window).fill(0).map((_, i) => Math.max(0, n - (window - i - 1)));
-    }, [activeClientsArr]);
+        if (!activeClients) return [];
+        const window = Math.min(20, activeClients);
+        return new Array(window).fill(0).map((_, i) => Math.max(0, activeClients - (window - i - 1)));
+    }, [activeClients]);
+
+    const portfolioSeries = useMemo(() => {
+        const points = [
+            portfolioOutstanding,
+            metrics.par30Amount,
+            overdueOutstanding,
+            ...parBuckets.map((bucket) => numberValue(bucket?.amount)),
+        ].filter((value) => value > 0);
+        return points.slice(0, 20);
+    }, [metrics.par30Amount, overdueOutstanding, parBuckets, portfolioOutstanding]);
 
     const overdueSeries = useMemo(() => {
-        if (!overdueLoans.length) return [];
-        return overdueLoans
-            .map((loan) => Number(loan.daysInArrears || loan.overdueDays || 0))
-            .filter((n) => n > 0)
+        return parBuckets
+            .map((bucket) => numberValue(bucket?.ratio))
+            .filter((value) => value >= 0)
             .slice(0, 20);
-    }, [overdueLoans]);
+    }, [parBuckets]);
 
-    // ===== Actions =====
     const goCreateClient = () => {
-        try { navigate('/clients/new'); } catch { addToast('Create Client coming soon…', 'info'); }
+        try {
+            navigate('/clients/new');
+        } catch {
+            addToast('Create Client coming soon...', 'info');
+        }
     };
+
     const goCreateLoan = () => {
-        try { navigate('/loans/apply'); } catch { addToast('Create Loan coming soon…', 'info'); }
+        try {
+            navigate('/loans/apply');
+        } catch {
+            addToast('Create Loan coming soon...', 'info');
+        }
     };
 
     const parAccent = par30 > 30 ? 'text-red-600' : par30 > 10 ? 'text-amber-600' : 'text-emerald-600';
-    const overdueRate = activeLoans ? (overdueLoans.length / activeLoans) * 100 : 0;
+    const overdueRate = activeLoans ? (overdueLoans / activeLoans) * 100 : 0;
     const riskScore = Math.min(100, Math.round((par30 * 0.65) + (overdueRate * 0.35)));
     const riskTone = riskScore >= 60 ? 'bg-rose-500' : riskScore >= 35 ? 'bg-amber-500' : 'bg-emerald-500';
     const healthLabel = riskScore >= 60 ? 'High Risk' : riskScore >= 35 ? 'Watchlist' : 'Stable';
     const nowLabel = new Date().toLocaleString('en-TZ', { dateStyle: 'medium', timeStyle: 'short' });
 
-    const bannerBackground = tenantConfig?.theme?.loginBackground 
-        ? tenantConfig.theme.loginBackground.replace('radial-gradient', 'radial-gradient') // keep as is if it's already a complex one
-        : 'gradient-to-br from-cyan-100 via-white to-teal-100';
-
     return (
         <div className="space-y-6">
-            <section 
+            <section
                 className="relative overflow-hidden rounded-3xl border border-cyan-200/60 p-6 text-slate-900 shadow-xl sm:p-8"
                 style={{ background: tenantConfig?.theme?.loginBackground || undefined }}
             >
@@ -255,19 +242,19 @@ const Home = () => {
                     <div className="grid grid-cols-2 gap-3 lg:col-span-2">
                         <div className="rounded-2xl border border-slate-300 bg-white/80 p-3 backdrop-blur">
                             <div className="text-xs text-slate-700">Active Clients</div>
-                            <div className="mt-1 text-xl font-semibold text-slate-900">{activeClients}</div>
+                            <div className="mt-1 text-xl font-semibold text-slate-900">{loading ? '...' : activeClients}</div>
                         </div>
                         <div className="rounded-2xl border border-slate-300 bg-white/80 p-3 backdrop-blur">
                             <div className="text-xs text-slate-700">Active Loans</div>
-                            <div className="mt-1 text-xl font-semibold text-slate-900">{activeLoans}</div>
+                            <div className="mt-1 text-xl font-semibold text-slate-900">{loading ? '...' : activeLoans}</div>
                         </div>
                         <div className="rounded-2xl border border-slate-300 bg-white/80 p-3 backdrop-blur">
                             <div className="text-xs text-slate-700">PAR 30+</div>
-                            <div className="mt-1 text-xl font-semibold text-slate-900">{par30.toFixed(2)}%</div>
+                            <div className="mt-1 text-xl font-semibold text-slate-900">{loading ? '...' : `${par30.toFixed(2)}%`}</div>
                         </div>
                         <div className="rounded-2xl border border-slate-300 bg-white/80 p-3 backdrop-blur">
                             <div className="text-xs text-slate-700">Overdue Outstanding</div>
-                            <div className="mt-1 text-sm font-semibold text-slate-900">{formatTZS(overdueOutstandingTotal)}</div>
+                            <div className="mt-1 text-sm font-semibold text-slate-900">{loading ? '...' : formatTZS(overdueOutstanding)}</div>
                         </div>
                     </div>
                 </div>
@@ -278,10 +265,10 @@ const Home = () => {
                     <Sparkline data={clientCountSeries} height={36} />
                 </KPICard>
                 <KPICard title="Active Loans" value={activeLoans} loading={loading} emptyMessage="No active loans">
-                    <Sparkline data={loanAmountSeries} height={36} />
+                    <Sparkline data={portfolioSeries} height={36} />
                 </KPICard>
                 <KPICard title="Portfolio Outstanding" value={formatTZS(portfolioOutstanding)} loading={loading} emptyMessage="No outstanding portfolio">
-                    <Sparkline data={loanAmountSeries} height={36} />
+                    <Sparkline data={portfolioSeries} height={36} />
                 </KPICard>
                 <KPICard title="PAR > 30" value={<span className={cx('font-semibold', parAccent)}>{par30.toFixed(2)}%</span>} loading={loading} emptyMessage="No arrears">
                     <Sparkline data={overdueSeries} height={36} />
@@ -310,7 +297,7 @@ const Home = () => {
                         <div className="h-full rounded-full bg-amber-500" style={{ width: `${Math.min(100, overdueRate)}%` }} />
                     </div>
                     <div className="mt-3 text-sm text-slate-600 dark:text-slate-300">
-                        {overdueLoans.length} overdue loans out of {activeLoans || 0} active loans.
+                        {overdueLoans} overdue loans out of {activeLoans || 0} active loans.
                     </div>
                 </Card>
 
@@ -318,7 +305,7 @@ const Home = () => {
                     <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Portfolio Value</div>
                     <div className="mt-2 text-2xl font-bold">{formatTZS(portfolioOutstanding)}</div>
                     <div className="mt-2">
-                        <Sparkline data={loanAmountSeries} height={44} />
+                        <Sparkline data={portfolioSeries} height={44} />
                     </div>
                     <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">
                         Active exposure across disbursed loan book.
@@ -360,8 +347,8 @@ const Home = () => {
                         </div>
                         <div className="rounded-2xl border border-slate-200/70 bg-white/70 p-4 dark:border-slate-700/70 dark:bg-slate-900/50">
                             <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Overdue Exposure</div>
-                            <div className="mt-2 text-2xl font-semibold" style={{ color: tenantConfig?.theme?.accent || BRAND_RED }}>{overdueLoans.length}</div>
-                            <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">{formatTZS(overdueOutstandingTotal)} outstanding overdue amount.</div>
+                            <div className="mt-2 text-2xl font-semibold" style={{ color: tenantConfig?.theme?.accent || BRAND_RED }}>{overdueLoans}</div>
+                            <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">{formatTZS(overdueOutstanding)} overdue amount.</div>
                         </div>
                     </div>
                 )}
