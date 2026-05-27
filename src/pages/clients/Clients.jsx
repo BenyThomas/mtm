@@ -25,6 +25,16 @@ const statusTone = (s) => {
 const normalizeOffices = (arr) =>
     Array.isArray(arr) ? arr.map((o) => ({ id: o.id, name: o.name })) : [];
 
+const buildClientSearchParams = (term) => {
+    const normalized = String(term || '').trim();
+    if (!normalized) return {};
+    const looksLikeExternalId = /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i.test(normalized)
+        || /^[A-Z0-9._-]{8,}$/i.test(normalized);
+    return looksLikeExternalId
+        ? { externalId: normalized }
+        : { displayName: normalized };
+};
+
 const toTitleCase = (value) =>
     String(value || '')
         .toLowerCase()
@@ -110,7 +120,7 @@ const Clients = () => {
                     orderBy: sortBy,
                     sortOrder: sortDir,
                 };
-                if (debouncedSearch) params.search = debouncedSearch; // backend support varies
+                if (debouncedSearch) Object.assign(params, buildClientSearchParams(debouncedSearch));
                 if (status) params.status = status;                   // e.g., 'active' | 'pending' | 'closed'
                 if (officeId) params.officeId = officeId;
 
@@ -302,7 +312,7 @@ const Clients = () => {
                                     setSearch(e.target.value);
                                     setPage(0);
                                 }}
-                                placeholder="Name / Account # / External ID / Office"
+                                placeholder="Display Name / External ID"
                                 className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
                             />
                         </div>

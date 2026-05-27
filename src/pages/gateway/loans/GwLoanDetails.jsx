@@ -190,6 +190,60 @@ const firstNumeric = (...values) => {
   return null;
 };
 
+const parseIsoDate = (value) => {
+  const text = normalizeText(value);
+  if (!text) return null;
+  const iso = text.slice(0, 10);
+  const parsed = new Date(`${iso}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const periodAmountDue = (period) => {
+  if (!period || typeof period !== 'object') return 0;
+  return firstNumeric(
+    period?.totalOutstandingForPeriod,
+    period?.totalDueForPeriod,
+    period?.totalOriginalDueForPeriod,
+    firstNumeric(period?.principalDue, 0) + firstNumeric(period?.interestDue, 0) + firstNumeric(period?.feeChargesDue, 0) + firstNumeric(period?.penaltyChargesDue, 0),
+  ) || 0;
+};
+
+const deriveSuggestedRepaymentAmount = (schedule) => {
+  const periods = Array.isArray(schedule?.periods) ? schedule.periods : [];
+  if (!periods.length) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const candidates = periods
+    .map((period) => {
+      const dueDate = parseIsoDate(period?.dueDate);
+      const complete = period?.complete === true || period?.isComplete === true;
+      const amount = periodAmountDue(period);
+      return dueDate && !complete && amount > 0 ? { dueDate, amount } : null;
+    })
+    .filter(Boolean);
+  if (!candidates.length) return null;
+  const dueNow = candidates
+    .filter((item) => item.dueDate <= today)
+    .sort((a, b) => a.dueDate - b.dueDate)[0];
+  if (dueNow) return dueNow.amount;
+  const nextUp = candidates
+    .filter((item) => item.dueDate > today)
+    .sort((a, b) => a.dueDate - b.dueDate)[0];
+  return nextUp?.amount ?? null;
+};
+
+const hasFutureIncompleteInstallments = (schedule) => {
+  const periods = Array.isArray(schedule?.periods) ? schedule.periods : [];
+  if (!periods.length) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return periods.some((period) => {
+    const dueDate = parseIsoDate(period?.dueDate);
+    const complete = period?.complete === true || period?.isComplete === true;
+    return dueDate && dueDate > today && !complete && periodAmountDue(period) > 0;
+  });
+};
+
 const isPenaltyCharge = (c) => {
   if (!c || typeof c !== 'object') return false;
   if (c?.isPenalty === true) return true;
@@ -715,6 +769,21 @@ const GwLoanDetails = () => {
   const canUndoDisbursement = hasFineractLoanId && hasWorkflowAction('undodisbursal');
   const fineractOverpaid = fxLoan?.status?.overpaid === true || /overpaid/i.test(String(fxStatusText || ''));
   const localOverpaid = statusUpper === 'OVERPAID';
+  const suggestedRepaymentAmount = useMemo(
+    () => deriveSuggestedRepaymentAmount(fxLoan?.repaymentSchedule),
+    [fxLoan?.repaymentSchedule],
+  );
+  const hasFutureInstallments = useMemo(
+    () => hasFutureIncompleteInstallments(fxLoan?.repaymentSchedule),
+    [fxLoan?.repaymentSchedule],
+  );
+  const enteredRepaymentAmount = toNumOrNull(repaymentAmount);
+  const looksLikeEarlyPayoff =
+    enteredRepaymentAmount != null &&
+    outstandingAmount != null &&
+    outstandingAmount > 0 &&
+    enteredRepaymentAmount + 0.01 >= outstandingAmount &&
+    hasFutureInstallments;
   const overpaidAmount = firstNumeric(
     workflow?.refundAmount,
     fxLoan?.summary?.totalOverpaid,
@@ -1103,7 +1172,7 @@ const GwLoanDetails = () => {
         cfg = null;
       }
     }
-    setRepaymentAmount(outstandingAmount != null && outstandingAmount > 0 ? String(outstandingAmount) : '');
+    setRepaymentAmount(suggestedRepaymentAmount != null && suggestedRepaymentAmount > 0 ? String(suggestedRepaymentAmount) : '');
     setRepaymentCurrency('TZS');
     setRepaymentProvider(resolveRepaymentProvider(cfg));
     setRepaymentMsisdn(customerRepaymentIdentity.msisdn || '');
@@ -2420,9 +2489,12 @@ const GwLoanDetails = () => {
               inputMode="decimal"
               value={repaymentAmount}
               onChange={(e) => setRepaymentAmount(e.target.value)}
-              placeholder={outstandingAmount != null ? String(outstandingAmount) : '0'}
+              placeholder={suggestedRepaymentAmount != null ? String(suggestedRepaymentAmount) : (outstandingAmount != null ? String(outstandingAmount) : '0')}
               className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
             />
+            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              Suggested regular repayment: {suggestedRepaymentAmount != null ? formatMoney(suggestedRepaymentAmount) : 'Unavailable'}
+            </div>
           </div>
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Currency</label>
@@ -2464,6 +2536,11 @@ const GwLoanDetails = () => {
               ? 'Cash repayment is posted directly to Fineract through the gateway.'
               : 'Repayment is posted to Fineract only after the selected aggregator confirms payment completion.'}
           </div>
+          {looksLikeEarlyPayoff ? (
+            <div className="sm:col-span-2 rounded-xl border border-amber-200/80 bg-amber-50 px-3 py-3 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+              This amount looks like an early full payoff. Gateway will submit it to Fineract as a prepayment instead of a standard repayment.
+            </div>
+          ) : null}
         </div>
       </Modal>
     </div>
