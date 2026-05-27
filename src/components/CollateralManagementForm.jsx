@@ -5,60 +5,45 @@ import Skeleton from './Skeleton';
 import api from '../api/axios';
 import { useToast } from '../context/ToastContext';
 
-/**
- * Props:
- * - initial (optional)
- * - template (optional) pre-fetched /collateral-management/template
- * - onSubmit(payload)
- * - submitting
- */
+const normalizeCurrencies = (template) => {
+    const list = Array.isArray(template) ? template : [];
+    return list
+        .map((item) => ({
+            code: item?.code,
+            name: item?.displayLabel ?? item?.name ?? item?.code,
+        }))
+        .filter((item) => item.code);
+};
+
 const CollateralManagementForm = ({ initial, template, onSubmit, submitting }) => {
     const { addToast } = useToast();
 
     const [tplLoading, setTplLoading] = useState(!template);
-    const [typeOptions, setTypeOptions] = useState([]);
-    const [qualityOptions, setQualityOptions] = useState([]);
-    const [unitTypeOptions, setUnitTypeOptions] = useState([]);
+    const [currencyOptions, setCurrencyOptions] = useState([]);
 
     const [name, setName] = useState(initial?.name || '');
-    const [typeId, setTypeId] = useState(initial?.typeId || initial?.collateralTypeId || initial?.type?.id || '');
+    const [currency, setCurrency] = useState(initial?.currency || '');
+    const [locale, setLocale] = useState(initial?.locale || 'en');
     const [quality, setQuality] = useState(initial?.quality || '');
-    const [unitTypeId, setUnitTypeId] = useState(initial?.unitTypeId || '');
-    const [basePrice, setBasePrice] = useState(initial?.basePrice ?? initial?.unitPrice ?? '');
-    const [description, setDescription] = useState(initial?.description || '');
+    const [unitType, setUnitType] = useState(initial?.unitType || '');
+    const [basePrice, setBasePrice] = useState(initial?.basePrice ?? initial?.unitPrice ?? 0);
+    const [pctToBase, setPctToBase] = useState(initial?.pctToBase ?? 0);
 
-    const hydrateFromTemplate = (tpl) => {
-        const d = tpl || {};
-        const types = d.allowedCollateralTypes || d.collateralTypeOptions || d.collateralTypes || [];
-        const qualities = d.qualityOptions || d.qualities || [];
-        const units = d.unitTypeOptions || d.units || [];
-
-        const normTypes = Array.isArray(types) ? types.map(o => ({
-            id: o?.id ?? o?.value ?? o?.key, name: o?.name ?? o?.text ?? o?.label ?? `Type #${o?.id ?? ''}`
-        })).filter(x => x.id != null) : [];
-        const normQual = Array.isArray(qualities) ? qualities.map(o => ({
-            id: o?.id ?? o?.value ?? o?.key ?? o, name: o?.name ?? o?.text ?? o?.label ?? String(o)
-        })) : [];
-        const normUnits = Array.isArray(units) ? units.map(o => ({
-            id: o?.id ?? o?.value ?? o?.key ?? o, name: o?.name ?? o?.text ?? o?.label ?? String(o)
-        })) : [];
-
-        setTypeOptions(normTypes);
-        setQualityOptions(normQual);
-        setUnitTypeOptions(normUnits);
-        if (!initial && !typeId && normTypes.length) setTypeId(normTypes[0].id);
+    const hydrateTemplate = (tpl) => {
+        const currencies = normalizeCurrencies(tpl);
+        setCurrencyOptions(currencies);
+        if (!initial && !currency && currencies.length) {
+            setCurrency(currencies[0].code);
+        }
     };
 
-    // Use passed template if provided
     useEffect(() => {
-        if (template) {
-            hydrateFromTemplate(template);
-            setTplLoading(false);
-        }
+        if (!template) return;
+        hydrateTemplate(template);
+        setTplLoading(false);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [template]);
 
-    // Fallback fetch
     useEffect(() => {
         if (template) return;
         let cancelled = false;
@@ -66,7 +51,7 @@ const CollateralManagementForm = ({ initial, template, onSubmit, submitting }) =
             setTplLoading(true);
             try {
                 const r = await api.get('/collateral-management/template');
-                if (!cancelled) hydrateFromTemplate(r?.data || {});
+                if (!cancelled) hydrateTemplate(r?.data || []);
             } catch (e) {
                 if (!cancelled) addToast('Failed to load collateral template', 'error');
             } finally {
@@ -79,36 +64,36 @@ const CollateralManagementForm = ({ initial, template, onSubmit, submitting }) =
     useEffect(() => {
         if (!initial) return;
         setName(initial?.name || '');
-        setTypeId(initial?.typeId || initial?.collateralTypeId || initial?.type?.id || '');
+        setCurrency(initial?.currency || '');
+        setLocale(initial?.locale || 'en');
         setQuality(initial?.quality || '');
-        setUnitTypeId(initial?.unitTypeId || '');
-        setBasePrice(initial?.basePrice ?? initial?.unitPrice ?? '');
-        setDescription(initial?.description || '');
-    }, [initial?.id]); // eslint-disable-line
+        setUnitType(initial?.unitType || '');
+        setBasePrice(initial?.basePrice ?? initial?.unitPrice ?? 0);
+        setPctToBase(initial?.pctToBase ?? 0);
+    }, [initial?.id]);
 
     const errors = useMemo(() => {
-        const e = {};
-        if (!name.trim()) e.name = 'Name is required';
-        if (!typeId) e.typeId = 'Type is required';
-        if (!basePrice || Number(basePrice) <= 0) e.basePrice = 'Base price must be > 0';
-        return e;
-    }, [name, typeId, basePrice]);
+        const next = {};
+        if (!name.trim()) next.name = 'Name is required';
+        if (!currency) next.currency = 'Currency is required';
+        if (!locale.trim()) next.locale = 'Locale is required';
+        if (basePrice === '' || Number(basePrice) < 0) next.basePrice = 'Base price must be 0 or greater';
+        if (pctToBase === '' || Number(pctToBase) < 0) next.pctToBase = 'Pct to base must be 0 or greater';
+        return next;
+    }, [name, currency, locale, basePrice, pctToBase]);
 
     const submit = async (e) => {
         e.preventDefault();
         if (Object.keys(errors).length) return;
-
-        const payload = {
+        await onSubmit({
             name: name.trim(),
-            typeId: Number(typeId),
-            collateralTypeId: Number(typeId),
-            quality: quality || undefined,
-            unitTypeId: unitTypeId ? Number(unitTypeId) : undefined,
-            basePrice: Number(basePrice),
-            unitPrice: Number(basePrice),
-            description: description?.trim() || undefined,
-        };
-        await onSubmit(payload);
+            currency,
+            locale: locale.trim(),
+            quality: quality.trim() || undefined,
+            unitType: unitType.trim() || undefined,
+            basePrice: Number(basePrice) || 0,
+            pctToBase: Number(pctToBase) || 0,
+        });
     };
 
     return (
@@ -129,48 +114,33 @@ const CollateralManagementForm = ({ initial, template, onSubmit, submitting }) =
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium">Collateral Type *</label>
+                            <label className="block text-sm font-medium">Currency *</label>
                             <select
-                                value={typeId}
-                                onChange={(e) => setTypeId(e.target.value)}
+                                value={currency}
+                                onChange={(e) => setCurrency(e.target.value)}
                                 className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                             >
-                                <option value="">Select type…</option>
-                                {typeOptions.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-                            </select>
-                            {errors.typeId && <p className="text-xs text-red-500 mt-1">{errors.typeId}</p>}
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-medium">Quality</label>
-                            <select
-                                value={quality}
-                                onChange={(e) => setQuality(e.target.value)}
-                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
-                            >
-                                <option value="">—</option>
-                                {qualityOptions.map(o => (
-                                    <option key={o.id ?? o.name} value={o.id ?? o.name}>{o.name ?? o.id}</option>
+                                <option value="">Select currency...</option>
+                                {currencyOptions.map((item) => (
+                                    <option key={item.code} value={item.code}>{item.name}</option>
                                 ))}
                             </select>
+                            {errors.currency && <p className="text-xs text-red-500 mt-1">{errors.currency}</p>}
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium">Unit Type</label>
-                            <select
-                                value={unitTypeId}
-                                onChange={(e) => setUnitTypeId(e.target.value)}
+                            <label className="block text-sm font-medium">Locale *</label>
+                            <input
+                                value={locale}
+                                onChange={(e) => setLocale(e.target.value)}
+                                placeholder="e.g. en"
                                 className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
-                            >
-                                <option value="">—</option>
-                                {unitTypeOptions.map(o => (
-                                    <option key={o.id ?? o.name} value={o.id ?? o.name}>{o.name ?? o.id}</option>
-                                ))}
-                            </select>
+                            />
+                            {errors.locale && <p className="text-xs text-red-500 mt-1">{errors.locale}</p>}
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium">Base Price *</label>
+                            <label className="block text-sm font-medium">Base Price</label>
                             <input
                                 type="number"
                                 min="0"
@@ -182,11 +152,34 @@ const CollateralManagementForm = ({ initial, template, onSubmit, submitting }) =
                             {errors.basePrice && <p className="text-xs text-red-500 mt-1">{errors.basePrice}</p>}
                         </div>
 
-                        <div className="md:col-span-2">
-                            <label className="block text-sm font-medium">Description</label>
+                        <div>
+                            <label className="block text-sm font-medium">Pct To Base</label>
                             <input
-                                value={description}
-                                onChange={(e) => setDescription(e.target.value)}
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={pctToBase}
+                                onChange={(e) => setPctToBase(e.target.value)}
+                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                            />
+                            {errors.pctToBase && <p className="text-xs text-red-500 mt-1">{errors.pctToBase}</p>}
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium">Quality</label>
+                            <input
+                                value={quality}
+                                onChange={(e) => setQuality(e.target.value)}
+                                placeholder="Optional"
+                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium">Unit Type</label>
+                            <input
+                                value={unitType}
+                                onChange={(e) => setUnitType(e.target.value)}
                                 placeholder="Optional"
                                 className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                             />
@@ -197,7 +190,7 @@ const CollateralManagementForm = ({ initial, template, onSubmit, submitting }) =
 
             <div className="flex items-center justify-end gap-2">
                 <Button type="submit" disabled={submitting}>
-                    {submitting ? 'Saving…' : (initial ? 'Save Changes' : 'Create Collateral')}
+                    {submitting ? 'Saving...' : (initial ? 'Save Changes' : 'Create Collateral')}
                 </Button>
             </div>
         </form>

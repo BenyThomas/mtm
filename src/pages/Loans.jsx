@@ -14,6 +14,7 @@ const STATUS_OPTIONS = [
     { value: 'submittedandpendingapproval', label: 'Submitted' },
     { value: 'approved', label: 'Approved' },
     { value: 'active', label: 'Active (Disbursed)' },
+    { value: 'overpaid', label: 'Overpaid' },
     { value: 'closed', label: 'Closed' },
 ];
 
@@ -30,7 +31,8 @@ const Loans = () => {
     const debouncedSearch = useDebouncedValue(search, 450);
     const [status, setStatus] = useState('');              // matches backend status code where supported
     const [productId, setProductId] = useState('');        // product filter
-    const [clientId, setClientId] = useState('');          // optional numeric filter
+    const [officeId, setOfficeId] = useState('');          // office filter
+    const [offices, setOffices] = useState([]);            // office options
 
     // sorting
     const [sortBy, setSortBy] = useState('id');            // id | clientName | loanProductName | principal
@@ -43,18 +45,33 @@ const Loans = () => {
     // loading
     const [loading, setLoading] = useState(false);
 
-    // Load loan products for filter
+    // Load loan products and offices for filter
     useEffect(() => {
         let cancelled = false;
         (async () => {
             try {
-                const res = await api.get('/loanproducts');
+                const [pRes, oRes] = await Promise.allSettled([
+                    api.get('/loanproducts'),
+                    api.get('/offices'),
+                ]);
+
                 if (!cancelled) {
-                    const items = Array.isArray(res.data) ? res.data : res.data?.pageItems || [];
-                    setProducts(items);
+                    if (pRes.status === 'fulfilled') {
+                        const items = Array.isArray(pRes.value.data)
+                            ? pRes.value.data
+                            : pRes.value.data?.pageItems || [];
+                        setProducts(items);
+                    }
+                    if (oRes.status === 'fulfilled') {
+                        const items = Array.isArray(oRes.value.data) ? oRes.value.data : [];
+                        setOffices(items.map((o) => ({ id: o.id, name: o.name })));
+                    }
                 }
             } catch {
-                if (!cancelled) setProducts([]);
+                if (!cancelled) {
+                    setProducts([]);
+                    setOffices([]);
+                }
             }
         })();
         return () => (cancelled = true);
@@ -73,10 +90,14 @@ const Loans = () => {
                     orderBy: sortBy,
                     sortOrder: sortDir,
                 };
-                if (debouncedSearch) params.search = debouncedSearch; // backend support varies
+                if (debouncedSearch) {
+                    params.search = debouncedSearch;
+                    params.accountNo = debouncedSearch;
+                    params.displayName = debouncedSearch;
+                }
                 if (status) params.status = status;                   // e.g., 'active', 'approved', etc.
-                if (productId) params.productId = productId;
-                if (clientId) params.clientId = clientId;
+                if (productId) params.loanProductId = productId;      // Standard Fineract uses loanProductId
+                if (officeId) params.officeId = officeId;
 
                 const res = await api.get('/loans', { params });
                 const items = Array.isArray(res.data)
@@ -102,7 +123,7 @@ const Loans = () => {
         };
         load();
         return () => (cancelled = true);
-    }, [debouncedSearch, status, productId, clientId, page, limit, sortBy, sortDir]);
+    }, [debouncedSearch, status, productId, officeId, page, limit, sortBy, sortDir]);
 
     const columns = useMemo(
         () => [
@@ -158,7 +179,7 @@ const Loans = () => {
         setSearch('');
         setStatus('');
         setProductId('');
-        setClientId('');
+        setOfficeId('');
         setPage(0);
     };
 
@@ -187,77 +208,84 @@ const Loans = () => {
 
             {/* Filters */}
             <Card>
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-                    <div className="col-span-2">
-                        <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search</label>
-                        <input
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                            placeholder="Client/Product/Loan #"
-                            className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
-                        />
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                    <div className="grid flex-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        <div>
+                            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search</label>
+                            <input
+                                value={search}
+                                onChange={(e) => { setSearch(e.target.value); setPage(0); }}
+                                placeholder="Client/Product/Loan #"
+                                className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Status</label>
+                            <select
+                                value={status}
+                                onChange={(e) => { setStatus(e.target.value); setPage(0); }}
+                                className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                            >
+                                {STATUS_OPTIONS.map((s) => (
+                                    <option key={s.value} value={s.value}>
+                                        {s.label}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Product</label>
+                            <select
+                                value={productId}
+                                onChange={(e) => { setProductId(e.target.value); setPage(0); }}
+                                className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                            >
+                                <option value="">All</option>
+                                {products.map((p) => (
+                                    <option key={p.id} value={p.id}>
+                                        {p.name}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Office</label>
+                            <select
+                                value={officeId}
+                                onChange={(e) => { setOfficeId(e.target.value); setPage(0); }}
+                                className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                            >
+                                <option value="">All</option>
+                                {offices.map((o) => (
+                                    <option key={o.id} value={o.id}>
+                                        {o.name}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
                     </div>
-                    <div>
-                        <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Status</label>
-                        <select
-                            value={status}
-                            onChange={(e) => setStatus(e.target.value)}
-                            className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
-                        >
-                            {STATUS_OPTIONS.map((s) => (
-                                <option key={s.value} value={s.value}>
-                                    {s.label}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-                    <div>
-                        <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Product</label>
-                        <select
-                            value={productId}
-                            onChange={(e) => setProductId(e.target.value)}
-                            className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
-                        >
-                            <option value="">All</option>
-                            {products.map((p) => (
-                                <option key={p.id} value={p.id}>
-                                    {p.name}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-                    <div>
-                        <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Client ID</label>
-                        <input
-                            type="number"
-                            value={clientId}
-                            onChange={(e) => setClientId(e.target.value)}
-                            placeholder="e.g. 15"
-                            className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
-                        />
-                    </div>
-                </div>
 
-                <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <Button variant="secondary" onClick={clearFilters} className="w-full sm:w-auto">
-                        Clear
-                    </Button>
-                    <div className="flex items-center justify-between gap-2 sm:justify-start">
-                        <label className="text-sm text-slate-600 dark:text-slate-300">Rows</label>
-                        <select
-                            value={limit}
-                            onChange={(e) => {
-                                setLimit(Number(e.target.value));
-                                setPage(0);
-                            }}
-                            className="rounded-xl border px-2 py-1.5 dark:bg-gray-700 dark:border-gray-600"
-                        >
-                            {PAGE_SIZE_OPTIONS.map((n) => (
-                                <option key={n} value={n}>
-                                    {n}
-                                </option>
-                            ))}
-                        </select>
+                    <div className="flex items-center justify-between gap-3 lg:justify-start lg:pb-1">
+                        <div className="flex items-center gap-2">
+                            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Rows</label>
+                            <select
+                                value={limit}
+                                onChange={(e) => {
+                                    setLimit(Number(e.target.value));
+                                    setPage(0);
+                                }}
+                                className="rounded-xl border px-2 py-1.5 dark:bg-gray-700 dark:border-gray-600"
+                            >
+                                {PAGE_SIZE_OPTIONS.map((n) => (
+                                    <option key={n} value={n}>
+                                        {n}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        <Button variant="secondary" onClick={clearFilters}>
+                            Clear
+                        </Button>
                     </div>
                 </div>
             </Card>

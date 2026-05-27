@@ -94,16 +94,16 @@ const parseError = (e, fallback) =>
     e?.response?.data?.message ||
     fallback;
 
-const LoanAdvancedActionModal = ({ open, loanId, paymentTypeOptions, onClose, onDone }) => {
+const LoanAdvancedActionModal = ({ open, loanId, paymentTypeOptions, initialCommand, onClose, onDone }) => {
     const { addToast } = useToast();
-    const [command, setCommand] = useState(COMMANDS[0].value);
+    const [command, setCommand] = useState(initialCommand || COMMANDS[0].value);
     const [date, setDate] = useState(dateISO());
     const [amount, setAmount] = useState('');
     const [note, setNote] = useState('');
     const [paymentTypeId, setPaymentTypeId] = useState('');
     const [externalId, setExternalId] = useState('');
     const [chargeId, setChargeId] = useState('');
-    const [endpointKind, setEndpointKind] = useState(COMMANDS[0].endpoint);
+    const [endpointKind, setEndpointKind] = useState(COMMANDS.find(c => c.value === (initialCommand || COMMANDS[0].value))?.endpoint || COMMANDS[0].endpoint);
     const [customCommand, setCustomCommand] = useState('');
     const [payloadText, setPayloadText] = useState('{}');
     const [busy, setBusy] = useState(false);
@@ -115,16 +115,16 @@ const LoanAdvancedActionModal = ({ open, loanId, paymentTypeOptions, onClose, on
 
     useEffect(() => {
         if (!open) return;
-        setCommand(COMMANDS[0].value);
+        setCommand(initialCommand || COMMANDS[0].value);
         setDate(dateISO());
         setAmount('');
         setNote('');
         setPaymentTypeId('');
         setExternalId('');
         setChargeId('');
-        setEndpointKind(COMMANDS[0].endpoint);
+        setEndpointKind(COMMANDS.find(c => c.value === (initialCommand || COMMANDS[0].value))?.endpoint || COMMANDS[0].endpoint);
         setCustomCommand('');
-    }, [open, loanId]);
+    }, [open, loanId, initialCommand]);
 
     useEffect(() => {
         if (!open) return;

@@ -30,10 +30,15 @@ const ClientForm = ({ initial, onSubmit, submitting }) => {
     // fields
     const [officeId, setOfficeId] = useState(initial?.officeId || initial?.office?.id || '');
     const [firstname, setFirstname] = useState(initial?.firstname || '');
+    const [middlename, setMiddlename] = useState(initial?.middlename || '');
     const [lastname, setLastname] = useState(initial?.lastname || '');
     const [externalId, setExternalId] = useState(initial?.externalId || '');
     const [mobileNo, setMobileNo] = useState(initial?.mobileNo || '');
+    const [emailAddress, setEmailAddress] = useState(initial?.emailAddress || '');
     const [dateOfBirth, setDateOfBirth] = useState(toISO(Array.isArray(initial?.dateOfBirth) ? initial.dateOfBirth.join('-') : initial?.dateOfBirth));
+    const [submittedOnDate, setSubmittedOnDate] = useState(
+        toISO(Array.isArray(initial?.submittedOnDate) ? initial.submittedOnDate.join('-') : initial?.submittedOnDate)
+    );
 
     const [active, setActive] = useState(Boolean(initial?.active));
     const [activationDate, setActivationDate] = useState(
@@ -89,10 +94,13 @@ const ClientForm = ({ initial, onSubmit, submitting }) => {
         if (!initial) return;
         setOfficeId(initial?.officeId || initial?.office?.id || officeId);
         setFirstname(initial?.firstname || '');
+        setMiddlename(initial?.middlename || '');
         setLastname(initial?.lastname || '');
         setExternalId(initial?.externalId || '');
         setMobileNo(initial?.mobileNo || '');
+        setEmailAddress(initial?.emailAddress || '');
         setDateOfBirth(toISO(Array.isArray(initial?.dateOfBirth) ? initial.dateOfBirth.join('-') : initial?.dateOfBirth));
+        setSubmittedOnDate(toISO(Array.isArray(initial?.submittedOnDate) ? initial.submittedOnDate.join('-') : initial?.submittedOnDate));
         setActive(Boolean(initial?.active));
         setActivationDate(toISO(Array.isArray(initial?.activationDate) ? initial.activationDate.join('-') : initial?.activationDate));
         setStaffId(initial?.staffId || initial?.staff?.id || '');
@@ -123,10 +131,13 @@ const ClientForm = ({ initial, onSubmit, submitting }) => {
             officeId: Number(officeId),
             legalFormId: Number(legalFormId),
             firstname: firstname.trim(),
+            ...(middlename.trim() ? { middlename: middlename.trim() } : {}),
             ...(lastname.trim() ? { lastname: lastname.trim() } : {}),
             ...(externalId.trim() ? { externalId: externalId.trim() } : {}),
             ...(mobileNo.trim() ? { mobileNo: mobileNo.trim() } : {}),
+            ...(emailAddress.trim() ? { emailAddress: emailAddress.trim() } : {}),
             ...(dateOfBirth ? { dateOfBirth } : {}),
+            ...(submittedOnDate ? { submittedOnDate } : {}),
             ...(staffId ? { staffId: Number(staffId) } : {}),
             ...(genderId ? { genderId: Number(genderId) } : {}),
             ...(clientTypeId ? { clientTypeId: Number(clientTypeId) } : {}),
@@ -196,6 +207,15 @@ const ClientForm = ({ initial, onSubmit, submitting }) => {
                         </div>
 
                         <div>
+                            <label className="block text-sm font-medium">Middle Name</label>
+                            <input
+                                value={middlename}
+                                onChange={(e) => setMiddlename(e.target.value)}
+                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                            />
+                        </div>
+
+                        <div>
                             <label className="block text-sm font-medium">External ID</label>
                             <input
                                 value={externalId}
@@ -214,11 +234,31 @@ const ClientForm = ({ initial, onSubmit, submitting }) => {
                         </div>
 
                         <div>
+                            <label className="block text-sm font-medium">Email Address</label>
+                            <input
+                                type="email"
+                                value={emailAddress}
+                                onChange={(e) => setEmailAddress(e.target.value)}
+                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                            />
+                        </div>
+
+                        <div>
                             <label className="block text-sm font-medium">Date of Birth</label>
                             <input
                                 type="date"
                                 value={dateOfBirth || ''}
                                 onChange={(e) => setDateOfBirth(e.target.value)}
+                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium">Submitted On</label>
+                            <input
+                                type="date"
+                                value={submittedOnDate || ''}
+                                onChange={(e) => setSubmittedOnDate(e.target.value)}
                                 className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                             />
                         </div>

@@ -8,14 +8,16 @@ import DataTable from '../../components/DataTable';
 import useDebouncedValue from '../../hooks/useDebouncedValue';
 import { useToast } from '../../context/ToastContext';
 import ClientCommandModal from '../../components/ClientCommandModal';
-import { Plus, RefreshCcw, Eye, Pencil, Bolt, XCircle } from 'lucide-react';
+import { Plus, RefreshCcw, Eye, Pencil, XCircle } from 'lucide-react';
+import { getVisibleClientActions } from '../../utils/clientActions';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
 
 const statusTone = (s) => {
     const code = (s?.code || s?.value || s || '').toString();
     if (/active/i.test(code)) return 'green';
-    if (/pending|submitted/i.test(code)) return 'yellow';
+    if (/pending|submitted|transfer/i.test(code)) return 'yellow';
+    if (/rejected|withdrawn/i.test(code)) return 'red';
     if (/closed|dormant|inactiv/i.test(code)) return 'gray';
     return 'gray';
 };
@@ -23,11 +25,39 @@ const statusTone = (s) => {
 const normalizeOffices = (arr) =>
     Array.isArray(arr) ? arr.map((o) => ({ id: o.id, name: o.name })) : [];
 
+const buildClientSearchParams = (term) => {
+    const normalized = String(term || '').trim();
+    if (!normalized) return {};
+    const looksLikeExternalId = /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i.test(normalized)
+        || /^[A-Z0-9._-]{8,}$/i.test(normalized);
+    return looksLikeExternalId
+        ? { externalId: normalized }
+        : { displayName: normalized };
+};
+
+const toTitleCase = (value) =>
+    String(value || '')
+        .toLowerCase()
+        .replace(/\b\w/g, (char) => char.toUpperCase())
+        .trim();
+
+const formatClientName = (row) => {
+    const rawName = row.displayName || [row.firstname, row.middlename, row.lastname].filter(Boolean).join(' ');
+    return rawName ? toTitleCase(rawName) : '—';
+};
+
+const clientActionButtonClass =
+    'h-10 w-10 shrink-0 rounded-xl border border-[color:var(--tenant-primary)]/20 bg-[color:var(--tenant-primary)]/8 p-0 text-[var(--tenant-primary)] shadow-sm hover:bg-[color:var(--tenant-primary)]/14 dark:border-[color:var(--tenant-primary)]/35 dark:bg-[color:var(--tenant-primary)]/12 dark:hover:bg-[color:var(--tenant-primary)]/18';
+
 // Typical Fineract client status filters
 const STATUS_OPTIONS = [
     { value: '', label: 'All' },
     { value: 'active', label: 'Active' },
     { value: 'pending', label: 'Pending' },
+    { value: 'rejected', label: 'Rejected' },
+    { value: 'withdrawn', label: 'Withdrawn' },
+    { value: 'transfer', label: 'Transfer' },
+    { value: 'inactive', label: 'Inactive' },
     { value: 'closed', label: 'Closed' },
 ];
 
@@ -59,6 +89,7 @@ const Clients = () => {
 
     // command modal
     const [commandClient, setCommandClient] = useState(null);
+    const [commandOpen, setCommandOpen] = useState('');
 
     // refresh nonce (forces reload)
     const [refreshNonce, setRefreshNonce] = useState(0);
@@ -89,7 +120,7 @@ const Clients = () => {
                     orderBy: sortBy,
                     sortOrder: sortDir,
                 };
-                if (debouncedSearch) params.search = debouncedSearch; // backend support varies
+                if (debouncedSearch) Object.assign(params, buildClientSearchParams(debouncedSearch));
                 if (status) params.status = status;                   // e.g., 'active' | 'pending' | 'closed'
                 if (officeId) params.officeId = officeId;
 
@@ -130,7 +161,7 @@ const Clients = () => {
                 key: 'displayName',
                 header: 'Name',
                 sortable: true,
-                render: (r) => r.displayName || [r.firstname, r.lastname].filter(Boolean).join(' ') || '—',
+                render: (r) => formatClientName(r),
             },
             {
                 key: 'officeName',
@@ -164,12 +195,12 @@ const Clients = () => {
                 key: 'actions',
                 header: '',
                 sortable: false,
-                width: 140,
+                width: 320,
                 render: (r) => (
                     <div className="flex items-center gap-2 justify-end">
                         <Button
-                            variant="secondary"
-                            className="p-2"
+                            variant="ghost"
+                            className={clientActionButtonClass}
                             onClick={(e) => {
                                 e.stopPropagation();
                                 navigate(`/clients/${r.id}`);
@@ -180,8 +211,8 @@ const Clients = () => {
                             <Eye className="w-5 h-5" />
                         </Button>
                         <Button
-                            variant="secondary"
-                            className="p-2"
+                            variant="ghost"
+                            className={clientActionButtonClass}
                             onClick={(e) => {
                                 e.stopPropagation();
                                 navigate(`/clients/${r.id}/edit`);
@@ -191,17 +222,29 @@ const Clients = () => {
                         >
                             <Pencil className="w-5 h-5" />
                         </Button>
-                        <Button
-                            className="p-2"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                setCommandClient(r);
-                            }}
-                            title="Actions"
-                            aria-label="Actions"
-                        >
-                            <Bolt className="w-5 h-5" />
-                        </Button>
+                        {getVisibleClientActions(r, {
+                            hasAssignedStaff: Boolean(r?.staffId || r?.staffName),
+                            savingsAccounts: [],
+                        }).map((action) => {
+                            const Icon = action.icon;
+                            return (
+                                <Button
+                                    key={`${r.id}-${action.command}`}
+                                    size="sm"
+                                    variant="ghost"
+                                    className={clientActionButtonClass}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setCommandClient(r);
+                                        setCommandOpen(action.command);
+                                    }}
+                                    title={action.title}
+                                    aria-label={action.title}
+                                >
+                                    <Icon className="h-5 w-5" />
+                                </Button>
+                            );
+                        })}
                     </div>
                 ),
             },
@@ -269,7 +312,7 @@ const Clients = () => {
                                     setSearch(e.target.value);
                                     setPage(0);
                                 }}
-                                placeholder="Name / Account # / External ID / Office"
+                                placeholder="Display Name / External ID"
                                 className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
                             />
                         </div>
@@ -396,9 +439,15 @@ const Clients = () => {
             <ClientCommandModal
                 open={!!commandClient}
                 client={commandClient}
-                onClose={() => setCommandClient(null)}
+                initialCommand={commandOpen || 'activate'}
+                lockCommand={false}
+                onClose={() => {
+                    setCommandClient(null);
+                    setCommandOpen('');
+                }}
                 onDone={() => {
                     setCommandClient(null);
+                    setCommandOpen('');
                     // hard refresh current query set
                     setRefreshNonce((n) => n + 1);
                 }}
@@ -408,3 +457,4 @@ const Clients = () => {
 };
 
 export default Clients;
+

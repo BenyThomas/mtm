@@ -82,6 +82,7 @@ const IdentifierForm = ({ clientId, initial, onSubmit, submitting }) => {
         const payload = {
             documentTypeId: Number(documentTypeId),
             documentKey: documentKey.trim(),
+            status: 'ACTIVE',
             ...(description.trim() ? { description: description.trim() } : {}),
         };
         await onSubmit(payload);
