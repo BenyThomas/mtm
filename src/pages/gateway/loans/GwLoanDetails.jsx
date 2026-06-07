@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { CalendarDays, CheckCircle, Copy, Download, FileSpreadsheet, FileText, Loader2, ReceiptText, RotateCcw, Settings2, Trash2, Undo2, UserPlus, Wallet, XCircle } from 'lucide-react';
+import { CalendarDays, CheckCircle, Copy, Download, FileSpreadsheet, FileText, Loader2, Pencil, ReceiptText, RotateCcw, Settings2, Trash2, Undo2, UserPlus, Wallet, XCircle } from 'lucide-react';
 import Button from '../../../components/Button';
 import Card from '../../../components/Card';
 import Skeleton from '../../../components/Skeleton';
@@ -23,6 +23,7 @@ import {
   refreshGwSelcomRepaymentOrder,
   repayGwLoanMobile,
   reverseGwLoanTransaction,
+  patchGwLoan,
   runGwLoanAction,
 } from '../../../api/gateway/loans';
 import { listBankNames } from '../../../api/gateway/bankNames';
@@ -148,6 +149,21 @@ const txDateToISO = (value) => {
     return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
   }
   return normalizeText(value);
+};
+
+const resolveDisbursementDateISO = (loanDoc) => {
+  const candidates = [
+    loanDoc?.requestedDisbursementDate,
+    loanDoc?.actualDisbursementDate,
+    loanDoc?.expectedDisbursementDate,
+    loanDoc?.timeline?.expectedDisbursementDate,
+    loanDoc?.timeline?.submittedOnDate,
+  ];
+  for (const candidate of candidates) {
+    const iso = txDateToISO(candidate);
+    if (iso) return iso.slice(0, 10);
+  }
+  return dateISO();
 };
 
 const formatDisplayDate = (value, { withTime = false } = {}) => {
@@ -450,6 +466,15 @@ const GwLoanDetails = () => {
   const [approvedAmount, setApprovedAmount] = useState('');
   const [approvedTenureMonths, setApprovedTenureMonths] = useState('');
   const [approvedOnDate, setApprovedOnDate] = useState(dateISO());
+  const [modifyOpen, setModifyOpen] = useState(false);
+  const [modifyBusy, setModifyBusy] = useState(false);
+  const [modifyForm, setModifyForm] = useState({
+    principal: '',
+    tenureMonths: '',
+    loanPurposeId: '',
+    submittedOnDate: dateISO(),
+    expectedDisbursementDate: dateISO(),
+  });
   const [simpleActionOpen, setSimpleActionOpen] = useState('');
   const [simpleActionBusy, setSimpleActionBusy] = useState(false);
   const [simpleActionDate, setSimpleActionDate] = useState(dateISO());
@@ -831,6 +856,7 @@ const GwLoanDetails = () => {
     statusUpper !== 'ACTIVE' &&
     statusUpper !== 'DISBURSED' &&
     statusUpper !== 'CLOSED';
+  const canModifyLoanRequest = !['APPROVED', 'PENDING_DISBURSEMENT', 'ACTIVE', 'DISBURSED', 'CLOSED'].includes(statusUpper);
   const primaryWorkflowActions = [
     {
       key: 'approve',
@@ -1066,6 +1092,54 @@ const GwLoanDetails = () => {
       addToast(msg, 'error');
     } finally {
       setApproveBusy(false);
+    }
+  };
+
+  const openModifyLoanModal = () => {
+    if (!canModifyLoanRequest || !doc) return;
+    const submittedSource = doc?.appliedAt || doc?.submittedOnDate || doc?.timeline?.submittedOnDate;
+    const submittedDate = txDateToISO(submittedSource);
+    setModifyForm({
+      principal: doc?.principal != null ? String(doc.principal) : '',
+      tenureMonths: doc?.tenureMonths != null ? String(doc.tenureMonths) : '',
+      loanPurposeId: doc?.loanPurposeId != null ? String(doc.loanPurposeId) : '',
+      submittedOnDate: submittedDate ? submittedDate.slice(0, 10) : dateISO(),
+      expectedDisbursementDate: resolveDisbursementDateISO(doc),
+    });
+    setModifyOpen(true);
+  };
+
+  const submitModifyLoanRequest = async () => {
+    const principal = Number(modifyForm.principal);
+    const tenureMonths = Number(modifyForm.tenureMonths);
+    if (!(principal > 0)) {
+      addToast('Principal must be greater than zero', 'error');
+      return;
+    }
+    if (!(tenureMonths > 0)) {
+      addToast('Tenure must be greater than zero', 'error');
+      return;
+    }
+    setModifyBusy(true);
+    try {
+      const payload = {
+        principal,
+        tenureMonths,
+        loanPurposeId: modifyForm.loanPurposeId ? Number(modifyForm.loanPurposeId) : undefined,
+        submittedOnDate: modifyForm.submittedOnDate || undefined,
+        expectedDisbursementDate: modifyForm.expectedDisbursementDate || undefined,
+      };
+      const updated = await patchGwLoan(platformLoanId, payload);
+      setDoc(updated);
+      addToast('Loan request updated', 'success');
+      setModifyOpen(false);
+      await refreshLoanViews(updated);
+    } catch (e) {
+      const msg = extractGatewayErrorMessage(e, 'Modify loan request failed');
+      setErr(msg);
+      addToast(msg, 'error');
+    } finally {
+      setModifyBusy(false);
     }
   };
 
@@ -1468,7 +1542,7 @@ const GwLoanDetails = () => {
     const initialBankName = allowedNames.includes(customerBankName)
       ? customerBankName
       : (allowedNames.includes(bankNameValue) ? bankNameValue : '');
-    setActualDisbursementDate(dateISO());
+    setActualDisbursementDate(resolveDisbursementDateISO(doc));
     setDisbursementType(typeValue);
     setDisbursementProvider(providerValue);
     setDisbursementBankName(typeValue === 'CASH' ? '' : initialBankName);
@@ -1504,6 +1578,18 @@ const GwLoanDetails = () => {
               Back
             </Button>
             <Can any={['GW_OPS_WRITE']}>
+              {doc && canModifyLoanRequest ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className={`h-10 w-10 rounded-xl p-0 shadow-sm ${actionButtonClass('violet')}`}
+                  onClick={openModifyLoanModal}
+                  title="Modify loan request"
+                  aria-label="Modify loan request"
+                >
+                  <Pencil size={18} strokeWidth={2.2} />
+                </Button>
+              ) : null}
               {doc ? primaryWorkflowActions.map((action) => (
                 <Button
                   key={action.key}
@@ -1572,6 +1658,77 @@ const GwLoanDetails = () => {
           </div>
         </div>
       </section>
+
+      <Modal
+        open={modifyOpen}
+        onClose={() => !modifyBusy && setModifyOpen(false)}
+        title="Modify Loan Request"
+        size="lg"
+        footer={(
+          <>
+            <Button variant="secondary" onClick={() => setModifyOpen(false)} disabled={modifyBusy}>
+              Cancel
+            </Button>
+            <Button onClick={submitModifyLoanRequest} disabled={modifyBusy}>
+              {modifyBusy ? 'Saving...' : 'Save Changes'}
+            </Button>
+          </>
+        )}
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Principal</label>
+            <input
+              type="number"
+              min="1"
+              step="0.01"
+              value={modifyForm.principal}
+              onChange={(e) => setModifyForm((prev) => ({ ...prev, principal: e.target.value }))}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Tenure Months</label>
+            <input
+              type="number"
+              min="1"
+              step="1"
+              value={modifyForm.tenureMonths}
+              onChange={(e) => setModifyForm((prev) => ({ ...prev, tenureMonths: e.target.value }))}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Loan Purpose ID</label>
+            <input
+              type="number"
+              min="1"
+              step="1"
+              value={modifyForm.loanPurposeId}
+              onChange={(e) => setModifyForm((prev) => ({ ...prev, loanPurposeId: e.target.value }))}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Submitted On Date</label>
+            <input
+              type="date"
+              value={modifyForm.submittedOnDate}
+              onChange={(e) => setModifyForm((prev) => ({ ...prev, submittedOnDate: e.target.value }))}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Expected Disbursement Date</label>
+            <input
+              type="date"
+              value={modifyForm.expectedDisbursementDate}
+              onChange={(e) => setModifyForm((prev) => ({ ...prev, expectedDisbursementDate: e.target.value }))}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+        </div>
+      </Modal>
 
       {repaymentBanner ? (
         <div className="rounded-xl border border-emerald-200/70 bg-emerald-50 px-4 py-3 dark:border-emerald-900/50 dark:bg-emerald-900/20">
@@ -2239,7 +2396,7 @@ const GwLoanDetails = () => {
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Approved Tenure (months, optional)</label>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Approved Tenure (optional)</label>
             <input
               inputMode="numeric"
               value={approvedTenureMonths}

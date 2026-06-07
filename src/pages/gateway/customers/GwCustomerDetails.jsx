@@ -208,6 +208,14 @@ const toDateInput = (value) => {
   return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : text.slice(0, 10);
 };
 
+const todayDateString = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const inviteMatchesCustomer = (invite, customer, onboarding) => {
   const invitePhone = String(invite?.prefill?.phoneNumber || '').replace(/\s+/g, '');
   const customerPhone = String(customer?.profile?.phone || '').replace(/\s+/g, '');
@@ -242,7 +250,14 @@ const GwCustomerDetails = () => {
   const [loanPurposes, setLoanPurposes] = useState([]);
   const [loanEligibility, setLoanEligibility] = useState(null);
   const [loanEligibilityLoading, setLoanEligibilityLoading] = useState(false);
-  const [loanForm, setLoanForm] = useState({ productCode: '', amount: '', tenure: '', loanPurposeId: '' });
+  const [loanForm, setLoanForm] = useState({
+    productCode: '',
+    amount: '',
+    tenure: '',
+    loanPurposeId: '',
+    submittedOnDate: todayDateString(),
+    expectedDisbursementDate: todayDateString(),
+  });
   const [vehicles, setVehicles] = useState([]);
   const [vehicleOpen, setVehicleOpen] = useState(false);
   const [vehicleSaving, setVehicleSaving] = useState(false);
@@ -678,7 +693,14 @@ const GwCustomerDetails = () => {
   const openLoanModal = () => {
     setLoanProducts([]);
     setLoanEligibility(null);
-    setLoanForm({ productCode: '', amount: '', tenure: '', loanPurposeId: '' });
+    setLoanForm({
+      productCode: '',
+      amount: '',
+      tenure: '',
+      loanPurposeId: '',
+      submittedOnDate: todayDateString(),
+      expectedDisbursementDate: todayDateString(),
+    });
     setLoanOpen(true);
   };
 
@@ -717,6 +739,8 @@ const GwCustomerDetails = () => {
         tenure: requestedTenure,
         tenureUnit: resolvedEligibility?.tenureUnit || loanEligibility?.tenureUnit || undefined,
         loanPurposeId: loanForm.loanPurposeId ? Number(loanForm.loanPurposeId) : undefined,
+        submittedOnDate: loanForm.submittedOnDate || todayDateString(),
+        expectedDisbursementDate: loanForm.expectedDisbursementDate || todayDateString(),
       });
       setLoanOpen(false);
       addToast('Loan application submitted', 'success');
@@ -1166,6 +1190,30 @@ const GwCustomerDetails = () => {
                 <option key={option.value} value={option.value}>{option.label}</option>
               ))}
             </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Submitted On Date
+            </label>
+            <input
+              type="date"
+              value={loanForm.submittedOnDate}
+              onChange={(e) => setLoanForm((prev) => ({ ...prev, submittedOnDate: e.target.value }))}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Expected Disbursement Date
+            </label>
+            <input
+              type="date"
+              value={loanForm.expectedDisbursementDate}
+              onChange={(e) => setLoanForm((prev) => ({ ...prev, expectedDisbursementDate: e.target.value }))}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
           </div>
 
           <div>
