@@ -317,9 +317,18 @@ const FINERACT_ACTIONS = {
     title: 'Reschedule Loan',
     icon: CalendarDays,
     endpoint: 'loan',
-    buildPayload: ({ date, note }) => ({ locale: 'en', dateFormat: 'yyyy-MM-dd', rescheduleFromDate: date, note: note || undefined }),
+    buildPayload: ({ loanId, date, note, rescheduleReasonId }) => ({
+      locale: 'en',
+      dateFormat: 'yyyy-MM-dd',
+      loanId,
+      submittedOnDate: date,
+      rescheduleFromDate: date,
+      rescheduleReasonId: rescheduleReasonId ? Number(rescheduleReasonId) : undefined,
+      rescheduleReasonComment: note || undefined,
+    }),
     needsDate: true,
     needsNote: true,
+    needsReasonId: true,
   },
   waiveInterest: {
     title: 'Waive Interest',
@@ -333,7 +342,7 @@ const FINERACT_ACTIONS = {
   writeoff: {
     title: 'Write Off',
     icon: XCircle,
-    endpoint: 'loan',
+    endpoint: 'transactions',
     buildPayload: ({ date, note }) => ({ locale: 'en', dateFormat: 'yyyy-MM-dd', transactionDate: date, note: note || undefined }),
     needsDate: true,
     needsNote: true,
@@ -498,6 +507,7 @@ const GwLoanDetails = () => {
   const [repaymentMsisdn, setRepaymentMsisdn] = useState('');
   const [repaymentPayerName, setRepaymentPayerName] = useState('');
   const [repaymentPayerEmail, setRepaymentPayerEmail] = useState('');
+  const [repaymentExternalId, setRepaymentExternalId] = useState('');
   const [repaymentResult, setRepaymentResult] = useState(null);
   const [repaymentBanner, setRepaymentBanner] = useState(null);
   const [repaymentRefreshBusy, setRepaymentRefreshBusy] = useState(false);
@@ -538,6 +548,7 @@ const GwLoanDetails = () => {
   const [fineractActionNote, setFineractActionNote] = useState('');
   const [fineractActionPaymentTypeId, setFineractActionPaymentTypeId] = useState('');
   const [fineractActionExternalId, setFineractActionExternalId] = useState('');
+  const [fineractActionRescheduleReasonId, setFineractActionRescheduleReasonId] = useState('');
   const [fineractActionChargeId, setFineractActionChargeId] = useState('');
   const [fineractActionCustomCommand, setFineractActionCustomCommand] = useState('');
   const [fineractActionPayload, setFineractActionPayload] = useState('{}');
@@ -997,6 +1008,7 @@ const GwLoanDetails = () => {
     setFineractActionNote('');
     setFineractActionPaymentTypeId('');
     setFineractActionExternalId('');
+    setFineractActionRescheduleReasonId('');
     setFineractActionChargeId(availableChargeIds[0]?.value || '');
     setFineractActionCustomCommand('');
     setFineractActionPayload('{}');
@@ -1015,17 +1027,23 @@ const GwLoanDetails = () => {
       addToast('Command is required', 'error');
       return;
     }
+    if (fineractActionOpen === 'reschedule' && !String(fineractActionRescheduleReasonId || '').trim()) {
+      addToast('Reschedule Reason ID is required', 'error');
+      return;
+    }
 
     let payload;
     try {
       payload = meta.needsPayload
         ? JSON.parse(fineractActionPayload || '{}')
         : meta.buildPayload({
+          loanId: fineractActionOpen === 'reschedule' ? Number(fineractLoanId) || fineractLoanId : undefined,
           date: fineractActionDate,
           amount: fineractActionAmount,
           note: fineractActionNote,
           paymentTypeId: fineractActionPaymentTypeId,
           externalId: fineractActionExternalId,
+          rescheduleReasonId: fineractActionRescheduleReasonId,
         });
     } catch (_) {
       addToast('Payload must be valid JSON', 'error');
@@ -1035,7 +1053,9 @@ const GwLoanDetails = () => {
     setFineractActionBusy(true);
     try {
       const commandName = meta.needsCustomCommand ? fineractActionCustomCommand.trim() : fineractActionOpen;
-      const path = meta.endpoint === 'transactions'
+      const path = commandName === 'reschedule'
+        ? '/rescheduleloans'
+        : meta.endpoint === 'transactions'
         ? `/loans/${encodeURIComponent(fineractLoanId)}/transactions?command=${encodeURIComponent(commandName)}`
         : meta.endpoint === 'charges'
           ? `/loans/${encodeURIComponent(fineractLoanId)}/charges/${encodeURIComponent(String(fineractActionChargeId).trim())}?command=${encodeURIComponent(commandName)}`
@@ -1252,6 +1272,7 @@ const GwLoanDetails = () => {
     setRepaymentMsisdn(customerRepaymentIdentity.msisdn || '');
     setRepaymentPayerName(customerRepaymentIdentity.payerName || '');
     setRepaymentPayerEmail(customerRepaymentIdentity.payerEmail || '');
+    setRepaymentExternalId('');
     setRepaymentResult(null);
     setRepayOpen(true);
   }
@@ -1302,6 +1323,10 @@ const GwLoanDetails = () => {
       addToast('Customer wallet MSISDN is required', 'error');
       return;
     }
+    if (isEpikpayRepayment && !normalizeText(repaymentExternalId)) {
+      addToast('Bank transaction reference is required', 'error');
+      return;
+    }
 
     setRepayBusy(true);
     const provider = repaymentProviderValue;
@@ -1314,6 +1339,7 @@ const GwLoanDetails = () => {
         msisdn: isEpikpayRepayment ? undefined : normalizeText(repaymentMsisdn),
         payerName: normalizeText(repaymentPayerName) || undefined,
         payerEmail: normalizeText(repaymentPayerEmail) || undefined,
+        externalPaymentId: normalizeText(repaymentExternalId) || undefined,
       });
       setRepaymentResult(result || null);
       setRepaymentBanner({
@@ -2084,6 +2110,17 @@ const GwLoanDetails = () => {
               />
             </div>
           ) : null}
+          {FINERACT_ACTIONS[fineractActionOpen]?.needsReasonId ? (
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Reschedule Reason ID</label>
+              <input
+                inputMode="numeric"
+                value={fineractActionRescheduleReasonId}
+                onChange={(e) => setFineractActionRescheduleReasonId(e.target.value)}
+                className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+              />
+            </div>
+          ) : null}
           {FINERACT_ACTIONS[fineractActionOpen]?.needsChargeId ? (
             <div className="sm:col-span-2">
               <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Charge</label>
@@ -2688,9 +2725,20 @@ const GwLoanDetails = () => {
               className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
             />
           </div>
+          {isEpikpayRepayment ? (
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Bank Transaction Reference *</label>
+              <input
+                value={repaymentExternalId}
+                onChange={(e) => setRepaymentExternalId(e.target.value)}
+                placeholder="Bank reference from the repayment"
+                className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+              />
+            </div>
+          ) : null}
           <div className="sm:col-span-2 rounded-xl border border-slate-200/70 bg-slate-50 px-3 py-3 text-xs text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/50 dark:text-slate-300">
             {isEpikpayRepayment
-              ? 'Cash repayment is posted directly to Fineract through the gateway.'
+              ? 'Cash repayment is posted directly to Fineract through the gateway and uses the bank transaction reference as the external ID.'
               : 'Repayment is posted to Fineract only after the selected aggregator confirms payment completion.'}
           </div>
           {looksLikeEarlyPayoff ? (

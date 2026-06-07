@@ -18,7 +18,15 @@ const COMMANDS = [
         value: 'reschedule',
         label: 'Reschedule Loan',
         endpoint: 'loan',
-        template: ({ date, note }) => ({ locale: 'en', dateFormat: 'yyyy-MM-dd', rescheduleFromDate: date, note: note || undefined }),
+        template: ({ loanIdValue, date, note, rescheduleReasonId }) => ({
+            locale: 'en',
+            dateFormat: 'yyyy-MM-dd',
+            loanId: Number.isFinite(Number(loanIdValue)) ? Number(loanIdValue) : loanIdValue,
+            submittedOnDate: date,
+            rescheduleFromDate: date,
+            rescheduleReasonId: rescheduleReasonId ? Number(rescheduleReasonId) : undefined,
+            rescheduleReasonComment: note || undefined,
+        }),
     },
     {
         value: 'waiveInterest',
@@ -29,7 +37,7 @@ const COMMANDS = [
     {
         value: 'writeoff',
         label: 'Write Off',
-        endpoint: 'loan',
+        endpoint: 'transactions',
         template: ({ date, note }) => ({ locale: 'en', dateFormat: 'yyyy-MM-dd', transactionDate: date, note: note || undefined }),
     },
     {
@@ -102,6 +110,7 @@ const LoanAdvancedActionModal = ({ open, loanId, paymentTypeOptions, initialComm
     const [note, setNote] = useState('');
     const [paymentTypeId, setPaymentTypeId] = useState('');
     const [externalId, setExternalId] = useState('');
+    const [rescheduleReasonId, setRescheduleReasonId] = useState('');
     const [chargeId, setChargeId] = useState('');
     const [endpointKind, setEndpointKind] = useState(COMMANDS.find(c => c.value === (initialCommand || COMMANDS[0].value))?.endpoint || COMMANDS[0].endpoint);
     const [customCommand, setCustomCommand] = useState('');
@@ -121,6 +130,7 @@ const LoanAdvancedActionModal = ({ open, loanId, paymentTypeOptions, initialComm
         setNote('');
         setPaymentTypeId('');
         setExternalId('');
+        setRescheduleReasonId('');
         setChargeId('');
         setEndpointKind(COMMANDS.find(c => c.value === (initialCommand || COMMANDS[0].value))?.endpoint || COMMANDS[0].endpoint);
         setCustomCommand('');
@@ -131,8 +141,8 @@ const LoanAdvancedActionModal = ({ open, loanId, paymentTypeOptions, initialComm
         if (command !== 'custom') {
             setEndpointKind(commandMeta.endpoint);
         }
-        setPayloadText(pretty(commandMeta.template({ date, amount, note, paymentTypeId, externalId })));
-    }, [open, command, commandMeta, date, amount, note, paymentTypeId, externalId]);
+        setPayloadText(pretty(commandMeta.template({ loanIdValue: loanId, date, amount, note, paymentTypeId, externalId, rescheduleReasonId })));
+    }, [open, command, commandMeta, loanId, date, amount, note, paymentTypeId, externalId, rescheduleReasonId]);
 
     if (!open || !loanId) return null;
 
@@ -140,6 +150,10 @@ const LoanAdvancedActionModal = ({ open, loanId, paymentTypeOptions, initialComm
         const commandName = command === 'custom' ? customCommand.trim() : command;
         if (!commandName) {
             addToast('Command is required', 'error');
+            return;
+        }
+        if (commandName === 'reschedule' && !String(rescheduleReasonId || '').trim()) {
+            addToast('Reschedule Reason ID is required', 'error');
             return;
         }
         if (endpointKind === 'charges' && !chargeId.trim()) {
@@ -157,7 +171,9 @@ const LoanAdvancedActionModal = ({ open, loanId, paymentTypeOptions, initialComm
 
         setBusy(true);
         try {
-            const path = endpointKind === 'transactions'
+            const path = commandName === 'reschedule'
+                ? '/rescheduleloans'
+                : endpointKind === 'transactions'
                 ? `/loans/${loanId}/transactions?command=${encodeURIComponent(commandName)}`
                 : endpointKind === 'charges'
                     ? `/loans/${loanId}/charges/${encodeURIComponent(chargeId.trim())}?command=${encodeURIComponent(commandName)}`
@@ -192,6 +208,18 @@ const LoanAdvancedActionModal = ({ open, loanId, paymentTypeOptions, initialComm
                         <label className="block text-sm font-medium">Amount</label>
                         <input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Optional amount" className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600" />
                     </div>
+                    {command === 'reschedule' && (
+                        <div>
+                            <label className="block text-sm font-medium">Reschedule Reason ID</label>
+                            <input
+                                value={rescheduleReasonId}
+                                onChange={(e) => setRescheduleReasonId(e.target.value)}
+                                placeholder="Required by Fineract"
+                                inputMode="numeric"
+                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
+                            />
+                        </div>
+                    )}
                     <div>
                         <label className="block text-sm font-medium">Endpoint</label>
                         <select
