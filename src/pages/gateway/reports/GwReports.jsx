@@ -10,6 +10,7 @@ const REPORT_OPTIONS = [
   { key: 'arrears', label: 'Arrears', description: 'Arrears by loan, client, product, branch, or officer.', filters: ['groupBy'] },
   { key: 'botClassification', label: 'BOT Classification', description: 'BOT provisioning and classification report.', filters: ['groupBy'] },
   { key: 'dailyCollections', label: 'Daily Collections', description: 'Collections posted, failed, and unmatched for one day.', filters: ['date'] },
+  { key: 'expectedCollectionByDate', label: 'Expected Collection by Date', description: 'Expected installment collections for a selected date.', filters: ['date'] },
   { key: 'due', label: 'Due Today / Week', description: 'Installments due today or this week.', filters: ['window'] },
   { key: 'par', label: 'PAR', description: 'Portfolio at risk buckets.', filters: [] },
   { key: 'portfolioOutstanding', label: 'Portfolio Outstanding', description: 'Outstanding portfolio by dimension.', filters: ['groupBy'] },

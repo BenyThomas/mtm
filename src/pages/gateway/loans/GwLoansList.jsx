@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { CirclePlus, Eye, Pencil, Trash2 } from 'lucide-react';
+import { Eye, Pencil, Trash2 } from 'lucide-react';
 import Card from '../../../components/Card';
 import Button from '../../../components/Button';
 import DataTable from '../../../components/DataTable';
@@ -30,6 +30,14 @@ const STATUS_OPTIONS = [
 
 const unwrap = (body) => (body && typeof body === 'object' && 'data' in body ? body.data : body);
 const normalizeText = (value) => String(value || '').trim().toUpperCase();
+
+const todayDateString = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 const toNumOrNull = (v) => {
   if (v == null) return null;
@@ -134,7 +142,14 @@ const GwLoansList = () => {
   const [loanProducts, setLoanProducts] = useState([]);
   const [loanEligibility, setLoanEligibility] = useState(null);
   const [loanEligibilityLoading, setLoanEligibilityLoading] = useState(false);
-  const [loanForm, setLoanForm] = useState({ productCode: '', amount: '', tenure: '', loanPurposeId: '' });
+  const [loanForm, setLoanForm] = useState({
+    productCode: '',
+    amount: '',
+    tenure: '',
+    loanPurposeId: '',
+    submittedOnDate: todayDateString(),
+    expectedDisbursementDate: todayDateString(),
+  });
 
   // filters
   const [search, setSearch] = useState('');
@@ -479,7 +494,14 @@ const GwLoansList = () => {
     setSelectedCustomerForLoan(row || null);
     setLoanProducts([]);
     setLoanEligibility(null);
-    setLoanForm({ productCode: '', amount: '', tenure: '', loanPurposeId: '' });
+    setLoanForm({
+      productCode: '',
+      amount: '',
+      tenure: '',
+      loanPurposeId: '',
+      submittedOnDate: todayDateString(),
+      expectedDisbursementDate: todayDateString(),
+    });
     setLoanOpen(true);
   };
 
@@ -519,6 +541,8 @@ const GwLoansList = () => {
         tenure: requestedTenure,
         tenureUnit: resolvedEligibility?.tenureUnit || loanEligibility?.tenureUnit || undefined,
         loanPurposeId: loanForm.loanPurposeId ? Number(loanForm.loanPurposeId) : undefined,
+        submittedOnDate: loanForm.submittedOnDate || todayDateString(),
+        expectedDisbursementDate: loanForm.expectedDisbursementDate || todayDateString(),
       });
       setLoanOpen(false);
       addToast('Loan application submitted', 'success');
@@ -634,20 +658,6 @@ const GwLoansList = () => {
                 <Eye size={16} />
               </Button>
             </Link>
-            <Can any={['CREATE_LOAN', 'GW_OPS_WRITE']}>
-              {canApplyOnBehalf ? (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="px-2 text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300"
-                  onClick={(e) => openCustomerLoanModal(r, e)}
-                  aria-label="Apply loan on behalf"
-                  title="Apply loan on behalf"
-                >
-                  <CirclePlus size={16} />
-                </Button>
-              ) : null}
-            </Can>
             <Can any={['GW_OPS_WRITE']}>
               <Link to={`/gateway/loans/${encodeURIComponent(r?.platformLoanId)}`} title="Edit">
                 <Button size="sm" variant="ghost" className="px-2" aria-label="Edit">
@@ -849,6 +859,30 @@ const GwLoansList = () => {
                 <option key={option.value} value={option.value}>{option.label}</option>
               ))}
             </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Submitted On Date
+            </label>
+            <input
+              type="date"
+              value={loanForm.submittedOnDate}
+              onChange={(e) => setLoanForm((prev) => ({ ...prev, submittedOnDate: e.target.value }))}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Expected Disbursement Date
+            </label>
+            <input
+              type="date"
+              value={loanForm.expectedDisbursementDate}
+              onChange={(e) => setLoanForm((prev) => ({ ...prev, expectedDisbursementDate: e.target.value }))}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
           </div>
 
           <div>
