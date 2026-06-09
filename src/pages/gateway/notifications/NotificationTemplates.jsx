@@ -8,6 +8,7 @@ import Badge from '../../../components/Badge';
 import { useToast } from '../../../context/ToastContext';
 import {
   createNotificationTemplate,
+  getNotificationMetadata,
   getNotificationTemplate,
   listNotificationTemplates,
   patchNotificationTemplate,
@@ -15,21 +16,26 @@ import {
 } from '../../../api/gateway/notifications';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
-const CHANNEL_OPTIONS = ['SMS'];
 const STATUS_OPTIONS = [
   { value: '', label: 'All' },
   { value: 'true', label: 'Active' },
   { value: 'false', label: 'Inactive' },
 ];
 
-const EVENT_TYPE_OPTIONS = [
+const DEFAULT_CHANNEL_OPTIONS = ['SMS', 'EMAIL', 'WHATSAPP', 'PUSH', 'IN_APP'];
+const DEFAULT_EVENT_TYPE_OPTIONS = [
   'LOAN_REPAYMENT_RECEIVED',
   'LOAN_REPAYMENT_REMINDER',
   'INVITE_SENT',
   'INVITE_ACCEPTED',
+  'LOAN_APPLIED',
   'LOAN_APPROVED',
   'LOAN_REJECTED',
   'LOAN_DISBURSED',
+  'ONBOARDING_ACCEPTED',
+  'ASSISTED_ONBOARDING_PIN',
+  'OTP_SENT',
+  'VERIFICATION_LINK_SENT',
   'GENERIC_OPS',
 ];
 
@@ -38,9 +44,14 @@ const PLACEHOLDER_MAP = {
   LOAN_REPAYMENT_REMINDER: ['customerName', 'amount', 'productName', 'paidAt', 'loanAccount'],
   INVITE_SENT: ['customerName', 'inviteCode', 'inviteUrl', 'expiryDate'],
   INVITE_ACCEPTED: ['customerName', 'inviteCode'],
+  LOAN_APPLIED: ['customerName', 'amount', 'productName', 'loanAccount'],
   LOAN_APPROVED: ['customerName', 'amount', 'productName', 'loanAccount'],
   LOAN_REJECTED: ['customerName', 'amount', 'productName', 'loanAccount', 'reason'],
   LOAN_DISBURSED: ['customerName', 'amount', 'productName', 'loanAccount'],
+  ONBOARDING_ACCEPTED: ['customerName'],
+  ASSISTED_ONBOARDING_PIN: ['pin'],
+  OTP_SENT: ['customerName', 'otp', 'purpose', 'phone'],
+  VERIFICATION_LINK_SENT: ['customerName', 'link'],
   GENERIC_OPS: ['customerName', 'message', 'date'],
 };
 
@@ -72,6 +83,7 @@ const NotificationTemplates = () => {
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [metadata, setMetadata] = useState({ channels: [], eventTypes: [] });
   const [page, setPage] = useState(0);
   const [limit, setLimit] = useState(10);
   const [refreshTick, setRefreshTick] = useState(0);
@@ -92,6 +104,21 @@ const NotificationTemplates = () => {
   const [form, setForm] = useState(EMPTY_FORM);
 
   const detectedPlaceholders = useMemo(() => extractDetectedPlaceholders(form.body), [form.body]);
+  const channelOptions = useMemo(
+    () => {
+      const channels = Array.isArray(metadata.channels) && metadata.channels.length > 0 ? metadata.channels : DEFAULT_CHANNEL_OPTIONS;
+      return Array.from(new Set(channels.map((value) => String(value || '').trim().toUpperCase()).filter(Boolean)));
+    },
+    [metadata.channels]
+  );
+  const eventTypeOptions = useMemo(
+    () => {
+      const events = Array.isArray(metadata.eventTypes) && metadata.eventTypes.length > 0 ? metadata.eventTypes : DEFAULT_EVENT_TYPE_OPTIONS;
+      return Array.from(new Set(events.map((value) => String(value || '').trim().toUpperCase()).filter(Boolean)));
+    },
+    [metadata.eventTypes]
+  );
+  const defaultChannel = channelOptions[0] || 'SMS';
 
   useEffect(() => {
     let cancelled = false;
@@ -125,9 +152,31 @@ const NotificationTemplates = () => {
     };
   }, [eventTypeFilter, channelFilter, providerFilter, activeFilter, page, limit, refreshTick, addToast]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const loadMetadata = async () => {
+      try {
+        const data = await getNotificationMetadata();
+        if (cancelled) return;
+        setMetadata({
+          channels: Array.isArray(data?.channels) ? data.channels : [],
+          eventTypes: Array.isArray(data?.eventTypes) ? data.eventTypes : [],
+        });
+      } catch {
+        if (!cancelled) {
+          setMetadata({ channels: DEFAULT_CHANNEL_OPTIONS, eventTypes: DEFAULT_EVENT_TYPE_OPTIONS });
+        }
+      }
+    };
+    loadMetadata();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const openCreate = () => {
     setFormMode('create');
-    setForm(EMPTY_FORM);
+    setForm({ ...EMPTY_FORM, channel: defaultChannel });
     setFormOpen(true);
   };
 
@@ -142,7 +191,7 @@ const NotificationTemplates = () => {
         setFormMode('edit');
         setForm({
           eventType: data?.eventType || '',
-          channel: data?.channel || 'SMS',
+          channel: data?.channel || defaultChannel,
           provider: data?.provider || '',
           language: data?.language || 'en',
           subject: data?.subject || '',
@@ -312,7 +361,7 @@ const NotificationTemplates = () => {
               className="mt-1 w-full rounded-xl border p-2.5 dark:border-gray-600 dark:bg-gray-700"
             >
               <option value="">All Events</option>
-              {EVENT_TYPE_OPTIONS.map((opt) => (
+              {eventTypeOptions.map((opt) => (
                 <option key={opt} value={opt}>
                   {opt}
                 </option>
@@ -330,7 +379,7 @@ const NotificationTemplates = () => {
               className="mt-1 w-full rounded-xl border p-2.5 dark:border-gray-600 dark:bg-gray-700"
             >
               <option value="">All</option>
-              {CHANNEL_OPTIONS.map((value) => (
+              {channelOptions.map((value) => (
                 <option key={value} value={value}>
                   {value}
                 </option>
@@ -554,7 +603,7 @@ const NotificationTemplates = () => {
                   className="mt-1 w-full rounded-xl border p-2.5 dark:border-gray-600 dark:bg-gray-700"
                   disabled={saving}
                 >
-                  {EVENT_TYPE_OPTIONS.map((opt) => (
+                  {eventTypeOptions.map((opt) => (
                     <option key={opt} value={opt}>
                       {opt}
                     </option>
@@ -569,7 +618,7 @@ const NotificationTemplates = () => {
                   className="mt-1 w-full rounded-xl border p-2.5 dark:border-gray-600 dark:bg-gray-700"
                   disabled={saving}
                 >
-                  {CHANNEL_OPTIONS.map((value) => (
+                  {channelOptions.map((value) => (
                     <option key={value} value={value}>
                       {value}
                     </option>
