@@ -7,13 +7,14 @@ import Modal from '../../../components/Modal';
 import Badge from '../../../components/Badge';
 import { useToast } from '../../../context/ToastContext';
 import {
+  getNotificationMetadata,
   getNotificationDispatch,
   listNotificationDispatches,
   retryNotificationDispatch,
 } from '../../../api/gateway/notifications';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
-const CHANNEL_OPTIONS = ['SMS'];
+const DEFAULT_CHANNEL_OPTIONS = ['SMS', 'EMAIL', 'WHATSAPP', 'PUSH', 'IN_APP'];
 const STATUS_OPTIONS = ['', 'PENDING', 'FAILED', 'SENT', 'CANCELLED'];
 
 const formatDateTime = (value) => {
@@ -42,6 +43,7 @@ const NotificationDispatches = () => {
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [metadata, setMetadata] = useState({ channels: [] });
   const [actingId, setActingId] = useState('');
   const [page, setPage] = useState(0);
   const [limit, setLimit] = useState(10);
@@ -57,6 +59,14 @@ const NotificationDispatches = () => {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [selectedDispatch, setSelectedDispatch] = useState(null);
+
+  const channelOptions = useMemo(
+    () => {
+      const channels = Array.isArray(metadata.channels) && metadata.channels.length > 0 ? metadata.channels : DEFAULT_CHANNEL_OPTIONS;
+      return Array.from(new Set(channels.map((value) => String(value || '').trim().toUpperCase()).filter(Boolean)));
+    },
+    [metadata.channels]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -102,6 +112,25 @@ const NotificationDispatches = () => {
     refreshTick,
     addToast,
   ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadMetadata = async () => {
+      try {
+        const data = await getNotificationMetadata();
+        if (cancelled) return;
+        setMetadata({ channels: Array.isArray(data?.channels) ? data.channels : [] });
+      } catch {
+        if (!cancelled) {
+          setMetadata({ channels: DEFAULT_CHANNEL_OPTIONS });
+        }
+      }
+    };
+    loadMetadata();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const loadDispatchDetail = async (dispatchId) => {
     if (!dispatchId) return;
@@ -261,7 +290,7 @@ const NotificationDispatches = () => {
               className="mt-1 w-full rounded-xl border p-2.5 dark:border-gray-600 dark:bg-gray-700"
             >
               <option value="">All</option>
-              {CHANNEL_OPTIONS.map((value) => (
+              {channelOptions.map((value) => (
                 <option key={value} value={value}>
                   {value}
                 </option>
