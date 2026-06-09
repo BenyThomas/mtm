@@ -39,3 +39,8 @@ export async function triggerRepaymentReminders() {
   const { data } = await gatewayApi.post('/ops/notifications/reminders/trigger');
   return data?.data || data;
 }
+
+export async function getNotificationMetadata() {
+  const { data } = await gatewayApi.get('/ops/notifications/meta');
+  return data?.data || data;
+}
