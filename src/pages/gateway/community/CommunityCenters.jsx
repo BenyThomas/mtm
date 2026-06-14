@@ -47,8 +47,8 @@ const CommunityCenters = () => {
   const [error, setError] = useState('');
   const [form, setForm] = useState(emptyForm);
 
-  const linkedOfficeId = String(user?.officeId || '').trim();
-  const linkedStaffId = String(user?.staffId || '').trim();
+  const linkedOfficeId = String(user?.linkedStaffOfficeId || user?.officeId || '').trim();
+  const linkedStaffId = String(user?.staffId || user?.linkedStaffId || '').trim();
 
   useEffect(() => {
     let cancelled = false;
@@ -242,13 +242,13 @@ const CommunityCenters = () => {
             <Button
               onClick={() => {
                 setError('');
-                setForm({
-                  ...emptyForm,
-                  officeId: linkedOfficeId,
-                  invitedByStaffId: linkedStaffId,
-                });
-                setCreateOpen(true);
-              }}
+              setForm({
+                ...emptyForm,
+                officeId: linkedOfficeId,
+                invitedByStaffId: linkedStaffId,
+              });
+              setCreateOpen(true);
+            }}
               disabled={!linkedOfficeId || !linkedStaffId}
             >
               <Plus size={16} /> Create Center
