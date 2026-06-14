@@ -49,6 +49,7 @@ const NAV_GROUPS = [
       { to: '/gateway/loans', label: 'GW Loans', icon: 'L', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_LOAN'] },
       { to: '/gateway/loans/arrears', label: 'Arrears Loans', icon: 'AR', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_LOAN'] },
       { to: '/gateway/reports', label: 'Gateway Reports', icon: 'GR', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_LOAN'] },
+      { to: '/gateway/performance', label: 'Performance KPIs', icon: 'KP', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_REPORT', 'READ_LOAN'] },
       { to: '/gateway/notifications/templates', label: 'Notif Templates', icon: 'NT', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
       { to: '/gateway/notifications/dispatches', label: 'Notif History', icon: 'NH', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
       { to: '/gateway/queues', label: 'Queues', icon: 'Q', any: ['GW_OPS_READ', 'GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
