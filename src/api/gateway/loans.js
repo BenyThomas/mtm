@@ -108,12 +108,24 @@ export async function runGwLoanAction(platformLoanId, action, payload) {
 }
 
 export async function repayGwLoanMobile(platformLoanId, payload) {
-  const r = await gatewayApi.post(`/ops/loans/${encodeURIComponent(platformLoanId)}/repayments/mobile`, payload);
+  const idempotencyKey = globalThis.crypto?.randomUUID?.()
+    || `repay-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const r = await gatewayApi.post(
+    `/ops/loans/${encodeURIComponent(platformLoanId)}/repayments/mobile`,
+    payload,
+    { headers: { 'Idempotency-Key': idempotencyKey } },
+  );
   return unwrap(r);
 }
 
 export async function repayGwLoanViaSelcomUssdPush(platformLoanId, payload) {
-  const r = await gatewayApi.post(`/ops/loans/${encodeURIComponent(platformLoanId)}/repayments/selcom-ussd-push`, payload);
+  const idempotencyKey = globalThis.crypto?.randomUUID?.()
+    || `repay-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const r = await gatewayApi.post(
+    `/ops/loans/${encodeURIComponent(platformLoanId)}/repayments/selcom-ussd-push`,
+    payload,
+    { headers: { 'Idempotency-Key': idempotencyKey } },
+  );
   return unwrap(r);
 }
 
