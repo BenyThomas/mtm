@@ -1463,8 +1463,10 @@ const GwLoanDetails = () => {
     }
     setReverseTransactionBusy(true);
     try {
+      const amount = toNumOrNull(selectedTransaction?.amount ?? selectedTransaction?.amountPaid ?? selectedTransaction?.transactionAmount);
       await reverseGwLoanTransaction(platformLoanId, selectedTransaction.id, {
         date: reverseTransactionDate || undefined,
+        amount: amount && amount > 0 ? amount : undefined,
         note: normalizeText(reverseTransactionNote) || undefined,
       });
       addToast('Transaction reversed', 'success');
