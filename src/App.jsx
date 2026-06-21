@@ -132,6 +132,7 @@ import MerchantCustomerDetails from "./pages/gateway/merchant/MerchantCustomerDe
 import MerchantIndustryTypesConfig from "./pages/gateway/MerchantIndustryTypesConfig";
 import SelcomRepaymentSync from "./pages/gateway/SelcomRepaymentSync";
 import Queues from "./pages/gateway/Queues";
+import AssistedCollectionsDesk from "./pages/gateway/collections/AssistedCollectionsDesk";
 
 import NotificationTemplates from "./pages/gateway/notifications/NotificationTemplates";
 import NotificationDispatches from "./pages/gateway/notifications/NotificationDispatches";
@@ -329,6 +330,7 @@ const App = () => {
                             <Route path="/gateway/invites/:inviteId" element={<InviteDetails />} />
                             <Route path="/gateway/loans" element={<GwLoansList />} />
                             <Route path="/gateway/loans/arrears" element={<GwArrearsLoans />} />
+                            <Route path="/gateway/collections" element={<AssistedCollectionsDesk />} />
                             <Route path="/gateway/reports" element={<GwReports />} />
                             <Route path="/gateway/performance" element={<PerformanceKpis />} />
                             <Route path="/gateway/notifications/templates" element={<NotificationTemplates />} />

@@ -1323,8 +1323,8 @@ const GwLoanDetails = () => {
       addToast('Customer wallet MSISDN is required', 'error');
       return;
     }
-    if (isEpikpayRepayment && !normalizeText(repaymentExternalId)) {
-      addToast('Bank transaction reference is required', 'error');
+    if (!normalizeText(repaymentExternalId)) {
+      addToast('Transaction reference is required', 'error');
       return;
     }
 
@@ -1463,8 +1463,10 @@ const GwLoanDetails = () => {
     }
     setReverseTransactionBusy(true);
     try {
+      const amount = toNumOrNull(selectedTransaction?.amount ?? selectedTransaction?.amountPaid ?? selectedTransaction?.transactionAmount);
       await reverseGwLoanTransaction(platformLoanId, selectedTransaction.id, {
         date: reverseTransactionDate || undefined,
+        amount: amount && amount > 0 ? amount : undefined,
         note: normalizeText(reverseTransactionNote) || undefined,
       });
       addToast('Transaction reversed', 'success');
@@ -2725,21 +2727,20 @@ const GwLoanDetails = () => {
               className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
             />
           </div>
-          {isEpikpayRepayment ? (
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Bank Transaction Reference *</label>
-              <input
-                value={repaymentExternalId}
-                onChange={(e) => setRepaymentExternalId(e.target.value)}
-                placeholder="Bank reference from the repayment"
-                className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
-              />
-            </div>
-          ) : null}
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Transaction Reference *</label>
+            <input
+              value={repaymentExternalId}
+              onChange={(e) => setRepaymentExternalId(e.target.value)}
+              placeholder="Enter bank, cash or mobile transaction reference"
+              required
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
           <div className="sm:col-span-2 rounded-xl border border-slate-200/70 bg-slate-50 px-3 py-3 text-xs text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/50 dark:text-slate-300">
             {isEpikpayRepayment
-              ? 'Cash repayment is posted directly to Fineract through the gateway and uses the bank transaction reference as the external ID.'
-              : 'Repayment is posted to Fineract only after the selected aggregator confirms payment completion.'}
+              ? 'Cash repayment is posted directly to Fineract using the required transaction reference as the external ID.'
+              : 'The transaction reference is recorded before the selected aggregator confirms and posts the repayment.'}
           </div>
           {looksLikeEarlyPayoff ? (
             <div className="sm:col-span-2 rounded-xl border border-amber-200/80 bg-amber-50 px-3 py-3 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
