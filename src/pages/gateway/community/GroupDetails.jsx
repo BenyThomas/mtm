@@ -10,6 +10,7 @@ import Modal from '../../../components/Modal';
 import SearchableSelectField from '../../../components/SearchableSelectField';
 import Skeleton from '../../../components/Skeleton';
 import {
+  addExistingGroupMember,
   assignGroupAdmin,
   createGroupInvite,
   createGroupInvitesBulk,
@@ -40,6 +41,12 @@ const bulkInviteRowInit = {
   firstName: '',
   middleName: '',
   lastName: '',
+};
+
+const existingMemberInit = {
+  customerId: '',
+  membershipRole: 'MEMBER',
+  invitedByStaffId: '',
 };
 
 const statusTone = (value) => {
@@ -212,7 +219,10 @@ const GroupDetails = () => {
   const [selectedGroupAdminLabel, setSelectedGroupAdminLabel] = useState('');
   const [actorCustomerId, setActorCustomerId] = useState('');
   const [inviteForm, setInviteForm] = useState(inviteInit);
+  const [existingMemberForm, setExistingMemberForm] = useState(existingMemberInit);
+  const [selectedExistingCustomerLabel, setSelectedExistingCustomerLabel] = useState('');
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [existingMemberOpen, setExistingMemberOpen] = useState(false);
   const [bulkInviteOpen, setBulkInviteOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -242,6 +252,7 @@ const GroupDetails = () => {
       setGroupAdminCustomerId(group?.groupAdminCustomerId || '');
       setActorCustomerId(center?.centerAdminCustomerId || group?.groupAdminCustomerId || '');
       setInviteForm((prev) => ({ ...prev, invitedByStaffId: String(group?.invitedByStaffId || prev.invitedByStaffId || '') }));
+      setExistingMemberForm((prev) => ({ ...prev, invitedByStaffId: String(group?.invitedByStaffId || prev.invitedByStaffId || '') }));
     } catch (e) {
       setError(e?.response?.data?.message || e?.message || 'Failed to load group');
     } finally {
@@ -315,6 +326,17 @@ const GroupDetails = () => {
         };
       })
       .filter((item) => item.id);
+  };
+
+  const searchExistingCustomerOptions = async (query) => {
+    const activeMemberIds = new Set(
+      activeMembers
+        .flatMap((item) => [item?.customerId, item?.platformCustomerId, item?.gatewayCustomerId])
+        .map((value) => String(value || '').trim())
+        .filter(Boolean),
+    );
+    const options = await searchCustomerOptions(query);
+    return options.filter((option) => !activeMemberIds.has(String(option.id || '').trim()));
   };
 
   const staffOptions = useMemo(
@@ -573,6 +595,43 @@ const GroupDetails = () => {
       addToast(msg, 'error');
     } finally {
       setSavingInvite(false);
+    }
+  };
+
+  const submitExistingMember = async (e) => {
+    e.preventDefault();
+    const customerId = String(existingMemberForm.customerId || '').trim();
+    const invitedByStaffId = Number(existingMemberForm.invitedByStaffId);
+    if (!customerId) {
+      addToast('Select an existing customer', 'error');
+      return;
+    }
+    if (!Number.isFinite(invitedByStaffId) || invitedByStaffId <= 0) {
+      addToast('Select invited by staff', 'error');
+      return;
+    }
+    setSavingMember(true);
+    setError('');
+    try {
+      await addExistingGroupMember(groupId, {
+        customerId,
+        membershipRole: existingMemberForm.membershipRole,
+        invitedByStaffId,
+      });
+      setExistingMemberOpen(false);
+      setExistingMemberForm({
+        ...existingMemberInit,
+        invitedByStaffId: String(data.group?.invitedByStaffId || ''),
+      });
+      setSelectedExistingCustomerLabel('');
+      await load();
+      addToast('Existing customer added to group', 'success');
+    } catch (e2) {
+      const msg = e2?.response?.data?.errors?.[0]?.details || e2?.response?.data?.message || e2?.message || 'Failed to add customer';
+      setError(msg);
+      addToast(msg, 'error');
+    } finally {
+      setSavingMember(false);
     }
   };
 
@@ -858,6 +917,9 @@ const GroupDetails = () => {
             <Link to={`/gateway/centers/${encodeURIComponent(data.center.platformCenterId)}`}><Button variant="secondary">Center</Button></Link>
           ) : null}
           <Button variant="secondary" onClick={load} disabled={loading || savingAdmin || savingInvite || savingMember || !!actingOnMemberId}>Refresh</Button>
+          <Button variant="secondary" onClick={() => setExistingMemberOpen(true)} disabled={loading}>
+            <UserPlus size={16} /> Add Existing
+          </Button>
           <Button onClick={() => setInviteOpen(true)} disabled={loading}>
             <UserPlus size={16} /> Create Member
           </Button>
@@ -1012,6 +1074,57 @@ const GroupDetails = () => {
           </Card>
         </div>
       </div>
+
+      <Modal
+        open={existingMemberOpen}
+        onClose={() => (savingMember ? null : setExistingMemberOpen(false))}
+        title="Add Existing Customer"
+        size="lg"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setExistingMemberOpen(false)} disabled={savingMember}>Cancel</Button>
+            <Button onClick={submitExistingMember} disabled={savingMember}>{savingMember ? 'Adding...' : 'Add Customer'}</Button>
+          </>
+        }
+      >
+        <form className="space-y-4" onSubmit={submitExistingMember}>
+          <AsyncSearchableSelectField
+            label="Customer"
+            value={existingMemberForm.customerId}
+            onChange={(value, option) => {
+              setExistingMemberForm((p) => ({ ...p, customerId: String(value || '') }));
+              setSelectedExistingCustomerLabel(option?.label || '');
+            }}
+            loadOptions={searchExistingCustomerOptions}
+            selectedLabel={selectedExistingCustomerLabel}
+            placeholder="Search customer by name, phone, or ID"
+            helperText="Only mapped customers can be added. Customers already active in another group will be blocked."
+            required
+          />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <SearchableSelectField
+              label="Invited By Staff Id"
+              value={existingMemberForm.invitedByStaffId}
+              onChange={(value) => setExistingMemberForm((p) => ({ ...p, invitedByStaffId: String(value || '') }))}
+              options={staffOptions}
+              placeholder="Search staff"
+              disabled={staffLoading}
+              required
+            />
+            <div>
+              <label className="block text-sm font-medium">Membership Role</label>
+              <select
+                className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                value={existingMemberForm.membershipRole}
+                onChange={(e) => setExistingMemberForm((p) => ({ ...p, membershipRole: e.target.value }))}
+              >
+                <option value="MEMBER">Member</option>
+                <option value="GROUP_ADMIN">Group Admin</option>
+              </select>
+            </div>
+          </div>
+        </form>
+      </Modal>
 
       <Modal
         open={inviteOpen}

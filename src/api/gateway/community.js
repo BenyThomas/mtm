@@ -75,6 +75,11 @@ export async function createGroupInvitesBulk(groupId, payload) {
   return unwrap(r);
 }
 
+export async function addExistingGroupMember(groupId, payload) {
+  const r = await gatewayApi.post(`/ops/groups/${encodeURIComponent(groupId)}/members`, payload);
+  return unwrap(r);
+}
+
 export async function deactivateGroupMember(groupId, customerId, payload) {
   const r = await gatewayApi.post(`/ops/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(customerId)}/deactivate`, payload || {});
   return unwrap(r);
