@@ -40,10 +40,7 @@ body {
   margin: 0;
   font-family: "Plus Jakarta Sans", "Manrope", "Segoe UI", sans-serif;
   color: var(--text-0);
-  background:
-    radial-gradient(1000px 520px at 0% -10%, rgba(56, 189, 248, 0.14), transparent 60%),
-    radial-gradient(900px 500px at 110% 0%, rgba(45, 212, 191, 0.12), transparent 58%),
-    linear-gradient(180deg, var(--bg-0), var(--bg-1));
+  background: #f8fafc;
 }
 
 * {
@@ -98,11 +95,11 @@ thead th {
 
 table.min-w-full {
   width: 100%;
-  background: rgba(255, 255, 255, 0.76);
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  border-radius: 16px;
+  background: #fff;
+  border: 0;
+  border-radius: 10px;
   overflow: hidden;
-  box-shadow: 0 8px 24px -22px rgba(15, 23, 42, 0.7);
+  box-shadow: none;
 }
 
 .dark table.min-w-full {
@@ -115,12 +112,12 @@ table.min-w-full thead tr {
 }
 
 table.min-w-full th {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   color: #64748b;
-  padding: 12px 14px;
+  padding: 11px 12px;
 }
 
 .dark table.min-w-full th {
@@ -128,9 +125,10 @@ table.min-w-full th {
 }
 
 table.min-w-full td {
-  padding: 12px 14px;
+  padding: 12px;
   border-top: 1px solid rgba(148, 163, 184, 0.22);
   color: #334155;
+  font-size: 12px;
 }
 
 .dark table.min-w-full td {
@@ -143,7 +141,7 @@ table.min-w-full tbody tr {
 }
 
 table.min-w-full tbody tr:hover {
-  background: rgba(34, 211, 238, 0.08);
+  background: #fbfdff;
 }
 
 .dark table.min-w-full tbody tr:hover {

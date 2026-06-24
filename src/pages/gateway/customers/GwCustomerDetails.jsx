@@ -1,6 +1,23 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ArrowRightLeft, CheckCircle, CirclePlus, PiggyBank, RefreshCw, RotateCcw, Undo2, UserMinus, UserPlus, XCircle } from 'lucide-react';
+import {
+  ArrowLeft,
+  ArrowRightLeft,
+  Ban,
+  Building2,
+  CalendarDays,
+  CheckCircle,
+  CirclePlus,
+  Phone,
+  PiggyBank,
+  RefreshCw,
+  RotateCcw,
+  Undo2,
+  UserMinus,
+  UserPlus,
+  WalletCards,
+  XCircle,
+} from 'lucide-react';
 import api from '../../../api/axios';
 import Card from '../../../components/Card';
 import Tabs from '../../../components/Tabs';
@@ -18,6 +35,7 @@ import { listLoanPurposesOps } from '../../../api/gateway/loanPurposes';
 import { listOpsResources } from '../../../api/gateway/opsResources';
 import { createCustomerVehicle, listCustomerVehicles, patchCustomerVehicle } from '../../../api/gateway/merchantNetwork';
 import { getGwLoanStatusCode, getGwLoanStatusLabel, isGwLoanBlockingStatus } from '../../../utils/gwLoanStatus';
+import CustomerOverview from './CustomerOverview';
 
 const profileFormInit = {
   firstName: '',
@@ -263,6 +281,7 @@ const GwCustomerDetails = () => {
   const [vehicleSaving, setVehicleSaving] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState(null);
   const [vehicleForm, setVehicleForm] = useState(vehicleFormInit);
+  const [activeTab, setActiveTab] = useState(location?.state?.tab || 'overview');
 
   const load = async () => {
     setLoading(true);
@@ -377,7 +396,9 @@ const GwCustomerDetails = () => {
   const initialTab = location?.state?.tab || 'overview';
   const applyLoanCustomerId = customer?.gatewayCustomerId || customer?.platformCustomerId || customerId;
   const hasBlockingLoan = useMemo(() => (loans || []).some((loan) => isGwLoanBlockingStatus(loan)), [loans]);
-  const canApplyLoanOnBehalf = Boolean(applyLoanCustomerId) && !hasBlockingLoan;
+  const isClosedClient = hasClientStatusFlag(fineractStatusObj, 'closed')
+    || fineractClientState.includes('CLOSED');
+  const canApplyLoanOnBehalf = Boolean(applyLoanCustomerId) && !hasBlockingLoan && !isClosedClient;
   const hasAssignedStaff = Boolean(fineractClient?.staffId || fineractClient?.staffName);
   const clientActions = useMemo(() => {
     if (!fineractClient?.id) return [];
@@ -432,10 +453,7 @@ const GwCustomerDetails = () => {
       return actions;
     }
 
-    if (isClosedState) {
-      actions.push({ command: 'reactivate', title: 'Reactivate client', icon: RotateCcw, tone: 'emerald' });
-      return actions;
-    }
+    if (isClosedState) return actions;
 
     if (isRejectedState) {
       actions.push({ command: 'undoReject', title: 'Undo reject', icon: RotateCcw, tone: 'amber' });
@@ -449,6 +467,12 @@ const GwCustomerDetails = () => {
 
     return actions;
   }, [fineractClient?.id, fineractClientState, fineractStatusObj, hasAssignedStaff, savingsAccounts.length]);
+
+  useEffect(() => {
+    if (isClosedClient && activeTab === 'profile') {
+      setActiveTab('overview');
+    }
+  }, [isClosedClient, activeTab]);
 
   const setField = (key, value) => setProfileForm((prev) => ({ ...prev, [key]: value }));
 
@@ -665,7 +689,7 @@ const GwCustomerDetails = () => {
     {
       key: 'actions',
       header: '',
-      render: (v) => (
+      render: (v) => isClosedClient ? null : (
         <Button
           variant="ghost"
           size="sm"
@@ -688,7 +712,7 @@ const GwCustomerDetails = () => {
         </Button>
       ),
     },
-  ], []);
+  ], [isClosedClient]);
 
   const openLoanModal = () => {
     setLoanProducts([]);
@@ -782,8 +806,55 @@ const GwCustomerDetails = () => {
     );
   }
 
+  const profile = customer?.profile || {};
+  const displayCustomerId = customer?.fineractClientId || fineractClient?.id || '-';
+  const customerInitials = customerDisplayName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+  const primaryLoan = loans[0] || null;
+
   return (
-    <div className="space-y-6">
+    <div className="customer-detail-page">
+      <div className="customer-page-header">
+        <div>
+          <h1 className="customer-page-title">Customer Details</h1>
+          <div className="customer-breadcrumb"><strong>/gateway</strong><span>/</span><strong>customers</strong><span>/</span><span>customer details</span></div>
+        </div>
+      </div>
+
+      <div className="customer-panel customer-detail-surface">
+        <div className="customer-detail-hero">
+          <div className="customer-profile-summary">
+            <div className="customer-large-avatar">{customerInitials}</div>
+            <div>
+              <div className="customer-profile-name-row">
+                <div className="customer-profile-name">{customerDisplayName}</div>
+                <span className="customer-status-badge">{customerStatus}</span>
+              </div>
+              <div className="customer-profile-id">{displayCustomerId}</div>
+              <div className="customer-hero-facts">
+                <div className="customer-hero-fact"><Building2 size={20} /><div><div className="customer-fact-value">{formatValue(fineractClient?.officeName || customer?.officeName)}</div><div className="customer-fact-label">Branch</div></div></div>
+                <div className="customer-hero-fact"><Phone size={20} /><div><div className="customer-fact-value">{formatValue(profile.phone || onboarding?.mobileNo)}</div><div className="customer-fact-label">Phone</div></div></div>
+                <div className="customer-hero-fact"><CalendarDays size={20} /><div><div className="customer-fact-value">{formatDisplayDate(fineractClient?.submittedOnDate || onboarding?.createdAt || customer?.createdAt)}</div><div className="customer-fact-label">Joined Date</div></div></div>
+                <div className="customer-hero-fact"><WalletCards size={20} /><div><div className="customer-fact-value">{formatValue(profile.walletMsisdn || profile.phone)}</div><div className="customer-fact-label">Wallet No.</div></div></div>
+              </div>
+            </div>
+          </div>
+          <div className="customer-detail-actions">
+            <button type="button" className="customer-action-button" onClick={() => navigate('/gateway/data/customers')}><ArrowLeft size={17} />Back</button>
+            {customer?.fineractClientId && !isClosedClient ? <button type="button" className="customer-action-button danger" onClick={() => setCommandOpen('close')}><Ban size={17} />Close</button> : null}
+            {customer?.fineractClientId && !isClosedClient ? (
+              <button
+                type="button"
+                className="customer-action-button warning"
+                onClick={() => setCommandOpen(hasAssignedStaff ? 'unassignStaff' : 'assignStaff')}
+              >
+                {hasAssignedStaff ? <UserMinus size={17} /> : <UserPlus size={17} />}
+                {hasAssignedStaff ? 'Unassign Officer' : 'Assign Officer'}
+              </button>
+            ) : null}
+            <button type="button" className="customer-action-button refresh" onClick={load}><RefreshCw size={17} />Refresh</button>
+          </div>
+        </div>
+      </div>
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">{customerDisplayName}</h1>
@@ -815,51 +886,45 @@ const GwCustomerDetails = () => {
 
       {error ? <Card>{error}</Card> : null}
 
+      <div className="customer-detail-tabs customer-panel">
       <Tabs
         key={initialTab}
         initial={initialTab}
+        active={activeTab}
+        onChange={setActiveTab}
         tabs={[
           { key: 'overview', label: 'Overview' },
-          { key: 'loans', label: `Loans (${loans.length})` },
-          { key: 'vehicles', label: `Vehicles (${vehicles.length})` },
-          { key: 'savings', label: `Savings (${savingsAccounts.length})` },
-          { key: 'invites', label: `Invites (${invites.length})` },
-          { key: 'profile', label: 'Profile' },
+          { key: 'loans', label: 'Loans' },
+          { key: 'vehicles', label: 'Vehicles' },
+          { key: 'invites', label: 'Invites' },
+          { key: 'savings', label: 'Savings' },
+          ...(!isClosedClient ? [{ key: 'profile', label: 'Profile' }] : []),
         ]}
       >
-        <div data-tab="overview" className="space-y-4">
-          <Card>
-            <div className="grid gap-4 text-sm md:grid-cols-2 xl:grid-cols-3">
-              <div><div className="text-slate-500">Display Name</div><div className="font-medium">{customerDisplayName}</div></div>
-              <div><div className="text-slate-500">Username</div><div className="font-medium">{formatValue(customer.username)}</div></div>
-              <div><div className="text-slate-500">Phone</div><div className="font-medium">{formatValue(customer?.profile?.phone || onboarding?.mobileNo)}</div></div>
-              <div><div className="text-slate-500">Email</div><div className="font-medium">{formatValue(customer?.profile?.email || onboarding?.email)}</div></div>
-              <div><div className="text-slate-500">Customer Status</div><div className="font-medium">{customerStatus}</div></div>
-              <div><div className="text-slate-500">Fineract Client Status</div><div className="font-medium">{fineractStatus}</div></div>
-              <div><div className="text-slate-500">Gateway Customer Status</div><div className="font-medium">{gatewayCustomerStatus}</div></div>
-              <div><div className="text-slate-500">Onboarding State</div><div className="font-medium">{onboardingStatus}</div></div>
-              <div><div className="text-slate-500">Office</div><div className="font-medium">{formatValue(fineractClient?.officeName)}</div></div>
-              <div><div className="text-slate-500">Staff</div><div className="font-medium">{formatValue(fineractClient?.staffName)}</div></div>
-              <div><div className="text-slate-500">Joined</div><div className="font-medium">{formatDisplayDate(fineractClient?.submittedOnDate || onboarding?.createdAt)}</div></div>
-              <div><div className="text-slate-500">Activated</div><div className="font-medium">{formatDisplayDate(fineractClient?.activationDate || onboarding?.updatedAt)}</div></div>
-              <div><div className="text-slate-500">Date of Birth</div><div className="font-medium">{formatDisplayDate(customer?.profile?.dob)}</div></div>
-              <div><div className="text-slate-500">Gender</div><div className="font-medium">{formatValue(customer?.profile?.gender)}</div></div>
-              <div><div className="text-slate-500">National ID</div><div className="font-medium">{formatValue(customer?.profile?.nationalId)}</div></div>
-              <div><div className="text-slate-500">Region</div><div className="font-medium">{formatValue(customer?.profile?.region)}</div></div>
-              <div><div className="text-slate-500">District</div><div className="font-medium">{formatValue(customer?.profile?.district)}</div></div>
-              <div><div className="text-slate-500">Ward</div><div className="font-medium">{formatValue(customer?.profile?.ward)}</div></div>
-              <div><div className="text-slate-500">Street</div><div className="font-medium">{formatValue(customer?.profile?.street)}</div></div>
-              <div><div className="text-slate-500">Next of Kin</div><div className="font-medium">{formatValue(customer?.profile?.nextOfKinName)}</div></div>
-              <div><div className="text-slate-500">Next of Kin Phone</div><div className="font-medium">{formatValue(customer?.profile?.nextOfKinPhone)}</div></div>
-              <div><div className="text-slate-500">Employer</div><div className="font-medium">{formatValue(customer?.profile?.employerName)}</div></div>
-              <div><div className="text-slate-500">Employment Type</div><div className="font-medium">{formatValue(customer?.profile?.employmentType)}</div></div>
-              <div><div className="text-slate-500">Income Source</div><div className="font-medium">{formatValue(customer?.profile?.incomeSource)}</div></div>
-              <div><div className="text-slate-500">Bank Name</div><div className="font-medium">{formatValue(customer?.profile?.bankName)}</div></div>
-              <div><div className="text-slate-500">Bank Account</div><div className="font-medium">{formatValue(customer?.profile?.bankAccount)}</div></div>
-              <div><div className="text-slate-500">Wallet MSISDN</div><div className="font-medium">{formatValue(customer?.profile?.walletMsisdn)}</div></div>
-              <div><div className="text-slate-500">Profile Completeness</div><div className="font-medium">{missingFields.length ? `${missingFields.length} field(s) missing` : 'Complete'}</div></div>
-            </div>
-          </Card>
+        <div data-tab="overview">
+          <CustomerOverview
+            customer={customer}
+            onboarding={onboarding}
+            fineractClient={fineractClient}
+            loans={loans}
+            vehicles={vehicles}
+            savingsAccounts={savingsAccounts}
+            invites={invites}
+            missingFields={missingFields}
+            customerDisplayName={customerDisplayName}
+            customerStatus={customerStatus}
+            gatewayCustomerStatus={gatewayCustomerStatus}
+            fineractStatus={fineractStatus}
+            onboardingStatus={onboardingStatus}
+            readOnly={isClosedClient}
+            onOpenLoan={() => {
+              if (primaryLoan?.platformLoanId) navigate(`/gateway/loans/${encodeURIComponent(primaryLoan.platformLoanId)}`);
+              else setActiveTab('loans');
+            }}
+            onEditProfile={() => {
+              if (!isClosedClient) setActiveTab('profile');
+            }}
+          />
         </div>
 
         <div data-tab="loans" className="space-y-4">
@@ -938,7 +1003,7 @@ const GwCustomerDetails = () => {
           <Card>
             <div className="mb-4 flex items-center justify-between">
               <div className="font-semibold">Customer Vehicles</div>
-              <Can any={['GW_OPS_WRITE']}>
+              {!isClosedClient ? <Can any={['GW_OPS_WRITE']}>
                 <Button
                   size="sm"
                   variant="outline"
@@ -950,7 +1015,7 @@ const GwCustomerDetails = () => {
                 >
                   Add Vehicle
                 </Button>
-              </Can>
+              </Can> : null}
             </div>
             <DataTable
               columns={vehicleColumns}
@@ -1095,6 +1160,7 @@ const GwCustomerDetails = () => {
           </Card>
         </div>
       </Tabs>
+      </div>
 
       <Modal
         open={vehicleOpen}

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { CalendarDays, CheckCircle, Copy, Download, FileSpreadsheet, FileText, Loader2, Pencil, ReceiptText, RotateCcw, Settings2, Trash2, Undo2, UserPlus, Wallet, XCircle } from 'lucide-react';
+import { ArrowLeft, Banknote, CalendarDays, CheckCircle, Copy, Download, FileSpreadsheet, FileText, Loader2, Pencil, Phone, ReceiptText, RefreshCw, RotateCcw, Settings2, Trash2, Undo2, UserPlus, Wallet, XCircle } from 'lucide-react';
 import Button from '../../../components/Button';
 import Card from '../../../components/Card';
 import Skeleton from '../../../components/Skeleton';
@@ -10,6 +10,7 @@ import Can from '../../../components/Can';
 import ScheduleTable from '../../../components/ScheduleTable';
 import StaffSelect from '../../../components/StaffSelect';
 import Tabs from '../../../components/Tabs';
+import RepaymentPaymentModal from '../../../components/RepaymentPaymentModal';
 import {
   adjustGwLoanTransaction,
   approveGwLoan,
@@ -1578,114 +1579,62 @@ const GwLoanDetails = () => {
     setDisburseOpen(true);
   }
 
+  const loanCustomerInitials = String(customerDisplayName || doc?.customerId || 'LN')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join('')
+    .toUpperCase();
+
   return (
-    <div className="space-y-4">
-      <section>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">{customerDisplayName || 'Customer'}</h1>
-            <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-              <span>Phone:</span>
-              <span className="font-mono">{customerRepaymentIdentity.msisdn || '-'}</span>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="px-2"
-                onClick={() => copy('Customer phone', customerRepaymentIdentity.msisdn)}
-                disabled={!customerRepaymentIdentity.msisdn}
-                aria-label="Copy customer phone"
-                title="Copy customer phone"
-              >
-                <Copy size={16} />
-              </Button>
-              {statusUpper ? <Badge tone={getGwLoanStatusTone(doc)}>{statusDisplay}</Badge> : null}
+    <div className="customer-detail-page loan-detail-page space-y-4">
+      <div className="customer-panel customer-detail-surface">
+        <div className="customer-detail-hero">
+          <div className="customer-profile-summary">
+            <div className="customer-large-avatar">{loanCustomerInitials}</div>
+            <div>
+              <div className="customer-profile-name-row">
+                <div className="customer-profile-name">{customerDisplayName || 'Customer Loan'}</div>
+                {statusUpper ? <Badge tone={getGwLoanStatusTone(doc)}>{statusDisplay}</Badge> : null}
+              </div>
+              <div className="customer-profile-id">{doc?.fineractLoanId ? `Loan No. ${doc.fineractLoanId}` : doc?.platformLoanId || platformLoanId}</div>
+              <div className="customer-hero-facts">
+                <div className="customer-hero-fact"><Banknote size={20} /><div><div className="customer-fact-value">{doc?.productCode || '-'}</div><div className="customer-fact-label">Loan Product</div></div></div>
+                <div className="customer-hero-fact"><Phone size={20} /><div><div className="customer-fact-value">{customerRepaymentIdentity.msisdn || '-'}</div><div className="customer-fact-label">Phone</div></div></div>
+                <div className="customer-hero-fact"><Wallet size={20} /><div><div className="customer-fact-value">TSh {formatMoney(doc?.principal)}</div><div className="customer-fact-label">Principal</div></div></div>
+                <div className="customer-hero-fact"><CalendarDays size={20} /><div><div className="customer-fact-value">{formatDisplayDate(doc?.expectedDisbursementDate) || '-'}</div><div className="customer-fact-label">Expected Disbursement</div></div></div>
+              </div>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="secondary" onClick={goBack}>
-              Back
-            </Button>
+          <div className="customer-detail-actions loan-detail-actions">
+            <button type="button" className="customer-action-button" onClick={goBack}><ArrowLeft size={17} />Back</button>
+            <button type="button" className="customer-action-button refresh" onClick={() => refreshLoanViews(doc)}><RefreshCw size={17} />Refresh</button>
             <Can any={['GW_OPS_WRITE']}>
-              {doc && canModifyLoanRequest ? (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className={`h-10 w-10 rounded-xl p-0 shadow-sm ${actionButtonClass('violet')}`}
-                  onClick={openModifyLoanModal}
-                  title="Modify loan request"
-                  aria-label="Modify loan request"
-                >
-                  <Pencil size={18} strokeWidth={2.2} />
-                </Button>
-              ) : null}
+              {doc && canModifyLoanRequest ? <button type="button" className="customer-action-button" onClick={openModifyLoanModal}><Pencil size={17} />Modify</button> : null}
               {doc ? primaryWorkflowActions.map((action) => (
-                <Button
-                  key={action.key}
-                  size="sm"
-                  variant="ghost"
-                  className={`h-10 w-10 rounded-xl p-0 shadow-sm ${actionButtonClass(action.tone)}`}
-                  onClick={action.onClick}
-                  title={action.title}
-                  aria-label={action.title}
-                >
-                  <action.icon size={18} strokeWidth={2.2} />
-                </Button>
+                <button key={action.key} type="button" className={`customer-action-button loan-action-${action.tone}`} onClick={action.onClick} title={action.title}>
+                  <action.icon size={17} />{action.title.replace(' loan', '')}
+                </button>
               )) : null}
-              {doc ? secondaryWorkflowActions.map((action) => (
-                <Button
-                  key={action.key}
-                  size="sm"
-                  variant="ghost"
-                  className={`h-10 w-10 rounded-xl p-0 shadow-sm ${actionButtonClass(action.tone)}`}
-                  onClick={action.onClick}
-                  title={action.title}
-                  aria-label={action.title}
-                >
-                  <action.icon size={18} strokeWidth={2.2} />
-                </Button>
-              )) : null}
-              {doc && canAssignLoanOfficer ? (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className={`h-10 w-10 rounded-xl p-0 shadow-sm ${actionButtonClass('violet')}`}
-                  onClick={() => setAssignOfficerOpen(true)}
-                  title="Assign loan officer"
-                  aria-label="Assign loan officer"
-                >
-                  <UserPlus size={18} strokeWidth={2.2} />
-                </Button>
-              ) : null}
-              {doc && canDeleteLoan ? (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className={`h-10 w-10 rounded-xl p-0 shadow-sm ${actionButtonClass('rose')}`}
-                  onClick={doDelete}
-                  disabled={saving}
-                  title="Delete loan"
-                  aria-label="Delete loan"
-                >
-                  <Trash2 size={18} strokeWidth={2.2} />
-                </Button>
-              ) : null}
-              {doc && canOpenAdvancedFineractActions ? fineractPresetActions.map((action) => (
-                <Button
-                  key={action.key}
-                  size="sm"
-                  variant="ghost"
-                  className={`h-10 w-10 rounded-xl p-0 shadow-sm ${actionButtonClass(action.tone)}`}
-                  onClick={() => openFineractActionModal(action.key)}
-                  title={action.title}
-                  aria-label={action.title}
-                >
-                  <action.icon size={18} strokeWidth={2.2} />
-                </Button>
-              )) : null}
+              {doc && canAssignLoanOfficer ? <button type="button" className="customer-action-button warning" onClick={() => setAssignOfficerOpen(true)}><UserPlus size={17} />Assign Officer</button> : null}
+              {doc && canDeleteLoan ? <button type="button" className="customer-action-button danger" onClick={doDelete} disabled={saving}><Trash2 size={17} />Delete</button> : null}
             </Can>
           </div>
         </div>
-      </section>
+        <Can any={['GW_OPS_WRITE']}>
+          {doc && (secondaryWorkflowActions.length > 0 || (canOpenAdvancedFineractActions && fineractPresetActions.length > 0)) ? (
+            <div className="loan-secondary-actions">
+              {secondaryWorkflowActions.map((action) => (
+                <button key={action.key} type="button" className="customer-mini-link" onClick={action.onClick}><action.icon size={12} />{action.title}</button>
+              ))}
+              {canOpenAdvancedFineractActions ? fineractPresetActions.map((action) => (
+                <button key={action.key} type="button" className="customer-mini-link" onClick={() => openFineractActionModal(action.key)}><action.icon size={12} />{action.title}</button>
+              )) : null}
+            </div>
+          ) : null}
+        </Can>
+      </div>
 
       <Modal
         open={modifyOpen}
@@ -1825,7 +1774,7 @@ const GwLoanDetails = () => {
         </Card>
       ) : (
         <div className="grid gap-4">
-          <Card>
+          <Card className="loan-workflow-card">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <div className="text-sm font-semibold">Workflow</div>
@@ -1869,7 +1818,7 @@ const GwLoanDetails = () => {
             </div>
           </Card>
 
-          <div className="lg:col-span-2">
+          <div className="loan-detail-tabs customer-detail-tabs customer-panel">
             <Tabs
               tabs={[
                 { key: 'summary', label: 'Summary' },
@@ -2633,122 +2582,40 @@ const GwLoanDetails = () => {
         </div>
       </Modal>
 
-      <Modal
+      <RepaymentPaymentModal
         open={repayOpen}
-        onClose={() => (repayBusy ? null : setRepayOpen(false))}
-        title={isEpikpayRepayment ? 'Repay Loan via Cash Payment' : 'Repay Loan via Mobile Push'}
-        size="lg"
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setRepayOpen(false)} disabled={repayBusy}>
-              Close
-            </Button>
-            <Button onClick={submitRepayMobile} disabled={repayBusy}>
-              {repayBusy ? (
-                <span className="inline-flex items-center gap-2">
-                  <Loader2 className="animate-spin" size={16} /> {isEpikpayRepayment ? 'Posting Payment...' : 'Sending Push...'}
-                </span>
-              ) : (
-                isEpikpayRepayment ? 'Post Cash Payment' : 'Send Push'
-              )}
-            </Button>
-          </>
-        }
-      >
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Aggregator</label>
-            <select
-              value={repaymentProvider}
-              onChange={(e) => {
-                const nextProvider = e.target.value;
-                setRepaymentProvider(nextProvider);
-                if (normalizeProvider(nextProvider) === 'EPIKPAY') {
-                  setRepaymentMsisdn('');
-                } else if (!normalizeText(repaymentMsisdn)) {
-                  setRepaymentMsisdn(customerRepaymentIdentity.msisdn || '');
-                }
-              }}
-              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
-            >
-              <option value="">Auto (Default Aggregator)</option>
-              {resolveProviderOptions(loanAutomationCfg).map((provider) => (
-                <option key={provider} value={provider}>
-                  {provider}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Amount</label>
-            <input
-              inputMode="decimal"
-              value={repaymentAmount}
-              onChange={(e) => setRepaymentAmount(e.target.value)}
-              placeholder={suggestedRepaymentAmount != null ? String(suggestedRepaymentAmount) : (outstandingAmount != null ? String(outstandingAmount) : '0')}
-              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
-            />
-            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Suggested regular repayment: {suggestedRepaymentAmount != null ? formatMoney(suggestedRepaymentAmount) : 'Unavailable'}
-            </div>
-          </div>
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Currency</label>
-            <input
-              value={repaymentCurrency}
-              onChange={(e) => setRepaymentCurrency(e.target.value)}
-              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
-            />
-          </div>
-          {!isEpikpayRepayment ? (
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Customer MSISDN</label>
-              <input
-                value={repaymentMsisdn}
-                onChange={(e) => setRepaymentMsisdn(e.target.value)}
-                placeholder="2557XXXXXXXX"
-                className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
-              />
-            </div>
-          ) : null}
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Payer Name</label>
-            <input
-              value={repaymentPayerName}
-              onChange={(e) => setRepaymentPayerName(e.target.value)}
-              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Payer Email</label>
-            <input
-              value={repaymentPayerEmail}
-              onChange={(e) => setRepaymentPayerEmail(e.target.value)}
-              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
-            />
-          </div>
-          <div className="sm:col-span-2">
-            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Transaction Reference *</label>
-            <input
-              value={repaymentExternalId}
-              onChange={(e) => setRepaymentExternalId(e.target.value)}
-              placeholder="Enter bank, cash or mobile transaction reference"
-              required
-              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
-            />
-          </div>
-          <div className="sm:col-span-2 rounded-xl border border-slate-200/70 bg-slate-50 px-3 py-3 text-xs text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/50 dark:text-slate-300">
-            {isEpikpayRepayment
-              ? 'Cash repayment is posted directly to Fineract using the required transaction reference as the external ID.'
-              : 'The transaction reference is recorded before the selected aggregator confirms and posts the repayment.'}
-          </div>
-          {looksLikeEarlyPayoff ? (
-            <div className="sm:col-span-2 rounded-xl border border-amber-200/80 bg-amber-50 px-3 py-3 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
-              This amount looks like an early full payoff. Gateway will submit it to Fineract as a prepayment instead of a standard repayment.
-            </div>
-          ) : null}
-        </div>
-      </Modal>
+        busy={repayBusy}
+        onClose={() => setRepayOpen(false)}
+        onSubmit={submitRepayMobile}
+        customerName={customerDisplayName}
+        customerNumber={doc?.fineractClientId}
+        loanNumber={doc?.fineractLoanId || doc?.platformLoanId}
+        statusLabel={statusDisplay}
+        statusTone={getGwLoanStatusTone(doc)}
+        amount={repaymentAmount}
+        onAmountChange={setRepaymentAmount}
+        outstandingAmount={outstandingAmount}
+        dueAmount={suggestedRepaymentAmount}
+        quickAmounts={[1000, 5000]}
+        currency={repaymentCurrency || 'TZS'}
+        provider={repaymentProviderValue}
+        onProviderChange={(nextProvider) => {
+          setRepaymentProvider(nextProvider);
+          if (normalizeProvider(nextProvider) === 'EPIKPAY') {
+            setRepaymentMsisdn('');
+          } else if (!normalizeText(repaymentMsisdn)) {
+            setRepaymentMsisdn(customerRepaymentIdentity.msisdn || '');
+          }
+        }}
+        providers={resolveProviderOptions(loanAutomationCfg)}
+        msisdn={repaymentMsisdn}
+        onMsisdnChange={setRepaymentMsisdn}
+        reference={repaymentExternalId}
+        onReferenceChange={setRepaymentExternalId}
+        warning={looksLikeEarlyPayoff
+          ? 'This amount looks like an early full payoff. Gateway will submit it to Fineract as a prepayment instead of a standard repayment.'
+          : ''}
+      />
     </div>
   );
 };

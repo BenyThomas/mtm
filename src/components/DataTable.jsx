@@ -23,7 +23,7 @@ const DataTable = ({
 
     return (
         <div className="w-full">
-            <div className="overflow-x-auto rounded-2xl border border-slate-200/70 bg-white/75 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/55">
+            <div className="app-table-shell overflow-x-auto rounded-[10px] border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
                 <table className="min-w-full">
                     <thead>
                         <tr className="text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -34,7 +34,7 @@ const DataTable = ({
                                 return (
                                     <th
                                         key={col.key}
-                                        className="select-none bg-slate-50/80 px-4 py-3.5 first:rounded-tl-2xl last:rounded-tr-2xl dark:bg-slate-800/70"
+                                        className="select-none bg-slate-50 px-4 py-3 first:rounded-tl-[10px] last:rounded-tr-[10px] dark:bg-slate-800"
                                     >
                                         {isSortable ? (
                                             <button
@@ -77,7 +77,7 @@ const DataTable = ({
                             data.map((row) => (
                                 <tr
                                     key={row.id ?? JSON.stringify(row)}
-                                    className={`border-t border-slate-200/70 dark:border-slate-700/70 transition-colors ${isRowClickable ? 'cursor-pointer hover:bg-cyan-50/60 dark:hover:bg-cyan-900/20' : 'cursor-default hover:bg-slate-50/60 dark:hover:bg-slate-800/40'}`}
+                                    className={`border-t border-slate-200/70 dark:border-slate-700/70 transition-colors ${isRowClickable ? 'cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/70' : 'cursor-default hover:bg-slate-50 dark:hover:bg-slate-800/40'}`}
                                     onClick={() => {
                                         if (isRowClickable) onRowClick(row);
                                     }}
@@ -104,7 +104,7 @@ const DataTable = ({
                     </span>
                     <button
                         type="button"
-                        className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 font-medium text-slate-700 transition-all hover:-translate-y-[1px] hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
                         onClick={() => onPageChange(Math.max(0, safePage - 1))}
                         disabled={safePage <= 0}
                     >
@@ -112,7 +112,7 @@ const DataTable = ({
                     </button>
                     <button
                         type="button"
-                        className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 font-medium text-slate-700 transition-all hover:-translate-y-[1px] hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
                         onClick={() => onPageChange(Math.min(totalPages - 1, safePage + 1))}
                         disabled={safePage >= totalPages - 1}
                     >

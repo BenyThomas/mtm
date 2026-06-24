@@ -4,7 +4,7 @@ import React from 'react';
 const Card = ({ children, className = '', ...rest }) => {
   return (
       <div
-          className={`modern-enter rounded-2xl border border-slate-200/70 bg-white/80 backdrop-blur-md p-4 shadow-[0_10px_30px_-16px_rgba(15,23,42,0.35)] dark:border-slate-700/70 dark:bg-slate-900/65 ${className}`}
+          className={`app-card modern-enter rounded-[10px] border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900 ${className}`}
           {...rest}
       >
         {children}

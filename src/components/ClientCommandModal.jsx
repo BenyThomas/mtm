@@ -6,6 +6,12 @@ import { useToast } from '../context/ToastContext';
 import { ArrowRightLeft, CheckCircle, PiggyBank, RotateCcw, Trash2, Undo2, UserMinus, UserPlus, XCircle } from 'lucide-react';
 
 const toISO = (d) => (d ? String(d).slice(0, 10) : '');
+const assignedStaffId = (client) => client?.staffId || client?.staff?.id || null;
+const REASON_CODE_BY_COMMAND = {
+    close: 'ClientClosureReason',
+    reject: 'ClientRejectReason',
+    withdraw: 'ClientWithdrawReason',
+};
 
 const actionTileClass = (selected, tone = 'slate') => {
     const toneClass =
@@ -36,29 +42,29 @@ const COMMANDS = [
     {
         value: 'close',
         label: 'Close',
-        description: 'Close the client account. Add a closure reason when needed.',
+        description: 'Close the client account using a configured Fineract closure reason.',
         icon: XCircle,
         tone: 'rose',
         fields: ['date', 'reasonId'],
-        template: ({ date, reasonId }) => ({ locale: 'en', dateFormat: 'yyyy-MM-dd', closureDate: date, closureReasonId: reasonId || undefined }),
+        template: ({ date, reasonId }) => ({ locale: 'en', dateFormat: 'yyyy-MM-dd', closureDate: date, closureReasonId: Number(reasonId) }),
     },
     {
         value: 'reject',
         label: 'Reject',
-        description: 'Reject the client and optionally record a rejection reason.',
+        description: 'Reject the client using a configured Fineract rejection reason.',
         icon: XCircle,
         tone: 'rose',
         fields: ['date', 'reasonId'],
-        template: ({ date, reasonId }) => ({ locale: 'en', dateFormat: 'yyyy-MM-dd', rejectionDate: date, rejectionReasonId: reasonId || undefined }),
+        template: ({ date, reasonId }) => ({ locale: 'en', dateFormat: 'yyyy-MM-dd', rejectionDate: date, rejectionReasonId: Number(reasonId) }),
     },
     {
         value: 'withdraw',
         label: 'Withdraw',
-        description: 'Withdraw the client application and optionally record a reason.',
+        description: 'Withdraw the client application using a configured Fineract withdrawal reason.',
         icon: Undo2,
         tone: 'amber',
         fields: ['date', 'reasonId'],
-        template: ({ date, reasonId }) => ({ locale: 'en', dateFormat: 'yyyy-MM-dd', withdrawalDate: date, withdrawalReasonId: reasonId || undefined }),
+        template: ({ date, reasonId }) => ({ locale: 'en', dateFormat: 'yyyy-MM-dd', withdrawalDate: date, withdrawalReasonId: Number(reasonId) }),
     },
     {
         value: 'reactivate',
@@ -103,7 +109,9 @@ const COMMANDS = [
         icon: UserMinus,
         tone: 'amber',
         fields: [],
-        template: () => ({}),
+        template: ({ client }) => ({
+            staffId: assignedStaffId(client) ? Number(assignedStaffId(client)) : undefined,
+        }),
     },
     {
         value: 'updateSavingsAccount',
@@ -172,6 +180,7 @@ const COMMANDS = [
 
 const parseError = (e, fallback) =>
     e?.response?.data?.errors?.[0]?.defaultUserMessage ||
+    e?.response?.data?.errors?.[0]?.developerMessage ||
     e?.response?.data?.defaultUserMessage ||
     e?.response?.data?.message ||
     fallback;
@@ -187,6 +196,8 @@ const ClientCommandModal = ({ open, client, onClose, onDone, initialCommand = 'a
     const [officeId, setOfficeId] = useState('');
     const [officeOptions, setOfficeOptions] = useState([]);
     const [reasonId, setReasonId] = useState('');
+    const [reasonOptions, setReasonOptions] = useState({});
+    const [reasonsLoading, setReasonsLoading] = useState(false);
     const [savingsAccountId, setSavingsAccountId] = useState('');
     const [savingsOptions, setSavingsOptions] = useState([]);
     const [busy, setBusy] = useState(false);
@@ -206,6 +217,10 @@ const ClientCommandModal = ({ open, client, onClose, onDone, initialCommand = 'a
         setReasonId('');
         setSavingsAccountId('');
     }, [open, client?.id, initialCommand]);
+
+    useEffect(() => {
+        setReasonId('');
+    }, [command]);
 
     useEffect(() => {
         if (!open || !client?.id) return;
@@ -236,6 +251,41 @@ const ClientCommandModal = ({ open, client, onClose, onDone, initialCommand = 'a
         })();
     }, [open, client?.id]);
 
+    useEffect(() => {
+        if (!open || !REASON_CODE_BY_COMMAND[command] || reasonOptions[command]) return;
+        let cancelled = false;
+        (async () => {
+            setReasonsLoading(true);
+            try {
+                const codesRes = await api.get('/codes');
+                const codes = Array.isArray(codesRes?.data) ? codesRes.data : (codesRes?.data?.pageItems || []);
+                const expectedName = REASON_CODE_BY_COMMAND[command];
+                const code = codes.find((item) => String(item?.name || '').trim().toLowerCase() === expectedName.toLowerCase());
+                if (!code?.id) throw new Error(`${expectedName} code is not configured`);
+                const valuesRes = await api.get(`/codes/${code.id}/codevalues`);
+                const values = Array.isArray(valuesRes?.data) ? valuesRes.data : (valuesRes?.data?.pageItems || []);
+                if (!cancelled) {
+                    setReasonOptions((previous) => ({
+                        ...previous,
+                        [command]: values
+                            .filter((item) => item?.active !== false)
+                            .map((item) => ({ id: item.id, name: item.name || item.description || `Reason ${item.id}` })),
+                    }));
+                }
+            } catch (error) {
+                if (!cancelled) {
+                    setReasonOptions((previous) => ({ ...previous, [command]: [] }));
+                    addToast(parseError(error, `Failed to load ${REASON_CODE_BY_COMMAND[command]} values`), 'error');
+                }
+            } finally {
+                if (!cancelled) setReasonsLoading(false);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [open, command, reasonOptions, addToast]);
+
     if (!open || !client) return null;
 
     const submit = async () => {
@@ -254,6 +304,14 @@ const ClientCommandModal = ({ open, client, onClose, onDone, initialCommand = 'a
         }
         if (commandMeta.fields.includes('savingsAccountId') && !savingsAccountId) {
             addToast('Savings account is required for this action', 'error');
+            return;
+        }
+        if (commandMeta.fields.includes('reasonId') && !reasonId) {
+            addToast('A valid reason is required for this action', 'error');
+            return;
+        }
+        if (commandName === 'unassignStaff' && !assignedStaffId(client)) {
+            addToast('The assigned staff ID is missing. Refresh the client before unassigning staff.', 'error');
             return;
         }
         const payload = commandMeta.template({
@@ -357,12 +415,17 @@ const ClientCommandModal = ({ open, client, onClose, onDone, initialCommand = 'a
                     {showField('reasonId') ? (
                         <div className="rounded-2xl border border-slate-200/70 p-4 dark:border-slate-700/70">
                             <label className="block text-sm font-medium">Reason</label>
-                            <input
+                            <select
                                 value={reasonId}
                                 onChange={(e) => setReasonId(e.target.value)}
-                                placeholder="Enter reason code or identifier if required"
                                 className="mt-2 w-full rounded-xl border p-3 dark:bg-gray-700 dark:border-gray-600"
-                            />
+                                disabled={reasonsLoading}
+                            >
+                                <option value="">{reasonsLoading ? 'Loading reasons...' : 'Select reason'}</option>
+                                {(reasonOptions[command] || []).map((reason) => (
+                                    <option key={reason.id} value={reason.id}>{reason.name}</option>
+                                ))}
+                            </select>
                         </div>
                     ) : null}
 
