@@ -1,6 +1,20 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Eye, Pencil, Trash2 } from 'lucide-react';
+import {
+  Banknote,
+  BadgeAlert,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
+  Eye,
+  MoreVertical,
+  Pencil,
+  RefreshCw,
+  Search,
+  Trash2,
+  WalletCards,
+} from 'lucide-react';
 import Card from '../../../components/Card';
 import Button from '../../../components/Button';
 import DataTable from '../../../components/DataTable';
@@ -570,6 +584,30 @@ const GwLoansList = () => {
         .filter((value) => Number.isFinite(value) && value > 0)
     : [];
 
+  const pageStats = useMemo(() => {
+    const active = rows.filter((row) => getGwLoanStatusCode(row) === 'ACTIVE').length;
+    const pending = rows.filter((row) =>
+      ['PENDING_APPROVAL', 'PENDING_DISBURSEMENT', 'SUBMITTED', 'APPROVED'].includes(getGwLoanStatusCode(row))
+    ).length;
+    const overdue = rows.filter((row) => getGwLoanStatusCode(row) === 'OVERDUE').length;
+    const principal = rows.reduce((sum, row) => sum + (toNumOrNull(row?.principal) || 0), 0);
+    return { active, pending, overdue, principal };
+  }, [rows]);
+
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const rangeStart = total ? page * limit + 1 : 0;
+  const rangeEnd = Math.min((page + 1) * limit, total);
+  const pageNumbers = Array.from(new Set([0, 1, 2, 3, 4, totalPages - 1]))
+    .filter((number) => number >= 0 && number < totalPages);
+
+  const loanInitials = (row) => String(row?.customerFullName || row?.customerId || 'LN')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join('')
+    .toUpperCase();
+
   const columns = useMemo(
     () => [
       {
@@ -690,116 +728,123 @@ const GwLoansList = () => {
   };
 
   return (
-    <div className="space-y-4">
-      <section>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">Gw Loans</h1>
-            <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">Platform loan records and workflow</div>
+    <div className="customer-directory-page loan-directory-page">
+      <section className="customer-panel customer-filter-panel">
+        <div className="loan-filter-row">
+          <label className="customer-search-box">
+            <Search size={19} color="#5c6a86" />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search by Loan ID, Customer, Phone or Product"
+            />
+          </label>
+          <label className="customer-select">
+            <select value={status} onChange={(event) => { setStatus(event.target.value); setPage(0); }}>
+              {STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label === 'All' ? 'Status' : option.label}</option>)}
+            </select>
+            <ChevronDown size={16} />
+          </label>
+          <label className="customer-search-box loan-compact-filter">
+            <input value={customerId} onChange={(event) => { setCustomerId(event.target.value); setPage(0); }} placeholder="Customer ID" />
+          </label>
+          <label className="customer-search-box loan-compact-filter">
+            <input value={productCode} onChange={(event) => { setProductCode(event.target.value); setPage(0); }} placeholder="Product Code" />
+          </label>
+          <label className="customer-select loan-row-limit">
+            <select value={limit} onChange={(event) => { setLimit(Number(event.target.value)); setPage(0); }}>
+              {PAGE_SIZE_OPTIONS.map((number) => <option key={number} value={number}>{number} rows</option>)}
+            </select>
+            <ChevronDown size={16} />
+          </label>
+          <button type="button" className="customer-reset" onClick={clearFilters}><RefreshCw size={16} />Reset</button>
+        </div>
+
+        <div className="customer-stat-grid">
+          <div className="customer-stat-card">
+            <div className="customer-stat-icon blue"><Banknote /></div>
+            <div><div className="customer-stat-label">Total Loans</div><div className="customer-stat-value">{total.toLocaleString()}</div><div className="customer-stat-note">All matching platform loans</div></div>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="hidden sm:block text-right">
-              <div className="text-xs text-slate-500 dark:text-slate-400">Page</div>
-              <div className="text-base font-semibold">{page + 1}</div>
-            </div>
+          <div className="customer-stat-card">
+            <div className="customer-stat-icon green"><WalletCards /></div>
+            <div><div className="customer-stat-label">Active Loans</div><div className="customer-stat-value">{pageStats.active.toLocaleString()}</div><div className="customer-stat-note">Active on this page</div></div>
+          </div>
+          <div className="customer-stat-card">
+            <div className="customer-stat-icon orange"><Clock3 /></div>
+            <div><div className="customer-stat-label">Pending Workflow</div><div className="customer-stat-value">{pageStats.pending.toLocaleString()}</div><div className="customer-stat-note">Awaiting approval or disbursement</div></div>
+          </div>
+          <div className="customer-stat-card">
+            <div className="customer-stat-icon purple"><BadgeAlert /></div>
+            <div><div className="customer-stat-label">Page Principal</div><div className="customer-stat-value">TSh {formatMoney(pageStats.principal)}</div><div className="customer-stat-note">{pageStats.overdue} overdue loan(s)</div></div>
           </div>
         </div>
       </section>
 
-      <Card>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-          <div className="md:col-span-2">
-            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search</label>
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Loan id, customer, product, status..."
-              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Status</label>
-            <select
-              value={status}
-              onChange={(e) => {
-                setStatus(e.target.value);
-                setPage(0);
-              }}
-              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
-            >
-              {STATUS_OPTIONS.map((s) => (
-                <option key={s.value} value={s.value}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Customer ID</label>
-            <input
-              value={customerId}
-              onChange={(e) => {
-                setCustomerId(e.target.value);
-                setPage(0);
-              }}
-              placeholder="e.g. CUST-001"
-              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Product Code</label>
-            <input
-              value={productCode}
-              onChange={(e) => {
-                setProductCode(e.target.value);
-                setPage(0);
-              }}
-              placeholder="e.g. CMP-LOAN-01"
-              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
-            />
+      <section className="customer-panel customer-directory-card">
+        <div className="customer-section-title">Loan Directory</div>
+        <div className="customer-table-scroll">
+          <table className="customer-directory-table loan-directory-table">
+            <thead>
+              <tr>
+                <th>Customer</th><th>Phone</th><th>Loan Product</th><th>Principal</th><th>Tenure</th><th>Total Loan Amount</th><th>Status</th><th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan="8">Loading loans...</td></tr>
+              ) : rows.length ? rows.map((row) => {
+                const id = String(row?.customerId || '');
+                const name = String(row?.customerFullName || customerNameById?.[id] || id || '-');
+                const phone = String(row?.customerPhone || customerPhoneById?.[id] || '-');
+                const code = String(row?.productCode || '');
+                const totalAmount = totalLoanAmountByPlatformId?.[String(row?.platformLoanId || '')];
+                return (
+                  <tr key={row?.platformLoanId} onClick={() => onRowClick(row)}>
+                    <td>
+                      <div className="customer-identity">
+                        <div className="customer-initials">{loanInitials(row)}</div>
+                        <div>
+                          <div className="customer-name">{name}</div>
+                          <div className="customer-wallet">Loan: {row?.fineractLoanId || row?.platformLoanId || '-'}</div>
+                          <div className="customer-row-links"><span className="customer-mini-link"><Eye size={10} />Details</span></div>
+                        </div>
+                      </div>
+                    </td>
+                    <td>{phone}</td>
+                    <td><div className="customer-name">{productNameByCode?.[code] || code || '-'}</div>{code ? <div className="customer-wallet">{code}</div> : null}</td>
+                    <td className="customer-money">TSh {formatMoney(row?.principal)}</td>
+                    <td>{row?.tenureMonths ?? '-'}</td>
+                    <td>TSh {formatMoney(totalAmount)}</td>
+                    <td><Badge tone={status === 'OVERDUE' ? getGwLoanStatusTone('OVERDUE') : getGwLoanStatusTone(row)}>{status === 'OVERDUE' ? 'Overdue' : getGwLoanStatusLabel(row)}</Badge></td>
+                    <td>
+                      <div className="loan-row-actions">
+                        <button type="button" className="customer-view-button" onClick={(event) => { event.stopPropagation(); onRowClick(row); }}>View</button>
+                        <Can any={['GW_OPS_WRITE']}>
+                          <button type="button" className="loan-delete-button" title="Delete" onClick={(event) => doDelete(row, event)} disabled={!row?.platformLoanId}><Trash2 size={15} /></button>
+                        </Can>
+                        <MoreVertical size={17} />
+                      </div>
+                    </td>
+                  </tr>
+                );
+              }) : <tr><td colSpan="8">No platform loans found.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+        <div className="customer-directory-footer">
+          <span>Showing {rangeStart} to {rangeEnd} of {total.toLocaleString()} loans</span>
+          <div className="customer-pagination">
+            <button className="customer-page-button" disabled={page === 0} onClick={() => setPage(page - 1)}><ChevronLeft size={16} /></button>
+            {pageNumbers.map((number, index) => (
+              <React.Fragment key={number}>
+                {index > 0 && number - pageNumbers[index - 1] > 1 ? <span>...</span> : null}
+                <button className={`customer-page-button ${number === page ? 'active' : ''}`} onClick={() => setPage(number)}>{number + 1}</button>
+              </React.Fragment>
+            ))}
+            <button className="customer-page-button" disabled={page >= totalPages - 1} onClick={() => setPage(page + 1)}><ChevronRight size={16} /></button>
           </div>
         </div>
-
-        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <Button variant="secondary" onClick={clearFilters} className="w-full sm:w-auto">
-            Clear
-          </Button>
-          <div className="flex items-center justify-between gap-2 sm:justify-start">
-            <label className="text-sm text-slate-600 dark:text-slate-300">Rows</label>
-            <select
-              value={limit}
-              onChange={(e) => {
-                setLimit(Number(e.target.value));
-                setPage(0);
-              }}
-              className="rounded-xl border px-2 py-1.5 dark:bg-gray-700 dark:border-gray-600"
-            >
-              {PAGE_SIZE_OPTIONS.map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </Card>
-
-      <Card>
-        <DataTable
-          columns={columns}
-          data={rows}
-          loading={loading}
-          total={total}
-          page={page}
-          limit={limit}
-          onPageChange={setPage}
-          sortBy={sortBy}
-          sortDir={sortDir}
-          onSort={onSort}
-          onRowClick={onRowClick}
-          emptyMessage="No platform loans found"
-        />
-      </Card>
+      </section>
 
       <Modal
         open={loanOpen}

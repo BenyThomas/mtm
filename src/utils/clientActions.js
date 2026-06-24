@@ -96,7 +96,7 @@ export const getVisibleClientActions = (client, { hasAssignedStaff = false, savi
   }
 
   if (isClosedState) {
-    return [{ command: 'reactivate', title: 'Reactivate client', icon: RotateCcw, tone: 'emerald' }];
+    return [];
   }
 
   if (isRejectedState) {

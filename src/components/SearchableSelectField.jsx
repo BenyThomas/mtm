@@ -58,7 +58,7 @@ const SearchableSelectField = ({
         {required ? <span className="text-red-600"> *</span> : null}
       </label>
       <div
-        className={`mt-1 flex items-center gap-2 rounded-xl border p-2.5 dark:border-gray-600 dark:bg-gray-700 ${disabled ? 'opacity-60' : ''}`}
+        className={`mt-1 flex min-h-[43px] items-center gap-2 rounded-lg border px-3 py-2 dark:border-gray-600 dark:bg-gray-700 ${disabled ? 'opacity-60' : ''}`}
         onClick={() => {
           if (disabled) return;
           setOpen(true);
@@ -84,7 +84,7 @@ const SearchableSelectField = ({
       {helperText ? <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{helperText}</div> : null}
       {open && !disabled ? (
         <div className="relative">
-          <div className="absolute z-40 mt-1 max-h-56 w-full overflow-auto rounded-xl border bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900">
+          <div className="absolute z-40 mt-1 max-h-56 w-full overflow-auto rounded-lg border bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900">
             {filtered.length === 0 ? (
               <div className="px-3 py-2 text-sm text-gray-500">No results</div>
             ) : (

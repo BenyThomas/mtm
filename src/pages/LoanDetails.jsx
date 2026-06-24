@@ -9,6 +9,7 @@ import Badge from '../components/Badge';
 import Modal from '../components/Modal';
 import ScheduleTable from '../components/ScheduleTable';
 import LoanAdvancedActionModal from '../components/LoanAdvancedActionModal';
+import RepaymentPaymentModal from '../components/RepaymentPaymentModal';
 import { useToast } from '../context/ToastContext';
 import LoanCollaterals from './loans/LoanCollaterals';
 import {
@@ -506,6 +507,21 @@ const LoanDetails = () => {
         }
         return max;
     }, [loan, tl?.expectedMaturityDate, tl?.actualMaturityDate]);
+    const nextRepaymentAmount = useMemo(() => {
+        const periods = Array.isArray(loan?.repaymentSchedule?.periods) ? loan.repaymentSchedule.periods : [];
+        const next = periods.find((period) =>
+            Number(period?.period || 0) > 0 &&
+            period?.complete !== true &&
+            period?.isComplete !== true
+        );
+        if (!next) return null;
+        const amount =
+            next?.totalOutstandingForPeriod ??
+            next?.totalDueForPeriod ??
+            next?.totalInstallmentAmountForPeriod ??
+            next?.totalInstallmentAmount;
+        return Number.isFinite(Number(amount)) ? Number(amount) : null;
+    }, [loan?.repaymentSchedule?.periods]);
 
     // Officer presence (some payloads expose id or name)
     const hasOfficerAssigned = !!(loan?.loanOfficerId || loan?.loanOfficerName);
@@ -802,13 +818,17 @@ const LoanDetails = () => {
             addToast('Enter a valid amount', 'error');
             return;
         }
+        if (!String(repayReceipt || '').trim()) {
+            addToast('Transaction reference is required', 'error');
+            return;
+        }
         setRepayBusy(true);
         try {
             await api.post(`/loans/${id}/transactions?command=repayment`, {
                 transactionDate: repayDate,
                 transactionAmount: Number(repayAmount),
                 paymentTypeId: repayPaymentTypeId ? Number(repayPaymentTypeId) : undefined,
-                externalId: repayReceipt || undefined, // receipt/reference
+                externalId: String(repayReceipt).trim(),
                 dateFormat: 'yyyy-MM-dd',
                 locale: 'en',
             });
@@ -1611,65 +1631,30 @@ const LoanDetails = () => {
             </Modal>
 
             {/* Repayment Modal */}
-            <Modal
+            <RepaymentPaymentModal
                 open={repayOpen}
-                title="Record Repayment"
+                busy={repayBusy}
                 onClose={() => setRepayOpen(false)}
-                footer={
-                    <>
-                        <Button variant="secondary" onClick={() => setRepayOpen(false)}>Cancel</Button>
-                        <Button onClick={postRepayment} disabled={repayBusy}>
-                            {repayBusy ? 'Postingâ€¦' : 'Post Repayment'}
-                        </Button>
-                    </>
-                }
-            >
-                <div className="space-y-3">
-                    <div>
-                        <label className="block text-sm font-medium">Amount *</label>
-                        <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={repayAmount}
-                            onChange={(e) => setRepayAmount(e.target.value)}
-                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
-                            placeholder="e.g. 150000"
-                        />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium">Date *</label>
-                        <input
-                            type="date"
-                            value={repayDate}
-                            onChange={(e) => setRepayDate(e.target.value)}
-                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
-                        />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium">Payment Type</label>
-                        <select
-                            value={repayPaymentTypeId}
-                            onChange={(e) => setRepayPaymentTypeId(e.target.value)}
-                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
-                        >
-                            <option value="">Select</option>
-                            {paymentTypeOptions.map((p) => (
-                                <option key={p.id} value={p.id}>{p.name}</option>
-                            ))}
-                        </select>
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium">Receipt # (External ID)</label>
-                        <input
-                            value={repayReceipt}
-                            onChange={(e) => setRepayReceipt(e.target.value)}
-                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
-                            placeholder="e.g. RCPT-2025-0001"
-                        />
-                    </div>
-                </div>
-            </Modal>
+                onSubmit={postRepayment}
+                customerName={loan?.clientName}
+                customerNumber={loan?.clientId || loan?.clientAccountNo}
+                loanNumber={loan?.accountNo || loan?.id}
+                statusLabel={loan?.status?.value || loan?.status?.code}
+                statusTone={statusTone(loan?.status)}
+                amount={repayAmount}
+                onAmountChange={setRepayAmount}
+                outstandingAmount={loan?.summary?.totalOutstanding}
+                dueAmount={nextRepaymentAmount}
+                quickAmounts={[1000, 5000]}
+                currency={currencyCode || 'TZS'}
+                transactionDate={repayDate}
+                onTransactionDateChange={setRepayDate}
+                paymentTypeId={repayPaymentTypeId}
+                onPaymentTypeChange={setRepayPaymentTypeId}
+                paymentTypeOptions={paymentTypeOptions}
+                reference={repayReceipt}
+                onReferenceChange={setRepayReceipt}
+            />
 
             {/* Reject Modal */}
             <Modal

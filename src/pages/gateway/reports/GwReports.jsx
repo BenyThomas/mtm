@@ -27,6 +27,7 @@ const REPORT_OPTIONS = [
   { key: 'cashflowProjection', label: 'Cashflow Projection', description: 'Projected cash inflows from repayment schedules.', filters: ['days'] },
   { key: 'exceptions', label: 'Exceptions', description: 'Reversed repayments, failed postings, unmatched collections, failed disbursements.', filters: [] },
   { key: 'regulatorySummary', label: 'Regulatory Summary', description: 'Active borrowers, PAR, NPL, provisions, write-offs, and recoveries.', filters: [] },
+  { key: 'customersWithoutActiveLoan', label: 'Customers Without Active Loan', description: 'Customers with no currently active loan exposure.', filters: [] },
 ];
 
 const GROUP_BY_OPTIONS = [
@@ -53,6 +54,7 @@ const DATE_RANGE_REPORTS = new Set(['disbursements', 'writeOffs', 'collectionEff
 const HIDDEN_REPORT_FIELDS = new Set([
   'platformLoanId',
   'customerId',
+  'platformCustomerId',
   'orderId',
   'paymentEventId',
   'externalId',

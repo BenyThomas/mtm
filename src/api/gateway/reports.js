@@ -27,6 +27,7 @@ export async function getGwOpsReport(reportKey, params) {
     cashflowProjection: '/ops/reports/cashflow-projection',
     exceptions: '/ops/reports/exceptions',
     regulatorySummary: '/ops/reports/regulatory-summary',
+    customersWithoutActiveLoan: '/ops/reports/customers-without-active-loan',
   };
 
   const endpoint = endpointByReport[reportKey];
@@ -59,6 +60,7 @@ export async function downloadGwOpsReport(reportKey, params, format = 'pdf') {
     cashflowProjection: '/ops/reports/cashflow-projection/export',
     exceptions: '/ops/reports/exceptions/export',
     regulatorySummary: '/ops/reports/regulatory-summary/export',
+    customersWithoutActiveLoan: '/ops/reports/customers-without-active-loan/export',
   };
 
   const endpoint = endpointByReport[reportKey];

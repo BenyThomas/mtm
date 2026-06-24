@@ -99,15 +99,6 @@ const FALLBACK_TEMPLATE = {
         { id: 1, value: 'Till Pre-Close Date' },
         { id: 2, value: 'Till Rest Frequency Date' },
     ],
-    repaymentStrategyOptions: [
-        { id: 'REDUCE_EMI_AMOUNT', value: 'Reduce EMI Amount' },
-        { id: 'REDUCE_NUMBER_OF_INSTALLMENTS', value: 'Reduce Number Of Installments' },
-    ],
-    overpaymentHandlingOptions: [
-        { id: 'apply_to_next_installment', value: 'Apply To Next Installment' },
-        { id: 'apply_to_principal', value: 'Apply To Principal' },
-        { id: 'reject_overpayment', value: 'Reject Overpayment' },
-    ],
 };
 
 const numberOrUndefined = (v) =>
@@ -145,25 +136,78 @@ const stringifyStructuredValue = (value) => {
     }
 };
 
-const parseStructuredValue = (value) => {
-    const text = stringOrUndefined(value);
-    if (!text) return undefined;
-    try {
-        return JSON.parse(text);
-    } catch {
-        const tokens = text.split(',').map((item) => item.trim()).filter(Boolean);
-        return tokens.length > 0 ? tokens : text;
+const ATTRIBUTE_OVERRIDE_OPTIONS = [
+    {
+        key: 'amortizationType',
+        label: 'Amortization method',
+        hint: 'Allow the loan application to use a different amortization method.',
+    },
+    {
+        key: 'interestType',
+        label: 'Interest type',
+        hint: 'Allow flat or declining-balance interest to be changed on the loan.',
+    },
+    {
+        key: 'transactionProcessingStrategyCode',
+        label: 'Transaction processing strategy',
+        hint: 'Allow the payment allocation strategy to be changed on the loan.',
+    },
+    {
+        key: 'interestCalculationPeriodType',
+        label: 'Interest calculation period',
+        hint: 'Allow the interest calculation period to be changed on the loan.',
+    },
+    {
+        key: 'inArrearsTolerance',
+        label: 'Arrears tolerance',
+        hint: 'Allow the arrears tolerance amount to be changed on the loan.',
+    },
+    {
+        key: 'repaymentEvery',
+        label: 'Repayment interval',
+        hint: 'Allow the repayment interval to be changed on the loan.',
+    },
+    {
+        key: 'graceOnPrincipalAndInterestPayment',
+        label: 'Principal and interest grace periods',
+        hint: 'Allow principal and interest grace periods to be changed on the loan.',
+    },
+    {
+        key: 'graceOnArrearsAgeing',
+        label: 'Arrears ageing grace period',
+        hint: 'Allow the arrears ageing grace period to be changed on the loan.',
+    },
+];
+
+const normalizeAttributeOverrides = (value) => {
+    let source = value;
+    if (typeof source === 'string') {
+        try {
+            source = JSON.parse(source);
+        } catch {
+            source = {};
+        }
     }
+    if (!source || Array.isArray(source) || typeof source !== 'object') return {};
+
+    return Object.fromEntries(
+        ATTRIBUTE_OVERRIDE_OPTIONS.map(({ key }) => [key, Boolean(source[key])])
+    );
 };
 
-const withCurrentOption = (options, currentValue) => {
-    const current = stringOrUndefined(currentValue);
-    if (!current) return options || [];
-    const items = Array.isArray(options) ? options : [];
-    const exists = items.some((option) =>
-        String(option?.id ?? option?.code ?? option?.value ?? '') === current
-    );
-    return exists ? items : [{ id: current, code: current, value: current }, ...items];
+const toISO = (value) => {
+    if (value === null || value === undefined || value === '') return '';
+    if (Array.isArray(value) && value.length >= 3) {
+        const [year, month, day] = value;
+        return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+
+    const text = String(value).trim();
+    const isoDate = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (isoDate) return `${isoDate[1]}-${isoDate[2]}-${isoDate[3]}`;
+
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? '' : parsed.toISOString().slice(0, 10);
 };
 
 const normalizeAccountingOptions = (options) => ({
@@ -205,13 +249,22 @@ const buildAccountingOptionsFromGlAccounts = (accounts) => {
         liabilityAccountOptions: normalized.filter((account) => account.typeLabel.includes('liability')),
     };
 
-    const fallbackList = normalized.map(({ typeLabel, ...account }) => account);
     return {
-        assetAccountOptions: buckets.assetAccountOptions.length ? buckets.assetAccountOptions.map(({ typeLabel, ...account }) => account) : fallbackList,
-        incomeAccountOptions: buckets.incomeAccountOptions.length ? buckets.incomeAccountOptions.map(({ typeLabel, ...account }) => account) : fallbackList,
-        expenseAccountOptions: buckets.expenseAccountOptions.length ? buckets.expenseAccountOptions.map(({ typeLabel, ...account }) => account) : fallbackList,
-        liabilityAccountOptions: buckets.liabilityAccountOptions.length ? buckets.liabilityAccountOptions.map(({ typeLabel, ...account }) => account) : fallbackList,
+        assetAccountOptions: buckets.assetAccountOptions.map(({ typeLabel, ...account }) => account),
+        incomeAccountOptions: buckets.incomeAccountOptions.map(({ typeLabel, ...account }) => account),
+        expenseAccountOptions: buckets.expenseAccountOptions.map(({ typeLabel, ...account }) => account),
+        liabilityAccountOptions: buckets.liabilityAccountOptions.map(({ typeLabel, ...account }) => account),
     };
+};
+
+const parseJsonValue = (value, label) => {
+    const text = stringOrUndefined(value);
+    if (!text) return undefined;
+    try {
+        return JSON.parse(text);
+    } catch {
+        throw new Error(`${label} must be valid JSON`);
+    }
 };
 
 const SectionTitle = ({ icon, children, hint }) => (
@@ -235,6 +288,11 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
 
     const [loading, setLoading] = useState(true);
     const [tpl, setTpl] = useState(FALLBACK_TEMPLATE);
+    const [templateError, setTemplateError] = useState('');
+    const [capabilities, setCapabilities] = useState({
+        incomeCapitalization: false,
+        buyDownFee: false,
+    });
 
     // ----- Core fields -----
     const [form, setForm] = useState({
@@ -244,6 +302,11 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
         fundId: '',
         currencyCode: 'TZS',
         digitsAfterDecimal: 0,
+        inMultiplesOf: '',
+        includeInBorrowerCycle: false,
+        externalId: '',
+        startDate: '',
+        closeDate: '',
 
         principalMin: '',
         principalDefault: '',
@@ -252,8 +315,6 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
         rateMin: '',
         rateDefault: '',
         rateMax: '',
-        annualInterestRate: '',
-
         interestRateFrequencyType: 2, // Months default
 
         numRepaymentsMin: '',
@@ -268,8 +329,30 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
         interestCalculationPeriodType: 1,
         allowPartialPeriodInterestCalculation: false,
         inArrearsTolerance: '',
-        loanCycle: '',
         multiDisbursement: false,
+        maxOutstandingLoanBalance: '',
+        maxTrancheCount: '',
+        syncExpectedWithDisbursementDate: false,
+        recurringMoratoriumOnPrincipalPeriods: '',
+        graceOnArrearsAgeing: '',
+        overdueDaysForNPA: '',
+        minimumDaysBetweenDisbursalAndFirstRepayment: '',
+        principalThresholdForLastInstallment: '',
+        installmentAmountInMultiplesOf: '',
+        canUseForTopup: false,
+        accountMovesOutOfNPAOnlyOnArrearsCompletion: false,
+        allowVariableInstallments: false,
+        minimumGapBetweenInstallments: '',
+        maximumGapBetweenInstallments: '',
+        holdGuaranteeFunds: false,
+        mandatoryGuarantee: '',
+        minimumGuaranteeFromGuarantor: '',
+        minimumGuaranteeFromOwnFunds: '',
+        delinquencyBucketId: '',
+        dueDaysForRepaymentEvent: '',
+        overDueDaysForRepaymentEvent: '',
+        enableInstallmentLevelDelinquency: false,
+        allowAttributeOverrides: {},
         graceOnPrincipalPayment: '',
         graceOnInterestPayment: '',
         graceOnInterestCharged: '',
@@ -279,9 +362,8 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
 
         // Strategy / Charges / Accounting
         transactionProcessingStrategyId: '',
-        repaymentStrategy: '',
-        overpaymentHandling: '',
-        principalDisbursedIndicators: '',
+        paymentAllocation: '',
+        creditAllocation: '',
 
         // Advanced allocation (only for advanced strategy)
         fixedLength: '',
@@ -343,6 +425,7 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
         disallowInterestCalculationOnPastDue: false,
         allowCompoundingOnEod: false,
         isCompoundingToBePostedAsTransaction: false,
+
     });
 
     const [errors, setErrors] = useState({});
@@ -352,6 +435,11 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
         let cancelled = false;
         (async () => {
             setLoading(true);
+            setTemplateError('');
+            setCapabilities({
+                incomeCapitalization: false,
+                buyDownFee: false,
+            });
             try {
                 const res = await api.get('/loanproducts/template');
                 const templateData = res?.data || {};
@@ -371,6 +459,22 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                 }
 
                 if (!cancelled && res?.data) {
+                    const hasTemplateProperty = (name) =>
+                        Object.prototype.hasOwnProperty.call(templateData, name);
+                    setCapabilities({
+                        incomeCapitalization:
+                            hasTemplateProperty('capitalizedIncomeCalculationTypeOptions') ||
+                            hasTemplateProperty('capitalizedIncomeStrategyOptions') ||
+                            hasTemplateProperty('capitalizedIncomeTypeOptions') ||
+                            hasTemplateProperty('enableIncomeCapitalization') ||
+                            Boolean(initial?.enableIncomeCapitalization),
+                        buyDownFee:
+                            hasTemplateProperty('buyDownFeeCalculationTypeOptions') ||
+                            hasTemplateProperty('buyDownFeeStrategyOptions') ||
+                            hasTemplateProperty('buyDownFeeIncomeTypeOptions') ||
+                            hasTemplateProperty('enableBuyDownFee') ||
+                            Boolean(initial?.enableBuyDownFee),
+                    });
                     setTpl({
                         currencyOptions: templateData.currencyOptions || FALLBACK_TEMPLATE.currencyOptions,
                         fundOptions: templateData.fundOptions || FALLBACK_TEMPLATE.fundOptions,
@@ -409,17 +513,13 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                         preClosureInterestCalculationStrategyOptions:
                             templateData.preClosureInterestCalculationStrategyOptions ||
                             FALLBACK_TEMPLATE.preClosureInterestCalculationStrategyOptions,
-                        repaymentStrategyOptions:
-                            templateData.repaymentStrategyOptions ||
-                            FALLBACK_TEMPLATE.repaymentStrategyOptions,
-                        overpaymentHandlingOptions:
-                            templateData.overpaymentHandlingOptions ||
-                            FALLBACK_TEMPLATE.overpaymentHandlingOptions,
                     });
 
                     // Default strategy if available and not in edit mode
                     if (!initial) {
-                        const firstStrat = templateData.transactionProcessingStrategyOptions?.[0];
+                        const firstStrat = templateData.transactionProcessingStrategyOptions?.find(
+                            (strategy) => strategy?.code !== 'advanced-payment-allocation-strategy'
+                        );
                         if (firstStrat?.code) {
                             setForm((f) => ({
                                 ...f,
@@ -428,12 +528,13 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                         }
                     }
                 }
-            } catch {
-                if (!initial) {
-                    const firstStrat = FALLBACK_TEMPLATE.transactionProcessingStrategyOptions[0];
-                    if (firstStrat?.code) {
-                        setForm((f) => ({ ...f, transactionProcessingStrategyId: firstStrat.code }));
-                    }
+            } catch (error) {
+                if (!cancelled) {
+                    setTemplateError(
+                        error?.response?.data?.defaultUserMessage ||
+                        error?.response?.data?.message ||
+                        'Unable to load the Fineract loan-product template. Product configuration is disabled to prevent invalid options.'
+                    );
                 }
             } finally {
                 if (!cancelled) setLoading(false);
@@ -460,6 +561,11 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
             currencyCode: initial.currency?.code || initial.currencyCode || f.currencyCode,
             digitsAfterDecimal:
                 initial.currency?.decimalPlaces ?? initial.digitsAfterDecimal ?? f.digitsAfterDecimal,
+            inMultiplesOf: initial.currency?.inMultiplesOf ?? initial.inMultiplesOf ?? '',
+            includeInBorrowerCycle: Boolean(initial.includeInBorrowerCycle),
+            externalId: initial.externalId ?? '',
+            startDate: toISO(initial.startDate),
+            closeDate: toISO(initial.closeDate),
 
             principalMin: initial.principal?.minimum ?? initial.minPrincipal ?? '',
             principalDefault:
@@ -473,7 +579,6 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                 initial.interestRate ??
                 '',
             rateMax: initial.interestRatePerPeriod?.maximum ?? initial.maxInterestRatePerPeriod ?? '',
-            annualInterestRate: initial.annualInterestRate ?? '',
 
             interestRateFrequencyType:
                 initial.interestRateFrequencyType?.id ??
@@ -498,8 +603,32 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                 initial.allowPartialPeriodInterestCalculation ?? initial.allowPartialPeriodInterestCalcualtion
             ),
             inArrearsTolerance: initial.inArrearsTolerance ?? '',
-            loanCycle: initial.loanCycle ?? '',
-            multiDisbursement: Boolean(initial.multiDisbursement),
+            multiDisbursement: Boolean(initial.multiDisburseLoan ?? initial.multiDisbursement),
+            maxOutstandingLoanBalance: initial.maxOutstandingLoanBalance ?? '',
+            maxTrancheCount: initial.maxTrancheCount ?? '',
+            syncExpectedWithDisbursementDate: Boolean(initial.syncExpectedWithDisbursementDate),
+            recurringMoratoriumOnPrincipalPeriods: initial.recurringMoratoriumOnPrincipalPeriods ?? '',
+            graceOnArrearsAgeing: initial.graceOnArrearsAgeing ?? '',
+            overdueDaysForNPA: initial.overdueDaysForNPA ?? '',
+            minimumDaysBetweenDisbursalAndFirstRepayment:
+                initial.minimumDaysBetweenDisbursalAndFirstRepayment ?? '',
+            principalThresholdForLastInstallment: initial.principalThresholdForLastInstallment ?? '',
+            installmentAmountInMultiplesOf: initial.installmentAmountInMultiplesOf ?? '',
+            canUseForTopup: Boolean(initial.canUseForTopup),
+            accountMovesOutOfNPAOnlyOnArrearsCompletion:
+                Boolean(initial.accountMovesOutOfNPAOnlyOnArrearsCompletion),
+            allowVariableInstallments: Boolean(initial.allowVariableInstallments),
+            minimumGapBetweenInstallments: initial.minimumGapBetweenInstallments ?? '',
+            maximumGapBetweenInstallments: initial.maximumGapBetweenInstallments ?? '',
+            holdGuaranteeFunds: Boolean(initial.holdGuaranteeFunds),
+            mandatoryGuarantee: initial.mandatoryGuarantee ?? '',
+            minimumGuaranteeFromGuarantor: initial.minimumGuaranteeFromGuarantor ?? '',
+            minimumGuaranteeFromOwnFunds: initial.minimumGuaranteeFromOwnFunds ?? '',
+            delinquencyBucketId: initial.delinquencyBucket?.id ?? initial.delinquencyBucketId ?? '',
+            dueDaysForRepaymentEvent: initial.dueDaysForRepaymentEvent ?? '',
+            overDueDaysForRepaymentEvent: initial.overDueDaysForRepaymentEvent ?? '',
+            enableInstallmentLevelDelinquency: Boolean(initial.enableInstallmentLevelDelinquency),
+            allowAttributeOverrides: normalizeAttributeOverrides(initial.allowAttributeOverrides),
             graceOnPrincipalPayment: initial.graceOnPrincipalPayment ?? '',
             graceOnInterestPayment: initial.graceOnInterestPayment ?? '',
             graceOnInterestCharged: initial.graceOnInterestCharged ?? '',
@@ -513,17 +642,8 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                 initial.transactionProcessingStrategy?.code ||
                 initial.transactionProcessingStrategyId ||
                 f.transactionProcessingStrategyId,
-            repaymentStrategy:
-                initial.repaymentStrategy?.code ??
-                initial.repaymentStrategy?.value ??
-                initial.repaymentStrategy ??
-                '',
-            overpaymentHandling:
-                initial.overpaymentHandling?.code ??
-                initial.overpaymentHandling?.value ??
-                initial.overpaymentHandling ??
-                '',
-            principalDisbursedIndicators: stringifyStructuredValue(initial.principalDisbursedIndicators),
+            paymentAllocation: stringifyStructuredValue(initial.paymentAllocation),
+            creditAllocation: stringifyStructuredValue(initial.creditAllocation),
 
             // advanced allocation (if present)
             fixedLength: initial.fixedLength ?? '',
@@ -607,10 +727,20 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
     const isAccountingEnabled = Number(form.accountingRule) !== 1;
     const isAccrual = Number(form.accountingRule) === 3;
     const isAdvancedAlloc = form.transactionProcessingStrategyId === 'advanced-payment-allocation-strategy';
+    const accountingOptions = normalizeAccountingOptions(tpl.accountingMappingOptions);
+    const missingAccountingOptionTypes = [
+        ['assetAccountOptions', 'asset'],
+        ['incomeAccountOptions', 'income'],
+        ['expenseAccountOptions', 'expense'],
+        ['liabilityAccountOptions', 'liability'],
+    ]
+        .filter(([key]) => accountingOptions[key].length === 0)
+        .map(([, label]) => label);
 
     // ---------- Validation ----------
     const validate = () => {
         const e = {};
+        if (templateError) e.template = templateError;
         if (!form.name) e.name = 'Name is required';
         if (!form.shortName) e.shortName = 'Short name is required';
         if (!form.currencyCode) e.currencyCode = 'Currency is required';
@@ -673,9 +803,33 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
         }
 
         if (isAdvancedAlloc) {
-            if (form.fixedLength === '') e.fixedLength = 'Required';
-            if (form.fixedPrincipalPercentagePerInstallment === '')
-                e.fixedPrincipalPercentagePerInstallment = 'Required';
+            try {
+                const allocation = parseJsonValue(form.paymentAllocation, 'Payment allocation');
+                if (!Array.isArray(allocation) || allocation.length === 0) {
+                    e.paymentAllocation =
+                        'This advanced product has no payment allocation rules. Configure it directly in Fineract before editing it here.';
+                }
+            } catch (error) {
+                e.paymentAllocation = error.message;
+            }
+        }
+
+        if (form.multiDisbursement) {
+            if (!hasValidNumber(form.maxOutstandingLoanBalance) || Number(form.maxOutstandingLoanBalance) <= 0) {
+                e.maxOutstandingLoanBalance = 'Maximum outstanding balance is required';
+            }
+            if (!hasValidNumber(form.maxTrancheCount) || Number(form.maxTrancheCount) <= 0) {
+                e.maxTrancheCount = 'Maximum tranche count is required';
+            }
+        }
+
+        if (
+            form.allowVariableInstallments &&
+            hasValidNumber(form.minimumGapBetweenInstallments) &&
+            hasValidNumber(form.maximumGapBetweenInstallments) &&
+            Number(form.minimumGapBetweenInstallments) > Number(form.maximumGapBetweenInstallments)
+        ) {
+            e.maximumGapBetweenInstallments = 'Maximum gap must be greater than or equal to minimum gap';
         }
 
         if (form.enableDownPayment) {
@@ -687,19 +841,23 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
             }
         }
 
-        if (form.enableIncomeCapitalization && isAccountingEnabled) {
+        if (capabilities.incomeCapitalization && form.enableIncomeCapitalization && isAccountingEnabled) {
             if (!form.incomeFromCapitalizationAccountId) {
                 e.incomeFromCapitalizationAccountId = 'Required (Accounting enabled)';
             }
         }
 
-        if (form.enableBuyDownFee && isAccountingEnabled) {
+        if (capabilities.buyDownFee && form.enableBuyDownFee && isAccountingEnabled) {
             if (!form.incomeFromBuyDownAccountId) {
                 e.incomeFromBuyDownAccountId = 'Required (Accounting enabled)';
             }
         }
 
         if (isAccountingEnabled) {
+            if (missingAccountingOptionTypes.length > 0) {
+                e.accountingOptions =
+                    `Fineract did not provide valid ${missingAccountingOptionTypes.join(', ')} GL account options`;
+            }
             [
                 'fundSourceAccountId',
                 'loanPortfolioAccountId',
@@ -734,6 +892,11 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
             fundId: numberOrUndefined(form.fundId),
             currencyCode: form.currencyCode,
             digitsAfterDecimal: numberOrUndefined(form.digitsAfterDecimal),
+            inMultiplesOf: numberOrUndefined(form.inMultiplesOf),
+            includeInBorrowerCycle: Boolean(form.includeInBorrowerCycle),
+            externalId: stringOrUndefined(form.externalId),
+            startDate: stringOrUndefined(form.startDate),
+            closeDate: stringOrUndefined(form.closeDate),
 
             minPrincipal: numberOrUndefined(form.principalMin),
             principal: numberOrUndefined(form.principalDefault),
@@ -756,17 +919,57 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
             interestCalculationPeriodType: Number(form.interestCalculationPeriodType),
             allowPartialPeriodInterestCalculation: Boolean(form.allowPartialPeriodInterestCalculation),
             inArrearsTolerance: numberOrUndefined(form.inArrearsTolerance),
-            loanCycle: numberOrUndefined(form.loanCycle),
             graceOnPrincipalPayment: numberOrUndefined(form.graceOnPrincipalPayment),
             graceOnInterestPayment: numberOrUndefined(form.graceOnInterestPayment),
             graceOnInterestCharged: numberOrUndefined(form.graceOnInterestCharged),
+            recurringMoratoriumOnPrincipalPeriods:
+                numberOrUndefined(form.recurringMoratoriumOnPrincipalPeriods),
+            syncExpectedWithDisbursementDate: Boolean(form.syncExpectedWithDisbursementDate),
+            graceOnArrearsAgeing: numberOrUndefined(form.graceOnArrearsAgeing),
+            overdueDaysForNPA: numberOrUndefined(form.overdueDaysForNPA),
+            minimumDaysBetweenDisbursalAndFirstRepayment:
+                numberOrUndefined(form.minimumDaysBetweenDisbursalAndFirstRepayment),
+            principalThresholdForLastInstallment:
+                numberOrUndefined(form.principalThresholdForLastInstallment),
+            installmentAmountInMultiplesOf: numberOrUndefined(form.installmentAmountInMultiplesOf),
+            canUseForTopup: Boolean(form.canUseForTopup),
+            accountMovesOutOfNPAOnlyOnArrearsCompletion:
+                Boolean(form.accountMovesOutOfNPAOnlyOnArrearsCompletion),
+            allowVariableInstallments: Boolean(form.allowVariableInstallments),
+            minimumGapBetweenInstallments:
+                form.allowVariableInstallments
+                    ? numberOrUndefined(form.minimumGapBetweenInstallments)
+                    : undefined,
+            maximumGapBetweenInstallments:
+                form.allowVariableInstallments
+                    ? numberOrUndefined(form.maximumGapBetweenInstallments)
+                    : undefined,
+            holdGuaranteeFunds: Boolean(form.holdGuaranteeFunds),
+            mandatoryGuarantee: numberOrUndefined(form.mandatoryGuarantee),
+            minimumGuaranteeFromGuarantor: numberOrUndefined(form.minimumGuaranteeFromGuarantor),
+            minimumGuaranteeFromOwnFunds: numberOrUndefined(form.minimumGuaranteeFromOwnFunds),
+            delinquencyBucketId: numberOrUndefined(form.delinquencyBucketId),
+            dueDaysForRepaymentEvent: numberOrUndefined(form.dueDaysForRepaymentEvent),
+            overDueDaysForRepaymentEvent: numberOrUndefined(form.overDueDaysForRepaymentEvent),
+            enableInstallmentLevelDelinquency: Boolean(form.enableInstallmentLevelDelinquency),
+            allowAttributeOverrides: Object.fromEntries(
+                ATTRIBUTE_OVERRIDE_OPTIONS.map(({ key }) => [
+                    key,
+                    Boolean(form.allowAttributeOverrides?.[key]),
+                ])
+            ),
 
             daysInMonthType: Number(form.daysInMonthType),
             daysInYearType: Number(form.daysInYearType),
 
             // strategy by code
             transactionProcessingStrategyCode: form.transactionProcessingStrategyId || undefined,
-            principalDisbursedIndicators: parseStructuredValue(form.principalDisbursedIndicators),
+            paymentAllocation: isAdvancedAlloc
+                ? parseJsonValue(form.paymentAllocation, 'Payment allocation')
+                : undefined,
+            creditAllocation: isAdvancedAlloc
+                ? parseJsonValue(form.creditAllocation, 'Credit allocation')
+                : undefined,
 
             // loan schedule
             loanScheduleType: normalizeEnumToken(form.loanScheduleType),
@@ -778,6 +981,16 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
 
             locale: 'en',
         };
+
+        if (payload.startDate || payload.closeDate) {
+            payload.dateFormat = 'yyyy-MM-dd';
+        }
+
+        payload.multiDisburseLoan = Boolean(form.multiDisbursement);
+        if (form.multiDisbursement) {
+            payload.maxOutstandingLoanBalance = numberOrUndefined(form.maxOutstandingLoanBalance);
+            payload.maxTrancheCount = numberOrUndefined(form.maxTrancheCount);
+        }
 
         if (!payload.loanScheduleType) {
             delete payload.loanScheduleType;
@@ -806,9 +1019,10 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
             payload.isCompoundingToBePostedAsTransaction = Boolean(form.isCompoundingToBePostedAsTransaction);
         }
 
-        // Advanced Payment Allocation exclusive fields
-        if (isAdvancedAlloc) {
+        if (isAdvancedAlloc && hasValidNumber(form.fixedLength)) {
             payload.fixedLength = numberOrUndefined(form.fixedLength);
+        }
+        if (isAdvancedAlloc && hasValidNumber(form.fixedPrincipalPercentagePerInstallment)) {
             payload.fixedPrincipalPercentagePerInstallment =
                 numberOrUndefined(form.fixedPrincipalPercentagePerInstallment);
         }
@@ -825,32 +1039,35 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
             payload.enableDownPayment = false;
         }
 
-        // Capitalized income
-        if (form.enableIncomeCapitalization) {
-            payload.enableIncomeCapitalization = true;
-            payload.capitalizedIncomeCalculationType = form.capitalizedIncomeCalculationType;
-            payload.capitalizedIncomeStrategy = form.capitalizedIncomeStrategy;
-            payload.capitalizedIncomeType = form.capitalizedIncomeType;
-            if (isAccountingEnabled && form.incomeFromCapitalizationAccountId) {
-                payload.incomeFromCapitalizationAccountId = Number(
-                    form.incomeFromCapitalizationAccountId
-                );
+        // These fields are version-dependent and are only sent when the template advertises support.
+        if (capabilities.incomeCapitalization) {
+            if (form.enableIncomeCapitalization) {
+                payload.enableIncomeCapitalization = true;
+                payload.capitalizedIncomeCalculationType = form.capitalizedIncomeCalculationType;
+                payload.capitalizedIncomeStrategy = form.capitalizedIncomeStrategy;
+                payload.capitalizedIncomeType = form.capitalizedIncomeType;
+                if (isAccountingEnabled && form.incomeFromCapitalizationAccountId) {
+                    payload.incomeFromCapitalizationAccountId = Number(
+                        form.incomeFromCapitalizationAccountId
+                    );
+                }
+            } else {
+                payload.enableIncomeCapitalization = false;
             }
-        } else {
-            payload.enableIncomeCapitalization = false;
         }
 
-        // Buy-down fee
-        if (form.enableBuyDownFee) {
-            payload.enableBuyDownFee = true;
-            payload.buyDownFeeCalculationType = form.buyDownFeeCalculationType;
-            payload.buyDownFeeStrategy = form.buyDownFeeStrategy;
-            payload.buyDownFeeIncomeType = form.buyDownFeeIncomeType;
-            if (isAccountingEnabled && form.incomeFromBuyDownAccountId) {
-                payload.incomeFromBuyDownAccountId = Number(form.incomeFromBuyDownAccountId);
+        if (capabilities.buyDownFee) {
+            if (form.enableBuyDownFee) {
+                payload.enableBuyDownFee = true;
+                payload.buyDownFeeCalculationType = form.buyDownFeeCalculationType;
+                payload.buyDownFeeStrategy = form.buyDownFeeStrategy;
+                payload.buyDownFeeIncomeType = form.buyDownFeeIncomeType;
+                if (isAccountingEnabled && form.incomeFromBuyDownAccountId) {
+                    payload.incomeFromBuyDownAccountId = Number(form.incomeFromBuyDownAccountId);
+                }
+            } else {
+                payload.enableBuyDownFee = false;
             }
-        } else {
-            payload.enableBuyDownFee = false;
         }
 
         // Accounting mappings (only when accounting enabled)
@@ -872,6 +1089,9 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
             }
         }
 
+        Object.keys(payload).forEach((key) => {
+            if (payload[key] === undefined) delete payload[key];
+        });
         return payload;
     };
 
@@ -881,8 +1101,12 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
             addToast('Please fix validation errors', 'error');
             return;
         }
-        const payload = buildPayload();
-        await onSubmit(payload);
+        try {
+            const payload = buildPayload();
+            await onSubmit(payload);
+        } catch (error) {
+            addToast(error?.message || 'Invalid product configuration', 'error');
+        }
     };
 
     // ---------- Options ----------
@@ -898,8 +1122,6 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
         accountingRuleOptions,
         transactionProcessingStrategyOptions,
         fundOptions,
-        repaymentStrategyOptions,
-        overpaymentHandlingOptions,
         chargeOptions,
         accountingMappingOptions,
 
@@ -928,9 +1150,10 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
             };
         })
         .filter(Boolean);
-    const repaymentStrategyChoices = withCurrentOption(repaymentStrategyOptions, form.repaymentStrategy);
-    const overpaymentHandlingChoices = withCurrentOption(overpaymentHandlingOptions, form.overpaymentHandling);
-
+    const processingStrategyChoices = (transactionProcessingStrategyOptions || []).filter((strategy) => {
+        const code = strategy?.code ?? strategy?.id ?? strategy?.value;
+        return code !== 'advanced-payment-allocation-strategy' || isAdvancedAlloc;
+    });
     const acctOptionLabel = (a) =>
         `${a.glCode || a.code || ''} ${a.name ? `— ${a.name}` : ''}`.trim();
 
@@ -944,6 +1167,16 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
 
     return (
         <form onSubmit={handleSubmit} className="space-y-6">
+            {templateError ? (
+                <div
+                    role="alert"
+                    className="rounded-md border border-red-300 bg-red-50 p-4 text-sm text-red-800 dark:border-red-700 dark:bg-red-950/30 dark:text-red-200"
+                >
+                    <div className="font-semibold">Loan product configuration unavailable</div>
+                    <div className="mt-1">{templateError}</div>
+                </div>
+            ) : null}
+
             {/* Basics */}
             <Card>
                 <SectionTitle icon="📄" hint="Core details">
@@ -977,6 +1210,32 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                             className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                         />
                     </div>
+                    <div>
+                        <label className="block text-sm font-medium">External ID</label>
+                        <input value={form.externalId} onChange={(e) => setField('externalId', e.target.value)}
+                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium">Currency Multiples</label>
+                        <input type="number" min="0" value={form.inMultiplesOf}
+                            onChange={(e) => setField('inMultiplesOf', e.target.value)}
+                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium">Available From</label>
+                        <input type="date" value={form.startDate} onChange={(e) => setField('startDate', e.target.value)}
+                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium">Available Until</label>
+                        <input type="date" value={form.closeDate} onChange={(e) => setField('closeDate', e.target.value)}
+                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600" />
+                    </div>
+                    <label className="inline-flex items-center gap-2">
+                        <input type="checkbox" checked={form.includeInBorrowerCycle}
+                            onChange={(e) => setField('includeInBorrowerCycle', e.target.checked)} />
+                        <span className="text-sm">Include in borrower cycle</span>
+                    </label>
                     <div>
                         {fundOptions?.length ? (
                             <SearchableSelectField
@@ -1122,17 +1381,6 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                             <p className="text-xs text-red-500 mt-1">{errors.interestRateFrequencyType}</p>
                         )}
                     </div>
-                    <div>
-                        <label className="block text-sm font-medium">Annual Interest Rate (%)</label>
-                        <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={form.annualInterestRate}
-                            onChange={(e) => setField('annualInterestRate', e.target.value)}
-                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
-                        />
-                    </div>
                 </div>
             </Card>
 
@@ -1262,7 +1510,7 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                     </div>
                 </div>
 
-                <div className="grid md:grid-cols-3 gap-4 mt-4">
+                <div className="grid md:grid-cols-2 gap-4 mt-4">
                     <div>
                         <label className="block text-sm font-medium">In Arrears Tolerance</label>
                         <input
@@ -1271,16 +1519,6 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                             step="0.01"
                             value={form.inArrearsTolerance}
                             onChange={(e) => setField('inArrearsTolerance', e.target.value)}
-                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
-                        />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium">Loan Cycle</label>
-                        <input
-                            type="number"
-                            min="0"
-                            value={form.loanCycle}
-                            onChange={(e) => setField('loanCycle', e.target.value)}
                             className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                         />
                     </div>
@@ -1337,6 +1575,31 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                             onChange={(e) => setField('multiDisbursement', e.target.checked)}
                         />
                         <span className="text-sm">Enable Multi-Disbursement</span>
+                    </label>
+                </div>
+                {form.multiDisbursement ? (
+                    <div className="grid md:grid-cols-2 gap-4 mt-4">
+                        <div>
+                            <label className="block text-sm font-medium">Maximum Outstanding Balance *</label>
+                            <input type="number" min="0" step="0.01" value={form.maxOutstandingLoanBalance}
+                                onChange={(e) => setField('maxOutstandingLoanBalance', e.target.value)}
+                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600" />
+                            {errors.maxOutstandingLoanBalance ? <p className="text-xs text-red-500 mt-1">{errors.maxOutstandingLoanBalance}</p> : null}
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium">Maximum Tranche Count *</label>
+                            <input type="number" min="1" value={form.maxTrancheCount}
+                                onChange={(e) => setField('maxTrancheCount', e.target.value)}
+                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600" />
+                            {errors.maxTrancheCount ? <p className="text-xs text-red-500 mt-1">{errors.maxTrancheCount}</p> : null}
+                        </div>
+                    </div>
+                ) : null}
+                <div className="mt-4">
+                    <label className="inline-flex items-center gap-2">
+                        <input type="checkbox" checked={form.syncExpectedWithDisbursementDate}
+                            onChange={(e) => setField('syncExpectedWithDisbursementDate', e.target.checked)} />
+                        <span className="text-sm">Synchronize expected first repayment with disbursement date</span>
                     </label>
                 </div>
 
@@ -1522,7 +1785,7 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                             className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                         >
                             <option value="">Select strategy</option>
-                            {transactionProcessingStrategyOptions.map((s) => (
+                            {processingStrategyChoices.map((s) => (
                                 <option key={s.code} value={s.code}>
                                     {s.name || s.code}
                                 </option>
@@ -1531,38 +1794,12 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                         {errors.transactionProcessingStrategyId && (
                             <p className="text-xs text-red-500 mt-1">{errors.transactionProcessingStrategyId}</p>
                         )}
+                        {!isAdvancedAlloc ? (
+                            <p className="mt-1 text-xs text-gray-500">
+                                Advanced payment allocation is configured directly in Fineract because it requires ordered transaction rules.
+                            </p>
+                        ) : null}
                     </div>
-                    <div>
-                        <label className="block text-sm font-medium">Repayment Strategy</label>
-                        <select
-                            value={form.repaymentStrategy}
-                            onChange={(e) => setField('repaymentStrategy', e.target.value)}
-                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
-                        >
-                            <option value="">Select strategy</option>
-                            {repaymentStrategyChoices.map((option) => (
-                                <option key={optionIdOrValue(option)} value={optionIdOrValue(option)}>
-                                    {option.value || option.name || option.id}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium">Overpayment Handling</label>
-                        <select
-                            value={form.overpaymentHandling}
-                            onChange={(e) => setField('overpaymentHandling', e.target.value)}
-                            className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
-                        >
-                            <option value="">Select handling</option>
-                            {overpaymentHandlingChoices.map((option) => (
-                                <option key={optionIdOrValue(option)} value={optionIdOrValue(option)}>
-                                    {option.value || option.name || option.id}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-
                     <div>
                         <label className="block text-sm font-medium">Charges</label>
                         <div className="mt-2 grid sm:grid-cols-2 gap-2 max-h-40 overflow-auto border rounded p-2 dark:border-gray-600">
@@ -1597,24 +1834,20 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                     </div>
                 </div>
 
-                <div className="mt-4">
-                    <label className="block text-sm font-medium">Principal Disbursed Indicators</label>
-                    <textarea
-                        rows="3"
-                        value={form.principalDisbursedIndicators}
-                        onChange={(e) => setField('principalDisbursedIndicators', e.target.value)}
-                        placeholder="Use JSON or comma-separated values"
-                        className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
-                    />
-                </div>
-
                 {/* Advanced allocation panel (conditional) */}
                 {isAdvancedAlloc && (
                     <div className="mt-4 rounded-md border p-4 bg-gray-50 dark:bg-gray-800 dark:border-gray-700">
-                        <div className="text-sm font-medium mb-2">Advanced Payment Allocation</div>
+                        <div className="text-sm font-medium mb-2">Advanced Payment Allocation Product</div>
+                        <p className="mb-3 text-xs text-gray-600 dark:text-gray-300">
+                            Existing allocation rules are retained when this product is saved. Edit the ordered payment
+                            and credit allocation rules directly in Fineract.
+                        </p>
+                        {errors.paymentAllocation ? (
+                            <p className="mb-3 text-xs text-red-500">{errors.paymentAllocation}</p>
+                        ) : null}
                         <div className="grid md:grid-cols-2 gap-4">
                             <div>
-                                <label className="block text-sm font-medium">Fixed Length *</label>
+                                <label className="block text-sm font-medium">Fixed Length</label>
                                 <input
                                     type="number"
                                     min="1"
@@ -1625,7 +1858,7 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                                 {errors.fixedLength && <p className="text-xs text-red-500 mt-1">{errors.fixedLength}</p>}
                             </div>
                             <div>
-                                <label className="block text-sm font-medium">Fixed Principal % / Installment *</label>
+                                <label className="block text-sm font-medium">Fixed Principal % / Installment</label>
                                 <input
                                     type="number"
                                     min="0"
@@ -1696,7 +1929,8 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                 </div>
 
                 {/* Income Capitalization */}
-                <div className="rounded-md border p-4 mb-4 dark:border-gray-700">
+                {capabilities.incomeCapitalization ? (
+                    <div className="rounded-md border p-4 mb-4 dark:border-gray-700">
                     <label className="inline-flex items-center gap-2">
                         <input
                             type="checkbox"
@@ -1771,10 +2005,12 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                             )}
                         </div>
                     )}
-                </div>
+                    </div>
+                ) : null}
 
                 {/* Buy-Down Fee */}
-                <div className="rounded-md border p-4 dark:border-gray-700">
+                {capabilities.buyDownFee ? (
+                    <div className="rounded-md border p-4 dark:border-gray-700">
                     <label className="inline-flex items-center gap-2">
                         <input
                             type="checkbox"
@@ -1849,12 +2085,111 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                             )}
                         </div>
                     )}
+                    </div>
+                ) : null}
+            </Card>
+
+            <Card>
+                <SectionTitle icon="⚙">Fineract Risk & Lifecycle Configuration</SectionTitle>
+                <div className="grid md:grid-cols-3 gap-4">
+                    {[
+                        ['Recurring Principal Moratorium', 'recurringMoratoriumOnPrincipalPeriods'],
+                        ['Grace on Arrears Ageing', 'graceOnArrearsAgeing'],
+                        ['Overdue Days for NPA', 'overdueDaysForNPA'],
+                        ['Minimum Days: Disbursal to First Repayment', 'minimumDaysBetweenDisbursalAndFirstRepayment'],
+                        ['Principal Threshold for Last Installment', 'principalThresholdForLastInstallment'],
+                        ['Installment Amount Multiples', 'installmentAmountInMultiplesOf'],
+                        ['Mandatory Guarantee (%)', 'mandatoryGuarantee'],
+                        ['Minimum Guarantor Guarantee (%)', 'minimumGuaranteeFromGuarantor'],
+                        ['Minimum Own Funds Guarantee (%)', 'minimumGuaranteeFromOwnFunds'],
+                        ['Delinquency Bucket ID', 'delinquencyBucketId'],
+                        ['Due Days for Repayment Event', 'dueDaysForRepaymentEvent'],
+                        ['Overdue Days for Repayment Event', 'overDueDaysForRepaymentEvent'],
+                    ].map(([label, field]) => (
+                        <div key={field}>
+                            <label className="block text-sm font-medium">{label}</label>
+                            <input type="number" min="0" step="0.01" value={form[field]}
+                                onChange={(e) => setField(field, e.target.value)}
+                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600" />
+                        </div>
+                    ))}
+                </div>
+
+                <div className="grid md:grid-cols-2 gap-3 mt-4">
+                    {[
+                        ['canUseForTopup', 'Can be used for top-up loans'],
+                        ['accountMovesOutOfNPAOnlyOnArrearsCompletion', 'Move account out of NPA only after arrears completion'],
+                        ['holdGuaranteeFunds', 'Hold guarantee funds'],
+                        ['enableInstallmentLevelDelinquency', 'Enable installment-level delinquency'],
+                        ['allowVariableInstallments', 'Allow variable installments'],
+                    ].map(([field, label]) => (
+                        <label key={field} className="inline-flex items-center gap-2 text-sm">
+                            <input type="checkbox" checked={Boolean(form[field])}
+                                onChange={(e) => setField(field, e.target.checked)} />
+                            <span>{label}</span>
+                        </label>
+                    ))}
+                </div>
+
+                {form.allowVariableInstallments ? (
+                    <div className="grid md:grid-cols-2 gap-4 mt-4">
+                        <div>
+                            <label className="block text-sm font-medium">Minimum Gap Between Installments</label>
+                            <input type="number" min="0" value={form.minimumGapBetweenInstallments}
+                                onChange={(e) => setField('minimumGapBetweenInstallments', e.target.value)}
+                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600" />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium">Maximum Gap Between Installments</label>
+                            <input type="number" min="0" value={form.maximumGapBetweenInstallments}
+                                onChange={(e) => setField('maximumGapBetweenInstallments', e.target.value)}
+                                className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600" />
+                            {errors.maximumGapBetweenInstallments ? <p className="text-xs text-red-500 mt-1">{errors.maximumGapBetweenInstallments}</p> : null}
+                        </div>
+                    </div>
+                ) : null}
+
+                <div className="mt-5 rounded-md border p-4 dark:border-gray-700">
+                    <div className="font-medium">Loan-level Overrides</div>
+                    <p className="mt-1 text-xs text-gray-500">
+                        Select which product settings staff may change when creating an individual loan.
+                    </p>
+                    <div className="mt-4 grid md:grid-cols-2 gap-3">
+                        {ATTRIBUTE_OVERRIDE_OPTIONS.map(({ key, label, hint }) => (
+                            <label key={key} className="flex items-start gap-3 rounded-md border p-3 dark:border-gray-700">
+                                <input
+                                    type="checkbox"
+                                    className="mt-1"
+                                    checked={Boolean(form.allowAttributeOverrides?.[key])}
+                                    onChange={(event) => {
+                                        const checked = event.target.checked;
+                                        setForm((current) => ({
+                                            ...current,
+                                            allowAttributeOverrides: {
+                                                ...current.allowAttributeOverrides,
+                                                [key]: checked,
+                                            },
+                                        }));
+                                    }}
+                                />
+                                <span>
+                                    <span className="block text-sm font-medium">{label}</span>
+                                    <span className="block text-xs text-gray-500">{hint}</span>
+                                </span>
+                            </label>
+                        ))}
+                    </div>
                 </div>
             </Card>
 
             {/* Accounting */}
             <Card>
                 <SectionTitle icon="📚" hint="Shown only when accounting ≠ None">Accounting</SectionTitle>
+                {errors.accountingOptions ? (
+                    <div className="mb-4 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-700 dark:bg-red-950/30 dark:text-red-200">
+                        {errors.accountingOptions}. Correct the GL account types in Fineract before saving this product.
+                    </div>
+                ) : null}
                 <div className="grid md:grid-cols-3 gap-4">
                     <div>
                         <label className="block text-sm font-medium">Accounting Rule</label>
@@ -2082,7 +2417,7 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
             </Card>
 
             <div className="flex items-center justify-end gap-2">
-                <Button type="submit" disabled={submitting}>
+                <Button type="submit" disabled={submitting || Boolean(templateError)}>
                     {submitting ? 'Saving…' : initial ? 'Save Changes' : 'Create Product'}
                 </Button>
             </div>

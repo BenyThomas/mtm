@@ -1,41 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
-import Header from './Header';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { CalendarDays, Menu } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import {resolveTenant} from "../config/runtime";
-import {getTenantConfig} from "../config/tenant-config";
-
-const ButtonLike = ({ children, className = '', ...props }) => (
-    <button
-        className={`rounded-xl p-2 text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ring-offset-white dark:ring-offset-gray-900 ${className}`}
-        {...props}
-    >
-      {children}
-    </button>
-);
-
-const SideLink = ({ to, icon, label, onClick }) => {
-    const tenantId = resolveTenant();
-    const config = getTenantConfig(tenantId);
-    
-    return (
-        <NavLink
-            to={to}
-            onClick={onClick}
-            className={({ isActive }) =>
-                `flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-all
-       focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2
-       ring-offset-white dark:ring-offset-gray-900
-       ${isActive
-                    ? 'bg-[var(--tenant-primary)] text-white shadow-sm'
-                    : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200'}`
-            }
-        >
-          <span className="w-5 text-center">{icon}</span>
-          <span className="truncate">{label}</span>
-        </NavLink>
-    );
-};
+import '../pages/gateway/customers/gateway-customers.css';
 
 /** Add perm codes as needed for your deployment */
 const NAV_GROUPS = [
@@ -48,7 +15,9 @@ const NAV_GROUPS = [
       { to: '/gateway/data/customers', label: 'Customers', icon: 'Cu', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CLIENT', 'READ_CONFIGURATION'] },
       { to: '/gateway/loans', label: 'GW Loans', icon: 'L', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_LOAN'] },
       { to: '/gateway/loans/arrears', label: 'Arrears Loans', icon: 'AR', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_LOAN'] },
+      { to: '/gateway/collections', label: 'Collections', icon: 'Co', any: ['GW_OPS_READ', 'GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_LOAN', 'READ_CLIENT'] },
       { to: '/gateway/reports', label: 'Gateway Reports', icon: 'GR', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_LOAN'] },
+      { to: '/gateway/performance', label: 'Performance KPIs', icon: 'KP', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_REPORT', 'READ_LOAN'] },
       { to: '/gateway/notifications/templates', label: 'Notif Templates', icon: 'NT', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
       { to: '/gateway/notifications/dispatches', label: 'Notif History', icon: 'NH', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
       { to: '/gateway/queues', label: 'Queues', icon: 'Q', any: ['GW_OPS_READ', 'GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
@@ -165,10 +134,35 @@ const NAV_GROUPS = [
   },
 ];
 
+const navigationGlyph = (label) => String(label || '')
+  .split(/\s+/)
+  .filter(Boolean)
+  .slice(0, 2)
+  .map((part) => part[0])
+  .join('')
+  .toUpperCase();
+
+const singularize = (label) => {
+  const value = String(label || '').trim();
+  if (/ies$/i.test(value)) return `${value.slice(0, -3)}y`;
+  if (/s$/i.test(value) && !/ss$/i.test(value)) return value.slice(0, -1);
+  return value;
+};
+
+const humanizeSegment = (value) => String(value || '')
+  .replace(/[-_]+/g, ' ')
+  .replace(/\b\w/g, (letter) => letter.toUpperCase());
+
 const Layout = () => {
   const [open, setOpen] = useState(false);
-  const { can, user } = useAuth();
+  const { can, user, tenantConfig, logout } = useAuth();
+  const location = useLocation();
   const isGatewayOnlyLoanOfficer = Boolean(user?.isGatewayOnlyLoanOfficer);
+  const isCustomerWorkspace = location.pathname === '/gateway/data/customers'
+    || location.pathname === '/gateway/invites'
+    || location.pathname.startsWith('/gateway/customers/')
+    || location.pathname === '/gateway/loans'
+    || location.pathname.startsWith('/gateway/loans/');
 
   // filter items by single 'perm' or permission groups
   const visibleGroups = useMemo(() => {
@@ -184,55 +178,130 @@ const Layout = () => {
     })).filter(g => !g.hidden && g.items.length > 0);
   }, [can, isGatewayOnlyLoanOfficer]);
 
-  return (
-      <div className="min-h-screen text-slate-900 dark:text-slate-100">
-        <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-          <div className="absolute -top-28 -left-24 h-80 w-80 rounded-full bg-[var(--tenant-secondary)] opacity-20 blur-3xl" />
-          <div className="absolute top-0 right-0 h-[26rem] w-[26rem] rounded-full bg-[var(--tenant-accent)] opacity-20 blur-3xl" />
-        </div>
-        {/* Top bar with logout + theme toggle */}
-        <Header onToggleSidebar={() => setOpen(v => !v)} />
+  const pageMeta = useMemo(() => {
+    const pathname = location.pathname.replace(/\/+$/, '') || '/';
+    const candidates = visibleGroups.flatMap((group) =>
+      group.items.map((item) => ({ ...item, groupTitle: group.title }))
+    );
+    const matched = candidates
+      .filter((item) => pathname === item.to || (item.to !== '/' && pathname.startsWith(`${item.to}/`)))
+      .sort((left, right) => right.to.length - left.to.length)[0];
 
-        <div className="mx-auto flex max-w-[1600px] gap-4 px-2 py-3 sm:px-4">
-          {/* Sidebar */}
-          <aside
-              data-app-chrome="true"
-              className={`fixed left-0 top-16 z-20 w-72 shrink-0 md:sticky md:top-[4.75rem]
-            border border-slate-200/70 bg-white/85 shadow-xl backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/75
-            h-[calc(100vh-4rem)] md:rounded-2xl
-            ${open ? 'block' : 'hidden md:block'}`}
-          >
-            <nav className="h-full overflow-y-auto overscroll-contain px-3 py-3 space-y-6">
+    const pathSegments = pathname.split('/').filter(Boolean);
+    const meaningfulSegment = [...pathSegments]
+      .reverse()
+      .find((segment) => !/^\d+$/.test(segment) && !['new', 'edit'].includes(segment.toLowerCase()));
+    const fallbackLabel = pathname === '/' ? 'Dashboard' : humanizeSegment(meaningfulSegment);
+    const isGatewayCustomerDetail = /^\/gateway\/customers\/[^/]+$/.test(pathname);
+    const baseLabel = isGatewayCustomerDetail ? 'Customers' : matched?.label || fallbackLabel || 'Dashboard';
+    const entityLabel = singularize(baseLabel);
+    const remainder = matched && pathname !== matched.to
+      ? pathname.slice(matched.to.length).split('/').filter(Boolean)
+      : [];
+
+    let title = baseLabel;
+    if (isGatewayCustomerDetail) {
+      title = 'Customer Details';
+    } else if (remainder.includes('new')) {
+      title = `New ${entityLabel}`;
+    } else if (remainder.includes('edit')) {
+      title = `Edit ${entityLabel}`;
+    } else if (remainder.length > 0) {
+      title = `${entityLabel} Details`;
+    }
+
+    return {
+      title,
+      group: isGatewayCustomerDetail
+        ? 'Gateway'
+        : matched?.groupTitle || humanizeSegment(pathSegments[0]) || 'Main',
+      baseLabel,
+    };
+  }, [location.pathname, visibleGroups]);
+
+  {
+    const branding = tenantConfig || {};
+    const displayName = user?.staffDisplayName || user?.username || 'User';
+    const initials = displayName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'US';
+    const dateLabel = new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      day: '2-digit',
+      year: 'numeric',
+    }).format(new Date());
+
+    return (
+      <div className="customer-portal">
+        <div className="customer-portal-shell">
+          <aside className={`customer-portal-sidebar ${open ? 'open' : ''}`}>
+            <div className="customer-brand">
+              {branding.logoUrl ? (
+                <img className="customer-brand-logo" src={branding.logoUrl} alt={branding.name || 'Tenant logo'} />
+              ) : (
+                <div className="customer-brand-mark">{branding.shortName?.[0] || 'T'}</div>
+              )}
+              <div>
+                <div className="customer-brand-name">{branding.name || 'Trust Management'}</div>
+                <div className="customer-brand-subtitle">{branding.portalName || 'Customer Management'}</div>
+              </div>
+            </div>
+            <nav className="customer-nav">
               {visibleGroups.map((group) => (
-                  <div key={group.title}>
-                    <div className="mb-2 px-3 text-xs uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
-                      {group.title}
-                    </div>
-                    <div className="space-y-1">
-                      {group.items.map((item) => (
-                          <SideLink
-                              key={item.to}
-                              to={item.to}
-                              icon={item.icon}
-                              label={item.label}
-                              onClick={() => setOpen(false)}
-                          />
-                      ))}
-                    </div>
+                <div className="customer-nav-group" key={group.title}>
+                  <div className="customer-nav-heading">{group.title}</div>
+                  <div className="customer-nav-items">
+                    {group.items.map((item) => (
+                      <NavLink
+                        key={item.to}
+                        to={item.to}
+                        end={item.to === '/' || item.to === '/gateway'}
+                        onClick={() => setOpen(false)}
+                        className={({ isActive }) => `customer-nav-link ${isActive ? 'active' : ''}`}
+                      >
+                        <span className="customer-nav-icon">{navigationGlyph(item.label)}</span>
+                        <span>{item.label}</span>
+                      </NavLink>
+                    ))}
                   </div>
+                </div>
               ))}
             </nav>
-          </aside>
-
-          {/* Main */}
-          <main className="modern-enter min-w-0 flex-1 md:ml-0">
-            <div className="mx-auto w-full max-w-7xl rounded-2xl border border-slate-200/70 bg-white/55 p-4 backdrop-blur-sm dark:border-slate-700/50 dark:bg-slate-900/35 sm:p-5">
-              <Outlet />
+            <div className="customer-version-card">
+              <span className="customer-online-dot" />
+              <strong>{branding.shortName || branding.name || 'Gateway'} Portal</strong>
+              Fineract 1.10.0.12
+              <div className="customer-brand-copyright">© 2026 {branding.name || 'Gateway Technologies'}</div>
             </div>
-          </main>
+          </aside>
+          {open ? <button type="button" className="customer-sidebar-backdrop" aria-label="Close navigation" onClick={() => setOpen(false)} /> : null}
+          <div className="customer-portal-main">
+            <header className="customer-portal-topbar">
+              <div className="customer-topbar-left">
+                <button type="button" className="customer-menu-button" onClick={() => setOpen((value) => !value)} aria-label="Toggle navigation">
+                  <Menu className="customer-topbar-menu" size={25} />
+                </button>
+                <div className="customer-shell-heading">
+                  <h1>{pageMeta.title}</h1>
+                  <div className="customer-shell-breadcrumb">
+                    <strong>/{pageMeta.group.toLowerCase().replace(/\s+/g, '-')}</strong>
+                    {pageMeta.baseLabel !== pageMeta.title ? <><span>/</span><span>{pageMeta.baseLabel}</span></> : null}
+                  </div>
+                </div>
+              </div>
+              <div className="customer-topbar-right">
+                <div className="customer-date-pill"><CalendarDays size={17} />{dateLabel}</div>
+                <div className="customer-user">
+                  <div className="customer-user-avatar">{initials}</div>
+                  <div><div className="customer-user-name">{displayName}</div><div className="customer-user-role">{user?.officeName || 'Field Operations'}</div></div>
+                </div>
+                <button type="button" className="customer-logout-button" onClick={logout}>Logout</button>
+              </div>
+            </header>
+            <main className={`customer-page-frame ${isCustomerWorkspace ? '' : 'standard-page'}`}><Outlet /></main>
+          </div>
         </div>
       </div>
-  );
+    );
+  }
 };
 
 export default Layout;
