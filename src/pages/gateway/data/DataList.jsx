@@ -14,6 +14,7 @@ import Can from '../../../components/Can';
 import { Pencil, Send, Trash2 } from 'lucide-react';
 import { useToast } from '../../../context/ToastContext';
 import InvitesList from '../invites/InvitesList';
+import CustomerDirectory from '../customers/CustomerDirectory';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
 const TENURE_UNITS = ['DAYS', 'WEEKS', 'MONTHS', 'YEARS'];
@@ -442,8 +443,12 @@ const DataList = () => {
     (async () => {
       setLoading(true);
       try {
+        const customerIdSearch = cfg.apiType === 'customers' && /^\d+$/.test(debouncedSearch.trim())
+          ? debouncedSearch.trim()
+          : '';
         const data = await listOpsResources(cfg.apiType, {
-          q: debouncedSearch || undefined,
+          q: customerIdSearch ? undefined : debouncedSearch || undefined,
+          fineractClientId: customerIdSearch || undefined,
           status: status || undefined,
           offset: page * limit,
           limit,
@@ -991,7 +996,7 @@ const DataList = () => {
 
   return (
     <div className="space-y-4">
-      <section>
+      {cfg.apiType !== 'customers' ? <section>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold">{cfg.title}</h1>
@@ -1002,100 +1007,29 @@ const DataList = () => {
             <div className="text-base font-semibold">{page + 1}</div>
           </div>
         </div>
-      </section>
+      </section> : null}
       {cfg.apiType === 'customers' ? (
-        <Tabs
-          tabs={[
-            { key: 'customers', label: 'Customers' },
-            { key: 'invites', label: 'Invites' },
-          ]}
-          initial="customers"
-          active={customerTab}
-          onChange={setCustomerTab}
-        >
-          <div data-tab="customers" className="space-y-4">
-            <Card>
-              <div className="flex flex-wrap items-end gap-3">
-                <div className="min-w-[260px] flex-1">
-                  <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Search
-                  </label>
-                  <input
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Search..."
-                    className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
-                  />
-                </div>
-                <div className="w-full sm:w-[220px]">
-                  <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Status
-                  </label>
-                  <input
-                    value={status}
-                    onChange={(e) => {
-                      setStatus(e.target.value);
-                      setPage(0);
-                    }}
-                    placeholder="optional"
-                    className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
-                  />
-                </div>
-                <div className="flex flex-row flex-wrap items-center gap-2 sm:ml-auto">
-                  <Button variant="secondary" onClick={clearFilters} className="w-full sm:w-auto">
-                    Clear
-                  </Button>
-                  <Can any={['GW_OPS_WRITE']}>
-                    <Button onClick={openCreate} className="w-full sm:w-auto">
-                      <Send size={16} />
-                      <span className="ml-2">Send Invite</span>
-                    </Button>
-                  </Can>
-                  <label className="text-sm text-slate-600 dark:text-slate-300">Rows</label>
-                  <select
-                    value={limit}
-                    onChange={(e) => {
-                      setLimit(Number(e.target.value));
-                      setPage(0);
-                    }}
-                    className="rounded-xl border px-2 py-1.5 dark:bg-gray-700 dark:border-gray-600"
-                  >
-                    {PAGE_SIZE_OPTIONS.map((n) => (
-                      <option key={n} value={n}>
-                        {n}
-                      </option>
-                      ))}
-                  </select>
-                </div>
-              </div>
-            </Card>
-
-            <Card>
-              <DataTable
-                key={cfg.apiType}
-                columns={columns}
-                data={rows}
-                loading={loading}
-                total={total}
-                page={page}
-                limit={limit}
-                onPageChange={setPage}
-                sortBy={sortBy}
-                sortDir={sortDir}
-                onSort={onSort}
-                onRowClick={onRowClick}
-                emptyMessage="No records found"
-              />
-            </Card>
-          </div>
-          <div data-tab="invites">
-            <InvitesList
-              embedded
-              autoOpenCreate={customerInviteCreateRequested}
-              onAutoOpenConsumed={() => setCustomerInviteCreateRequested(false)}
-            />
-          </div>
-        </Tabs>
+        <CustomerDirectory
+          rows={rows}
+          total={total}
+          loading={loading}
+          page={page}
+          limit={limit}
+          search={search}
+          status={status}
+          onSearch={(value) => {
+            setSearch(value);
+            setPage(0);
+          }}
+          onStatus={(value) => {
+            setStatus(value);
+            setPage(0);
+          }}
+          onPage={setPage}
+          onClear={clearFilters}
+          onOpen={onRowClick}
+          onInvite={openCreate}
+        />
       ) : (
         <>
           <Card>
