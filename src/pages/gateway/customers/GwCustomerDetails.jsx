@@ -28,12 +28,18 @@ import DataTable from '../../../components/DataTable';
 import ClientCommandModal from '../../../components/ClientCommandModal';
 import Modal from '../../../components/Modal';
 import Can from '../../../components/Can';
+import SearchableSelectField from '../../../components/SearchableSelectField';
 import { useToast } from '../../../context/ToastContext';
+import { useAuth } from '../../../context/AuthContext';
 import { getGwCustomerSummary, updateGwCustomerProfile } from '../../../api/gateway/customers';
+import { acceptInviteOnBehalf, createInvite } from '../../../api/gateway/invites';
 import { applyGwLoanOnBehalf, getGwLoanEligibilityForCustomer, listGwLoans } from '../../../api/gateway/loans';
 import { listLoanPurposesOps } from '../../../api/gateway/loanPurposes';
 import { listOpsResources } from '../../../api/gateway/opsResources';
 import { createCustomerVehicle, listCustomerVehicles, patchCustomerVehicle } from '../../../api/gateway/merchantNetwork';
+import { listBankNames } from '../../../api/gateway/bankNames';
+import useInviteCatalog from '../../../hooks/useInviteCatalog';
+import useStaff from '../../../hooks/useStaff';
 import { getGwLoanStatusCode, getGwLoanStatusLabel, isGwLoanBlockingStatus } from '../../../utils/gwLoanStatus';
 import CustomerOverview from './CustomerOverview';
 
@@ -69,6 +75,65 @@ const vehicleFormInit = {
   primaryVehicle: false,
   active: true,
 };
+
+const inviteFormInit = {
+  referrerId: '',
+  campaignCode: '',
+  channel: '',
+  maxUses: '1',
+  multiUse: false,
+  phoneNumber: '',
+  firstName: '',
+  middleName: '',
+  lastName: '',
+};
+
+const acceptInviteFormInit = {
+  firstName: '',
+  middleName: '',
+  lastName: '',
+  phone: '',
+  email: '',
+  dob: '',
+  gender: '',
+  nationalId: '',
+  region: '',
+  district: '',
+  ward: '',
+  street: '',
+  nextOfKinName: '',
+  nextOfKinPhone: '',
+  employerName: '',
+  employmentType: '',
+  incomeSource: '',
+  bankName: '',
+  bankAccount: '',
+  walletMsisdn: '',
+};
+
+const GENDER_OPTIONS = [
+  { value: '', label: 'Select gender' },
+  { value: 'MALE', label: 'Male' },
+  { value: 'FEMALE', label: 'Female' },
+];
+
+const INCOME_SOURCE_OPTIONS = [
+  { value: '', label: 'Select income source' },
+  { value: 'SALARY', label: 'Salary' },
+  { value: 'BUSINESS', label: 'Business' },
+  { value: 'FARMING', label: 'Farming' },
+  { value: 'CASUAL_WORK', label: 'Casual Work' },
+  { value: 'OTHER', label: 'Other' },
+];
+
+const EMPLOYMENT_TYPE_OPTIONS = [
+  { value: '', label: 'Select employment type' },
+  { value: 'EMPLOYED', label: 'Employed' },
+  { value: 'SELF_EMPLOYED', label: 'Self Employed' },
+  { value: 'BUSINESS_OWNER', label: 'Business Owner' },
+  { value: 'UNEMPLOYED', label: 'Unemployed' },
+  { value: 'OTHER', label: 'Other' },
+];
 
 const fullName = (profile, fallback = '-') => {
   const name = [profile?.firstName, profile?.middleName, profile?.lastName].filter(Boolean).join(' ').trim();
@@ -244,11 +309,17 @@ const inviteMatchesCustomer = (invite, customer, onboarding) => {
     .some((candidate) => candidate === invitePhone || candidate === inviteUsername);
 };
 
+const canAcceptInvite = (invite) => Boolean(invite?.inviteId)
+  && !['ACCEPTED', 'CANCELLED', 'EXPIRED'].includes(String(invite?.status || '').toUpperCase());
+
 const GwCustomerDetails = () => {
   const { customerId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
   const { addToast } = useToast();
+  const { user } = useAuth();
+  const { catalog, loading: inviteCatalogLoading } = useInviteCatalog();
+  const { staff, loading: staffLoading } = useStaff({ activeOnly: true });
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -281,6 +352,14 @@ const GwCustomerDetails = () => {
   const [vehicleSaving, setVehicleSaving] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState(null);
   const [vehicleForm, setVehicleForm] = useState(vehicleFormInit);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteSaving, setInviteSaving] = useState(false);
+  const [inviteForm, setInviteForm] = useState(inviteFormInit);
+  const [acceptOpen, setAcceptOpen] = useState(false);
+  const [acceptSaving, setAcceptSaving] = useState(false);
+  const [acceptInvite, setAcceptInvite] = useState(null);
+  const [acceptForm, setAcceptForm] = useState(acceptInviteFormInit);
+  const [bankOptions, setBankOptions] = useState([]);
   const [activeTab, setActiveTab] = useState(location?.state?.tab || 'overview');
 
   const load = async () => {
@@ -363,6 +442,23 @@ const GwCustomerDetails = () => {
     let mounted = true;
     (async () => {
       try {
+        const data = await listBankNames({ active: true, limit: 500, offset: 0, orderBy: 'name', sortOrder: 'asc' });
+        const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+        if (!mounted) return;
+        setBankOptions(items.filter((item) => item?.name).map((item) => ({ id: String(item.name), label: String(item.name) })));
+      } catch (_) {
+        if (mounted) setBankOptions([]);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
         const data = await listLoanPurposesOps({ active: true, limit: 200, offset: 0, orderBy: 'name', sortOrder: 'asc' });
         if (!mounted) return;
         const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
@@ -399,6 +495,21 @@ const GwCustomerDetails = () => {
   const isClosedClient = hasClientStatusFlag(fineractStatusObj, 'closed')
     || fineractClientState.includes('CLOSED');
   const canApplyLoanOnBehalf = Boolean(applyLoanCustomerId) && !hasBlockingLoan && !isClosedClient;
+  const pendingInvites = useMemo(() => (invites || []).filter(canAcceptInvite), [invites]);
+  const staffOptions = useMemo(
+    () => staff.map((item) => ({ id: String(item.id), label: `${item.displayName}${item.officeName ? ` - ${item.officeName}` : ''} (${item.id})` })),
+    [staff],
+  );
+  const campaignOptions = useMemo(
+    () => (catalog?.campaigns || []).map((item) => ({ id: item.code, label: `${item.name || item.code} (${item.code})` })),
+    [catalog],
+  );
+  const channelOptions = useMemo(
+    () => (catalog?.channels || []).map((item) => ({ id: item.code, label: `${item.name || item.code} (${item.code})` })),
+    [catalog],
+  );
+  const loggedInStaffId = String(user?.staffId || '');
+  const isLoanOfficerUser = Boolean(user?.isGatewayOnlyLoanOfficer || user?.linkedStaffIsLoanOfficer || user?.isLoanOfficer);
   const hasAssignedStaff = Boolean(fineractClient?.staffId || fineractClient?.staffName);
   const clientActions = useMemo(() => {
     if (!fineractClient?.id) return [];
@@ -474,7 +585,157 @@ const GwCustomerDetails = () => {
     }
   }, [isClosedClient, activeTab]);
 
+  useEffect(() => {
+    if (!inviteOpen) return;
+    setInviteForm((prev) => ({
+      ...prev,
+      referrerId: prev.referrerId || loggedInStaffId,
+      campaignCode: prev.campaignCode || String(campaignOptions[0]?.id || ''),
+      channel: prev.channel || String(channelOptions[0]?.id || ''),
+    }));
+  }, [inviteOpen, loggedInStaffId, campaignOptions, channelOptions]);
+
   const setField = (key, value) => setProfileForm((prev) => ({ ...prev, [key]: value }));
+
+  const prefillFromCustomer = () => {
+    const profileData = customer?.profile || {};
+    return {
+      phone: profileData.phone || onboarding?.mobileNo || customer?.username || onboarding?.username || '',
+      firstName: profileData.firstName || '',
+      middleName: profileData.middleName || '',
+      lastName: profileData.lastName || '',
+      email: profileData.email || onboarding?.email || '',
+      dob: toDateInput(profileData.dob),
+      gender: profileData.gender || '',
+      nationalId: profileData.nationalId || '',
+      region: profileData.region || '',
+      district: profileData.district || '',
+      ward: profileData.ward || '',
+      street: profileData.street || '',
+      nextOfKinName: profileData.nextOfKinName || '',
+      nextOfKinPhone: profileData.nextOfKinPhone || '',
+      employerName: profileData.employerName || '',
+      employmentType: profileData.employmentType || '',
+      incomeSource: profileData.incomeSource || '',
+      bankName: profileData.bankName || '',
+      bankAccount: profileData.bankAccount || '',
+      walletMsisdn: profileData.walletMsisdn || profileData.phone || onboarding?.mobileNo || '',
+    };
+  };
+
+  const openInviteModal = () => {
+    const customerPrefill = prefillFromCustomer();
+    setInviteForm({
+      ...inviteFormInit,
+      referrerId: loggedInStaffId,
+      campaignCode: String(campaignOptions[0]?.id || ''),
+      channel: String(channelOptions[0]?.id || ''),
+      phoneNumber: customerPrefill.phone,
+      firstName: customerPrefill.firstName,
+      middleName: customerPrefill.middleName,
+      lastName: customerPrefill.lastName,
+    });
+    setInviteOpen(true);
+  };
+
+  const openAcceptInviteModal = (invite) => {
+    if (!invite?.inviteId) return;
+    const customerPrefill = prefillFromCustomer();
+    setAcceptInvite(invite);
+    setAcceptForm({
+      ...acceptInviteFormInit,
+      ...customerPrefill,
+      firstName: customerPrefill.firstName || invite?.prefill?.firstName || '',
+      middleName: customerPrefill.middleName || invite?.prefill?.middleName || '',
+      lastName: customerPrefill.lastName || invite?.prefill?.lastName || '',
+      phone: customerPrefill.phone || invite?.prefill?.phoneNumber || '',
+      walletMsisdn: customerPrefill.walletMsisdn || invite?.prefill?.phoneNumber || '',
+    });
+    setAcceptOpen(true);
+  };
+
+  const submitInvite = async (e) => {
+    e?.preventDefault?.();
+    if (!inviteForm.phoneNumber.trim() || !inviteForm.firstName.trim() || !inviteForm.middleName.trim() || !inviteForm.lastName.trim()) {
+      addToast('Phone, first name, middle name, and last name are required', 'error');
+      return;
+    }
+    setInviteSaving(true);
+    try {
+      const effectiveStaffId = isLoanOfficerUser && loggedInStaffId ? loggedInStaffId : inviteForm.referrerId;
+      await createInvite({
+        referrerId: effectiveStaffId ? String(effectiveStaffId) : null,
+        campaignCode: inviteForm.campaignCode.trim(),
+        channel: inviteForm.channel.trim(),
+        maxUses: inviteForm.multiUse ? 0 : (Number(inviteForm.maxUses) || 1),
+        multiUse: !!inviteForm.multiUse,
+        prefill: {
+          phoneNumber: inviteForm.phoneNumber.trim() || null,
+          firstName: inviteForm.firstName.trim() || null,
+          middleName: inviteForm.middleName.trim() || null,
+          lastName: inviteForm.lastName.trim() || null,
+        },
+      });
+      addToast('Customer invite created', 'success');
+      setInviteOpen(false);
+      setActiveTab('invites');
+      await load();
+    } catch (e2) {
+      addToast(e2?.response?.data?.errors?.[0]?.details || e2?.response?.data?.message || e2?.message || 'Create invite failed', 'error');
+    } finally {
+      setInviteSaving(false);
+    }
+  };
+
+  const submitAcceptInviteOnBehalf = async (e) => {
+    e?.preventDefault?.();
+    if (!String(acceptForm.firstName || '').trim() || !String(acceptForm.middleName || '').trim() || !String(acceptForm.lastName || '').trim()) {
+      addToast('First name, middle name, and last name are required', 'error');
+      return;
+    }
+    if (!acceptInvite?.inviteId) {
+      addToast('Select an invite to accept', 'error');
+      return;
+    }
+    setAcceptSaving(true);
+    try {
+      const payload = {
+        authenticationMode: 'PASSWORD',
+        profile: {
+          firstName: acceptForm.firstName || null,
+          middleName: acceptForm.middleName || null,
+          lastName: acceptForm.lastName || null,
+          phone: acceptForm.phone || null,
+          email: acceptForm.email || null,
+          dob: acceptForm.dob || null,
+          gender: acceptForm.gender || null,
+          nationalId: acceptForm.nationalId || null,
+          region: acceptForm.region || null,
+          district: acceptForm.district || null,
+          ward: acceptForm.ward || null,
+          street: acceptForm.street || null,
+          nextOfKinName: acceptForm.nextOfKinName || null,
+          nextOfKinPhone: acceptForm.nextOfKinPhone || null,
+          employerName: acceptForm.employerName || null,
+          employmentType: acceptForm.employmentType || null,
+          incomeSource: acceptForm.incomeSource || null,
+          bankName: acceptForm.bankName || null,
+          bankAccount: acceptForm.bankAccount || null,
+          walletMsisdn: acceptForm.walletMsisdn || null,
+        },
+      };
+      const result = await acceptInviteOnBehalf(acceptInvite.inviteId, payload);
+      addToast(result?.profileComplete ? 'Onboarding completed and PIN sent by SMS' : 'Invite accepted and PIN sent by SMS', 'success');
+      setAcceptOpen(false);
+      setAcceptInvite(null);
+      setActiveTab('invites');
+      await load();
+    } catch (e2) {
+      addToast(e2?.response?.data?.errors?.[0]?.details || e2?.response?.data?.message || e2?.message || 'Assisted onboarding failed', 'error');
+    } finally {
+      setAcceptSaving(false);
+    }
+  };
 
   const filteredLoans = useMemo(() => {
     const wantedStatus = String(loanStatus || '').trim().toUpperCase();
@@ -840,6 +1101,13 @@ const GwCustomerDetails = () => {
           </div>
           <div className="customer-detail-actions">
             <button type="button" className="customer-action-button" onClick={() => navigate('/gateway/data/customers')}><ArrowLeft size={17} />Back</button>
+            <Can any={['UPDATE_CLIENT', 'GW_OPS_WRITE']}>
+              {pendingInvites.length ? (
+                <button type="button" className="customer-action-button" onClick={() => openAcceptInviteModal(pendingInvites[0])}>
+                  <CheckCircle size={17} />Accept Invite
+                </button>
+              ) : null}
+            </Can>
             {customer?.fineractClientId && !isClosedClient ? <button type="button" className="customer-action-button danger" onClick={() => setCommandOpen('close')}><Ban size={17} />Close</button> : null}
             {customer?.fineractClientId && !isClosedClient ? (
               <button
@@ -1075,6 +1343,21 @@ const GwCustomerDetails = () => {
 
         <div data-tab="invites" className="space-y-4">
           <Card>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="font-semibold">Customer Invites</div>
+                <div className="mt-1 text-sm text-slate-500 dark:text-slate-400">Create invites and complete assisted onboarding from this customer record.</div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Can any={['UPDATE_CLIENT', 'GW_OPS_WRITE']}>
+                  {pendingInvites.length ? (
+                    <Button size="sm" variant="secondary" onClick={() => openAcceptInviteModal(pendingInvites[0])}>
+                      <CheckCircle size={16} /> Accept Invite On Behalf
+                    </Button>
+                  ) : null}
+                </Can>
+              </div>
+            </div>
             {!invites.length ? (
               <div className="text-sm text-slate-500 dark:text-slate-400">No matching invites found for this customer.</div>
             ) : (
@@ -1099,7 +1382,20 @@ const GwCustomerDetails = () => {
                         <td className="py-2 pr-4"><Badge tone={statusTone(invite?.status)}>{invite?.status || '-'}</Badge></td>
                         <td className="py-2 pr-4">{formatDisplayDate(invite?.updatedAt, { withTime: true })}</td>
                         <td className="py-2 pr-4">
+                          <div className="flex flex-wrap items-center gap-2">
                           <Link to={`/gateway/invites/${encodeURIComponent(invite.inviteId)}`} className="text-cyan-700 hover:underline dark:text-cyan-300">Open</Link>
+                            <Can any={['UPDATE_CLIENT', 'GW_OPS_WRITE']}>
+                              {canAcceptInvite(invite) ? (
+                                <button
+                                  type="button"
+                                  className="text-emerald-700 hover:underline dark:text-emerald-300"
+                                  onClick={() => openAcceptInviteModal(invite)}
+                                >
+                                  Accept on behalf
+                                </button>
+                              ) : null}
+                            </Can>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1161,6 +1457,197 @@ const GwCustomerDetails = () => {
         </div>
       </Tabs>
       </div>
+
+      <Modal
+        open={inviteOpen}
+        onClose={() => {
+          if (!inviteSaving) setInviteOpen(false);
+        }}
+        title="Invite Customer"
+        size="lg"
+        footer={(
+          <>
+            <Button variant="secondary" onClick={() => setInviteOpen(false)} disabled={inviteSaving}>Cancel</Button>
+            <Button onClick={submitInvite} disabled={inviteSaving}>{inviteSaving ? 'Creating...' : 'Create Invite'}</Button>
+          </>
+        )}
+      >
+        <form className="grid gap-4 sm:grid-cols-2" onSubmit={submitInvite}>
+          <div className="sm:col-span-2">
+            <SearchableSelectField
+              label="Staff"
+              value={inviteForm.referrerId}
+              onChange={(value) => setInviteForm((prev) => ({ ...prev, referrerId: String(value || '') }))}
+              options={staffOptions}
+              placeholder="Search staff"
+              disabled={staffLoading || (isLoanOfficerUser && !!loggedInStaffId)}
+              helperText={isLoanOfficerUser
+                ? 'Your linked staff profile is used automatically for this invite.'
+                : 'Select the staff member responsible for this invite.'}
+            />
+          </div>
+          <SearchableSelectField
+            label="Campaign"
+            value={inviteForm.campaignCode}
+            onChange={(value) => setInviteForm((prev) => ({ ...prev, campaignCode: String(value || '') }))}
+            options={campaignOptions}
+            placeholder="Search campaign"
+            disabled={inviteCatalogLoading}
+            required
+          />
+          <SearchableSelectField
+            label="Channel"
+            value={inviteForm.channel}
+            onChange={(value) => setInviteForm((prev) => ({ ...prev, channel: String(value || '') }))}
+            options={channelOptions}
+            placeholder="Search channel"
+            disabled={inviteCatalogLoading}
+            required
+          />
+          <label className="block text-sm">
+            Max Uses
+            <input
+              type="number"
+              min={1}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+              value={inviteForm.maxUses}
+              onChange={(e) => setInviteForm((prev) => ({ ...prev, maxUses: e.target.value }))}
+              disabled={inviteForm.multiUse}
+            />
+          </label>
+          <div className="flex items-end">
+            <label className="inline-flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={inviteForm.multiUse}
+                onChange={(e) => setInviteForm((prev) => ({ ...prev, multiUse: e.target.checked }))}
+              />
+              Multi-use
+            </label>
+          </div>
+          <label className="block text-sm">
+            Phone
+            <input className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={inviteForm.phoneNumber} onChange={(e) => setInviteForm((prev) => ({ ...prev, phoneNumber: e.target.value }))} placeholder="2557..." required />
+          </label>
+          <label className="block text-sm">
+            First Name
+            <input className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={inviteForm.firstName} onChange={(e) => setInviteForm((prev) => ({ ...prev, firstName: e.target.value }))} required />
+          </label>
+          <label className="block text-sm">
+            Middle Name
+            <input className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={inviteForm.middleName} onChange={(e) => setInviteForm((prev) => ({ ...prev, middleName: e.target.value }))} required />
+          </label>
+          <label className="block text-sm">
+            Last Name
+            <input className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={inviteForm.lastName} onChange={(e) => setInviteForm((prev) => ({ ...prev, lastName: e.target.value }))} required />
+          </label>
+        </form>
+      </Modal>
+
+      <Modal
+        open={acceptOpen}
+        onClose={() => {
+          if (!acceptSaving) setAcceptOpen(false);
+        }}
+        title="Accept Invite On Behalf"
+        size="4xl"
+        footer={(
+          <>
+            <Button variant="secondary" onClick={() => setAcceptOpen(false)} disabled={acceptSaving}>Cancel</Button>
+            <Button onClick={submitAcceptInviteOnBehalf} disabled={acceptSaving}>{acceptSaving ? 'Saving...' : 'Complete Onboarding'}</Button>
+          </>
+        )}
+      >
+        <div className="mb-4 rounded-xl border border-slate-200/70 bg-slate-50/80 p-3 text-sm dark:border-slate-700/70 dark:bg-slate-900/50">
+          <div className="font-semibold text-slate-900 dark:text-slate-100">
+            {acceptInvite?.inviteCode || acceptInvite?.inviteId || 'Selected invite'}
+          </div>
+          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            {fullName(acceptInvite?.prefill, customerDisplayName)} | {acceptInvite?.prefill?.phoneNumber || acceptForm.phone || '-'}
+          </div>
+        </div>
+        <form className="grid grid-cols-1 gap-4 md:grid-cols-2" onSubmit={submitAcceptInviteOnBehalf}>
+          {[
+            ['First Name', 'firstName'],
+            ['Middle Name', 'middleName'],
+            ['Last Name', 'lastName'],
+            ['Phone', 'phone'],
+            ['Email', 'email'],
+            ['National ID', 'nationalId'],
+            ['Region', 'region'],
+            ['District', 'district'],
+            ['Ward', 'ward'],
+            ['Street', 'street'],
+            ['Next of Kin Name', 'nextOfKinName'],
+            ['Next of Kin Phone', 'nextOfKinPhone'],
+            ['Employer Name', 'employerName'],
+            ['Bank Account', 'bankAccount'],
+            ['Wallet MSISDN', 'walletMsisdn'],
+          ].map(([label, key]) => (
+            <label key={key} className="block text-sm text-slate-700 dark:text-slate-200">
+              <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</span>
+              <input
+                value={acceptForm[key]}
+                onChange={(e) => setAcceptForm((prev) => ({ ...prev, [key]: e.target.value }))}
+                required={['firstName', 'middleName', 'lastName'].includes(key)}
+                className="w-full rounded-xl border p-2.5 dark:border-gray-600 dark:bg-gray-700"
+              />
+            </label>
+          ))}
+          <label className="block text-sm text-slate-700 dark:text-slate-200">
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Date of Birth</span>
+            <input
+              type="date"
+              value={acceptForm.dob}
+              onChange={(e) => setAcceptForm((prev) => ({ ...prev, dob: e.target.value }))}
+              className="w-full rounded-xl border p-2.5 dark:border-gray-600 dark:bg-gray-700"
+            />
+          </label>
+          <label className="block text-sm text-slate-700 dark:text-slate-200">
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Gender</span>
+            <select
+              value={acceptForm.gender}
+              onChange={(e) => setAcceptForm((prev) => ({ ...prev, gender: e.target.value }))}
+              className="w-full rounded-xl border p-2.5 dark:border-gray-600 dark:bg-gray-700"
+            >
+              {GENDER_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm text-slate-700 dark:text-slate-200">
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Employment Type</span>
+            <select
+              value={acceptForm.employmentType}
+              onChange={(e) => setAcceptForm((prev) => ({ ...prev, employmentType: e.target.value }))}
+              className="w-full rounded-xl border p-2.5 dark:border-gray-600 dark:bg-gray-700"
+            >
+              {EMPLOYMENT_TYPE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm text-slate-700 dark:text-slate-200">
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Income Source</span>
+            <select
+              value={acceptForm.incomeSource}
+              onChange={(e) => setAcceptForm((prev) => ({ ...prev, incomeSource: e.target.value }))}
+              className="w-full rounded-xl border p-2.5 dark:border-gray-600 dark:bg-gray-700"
+            >
+              {INCOME_SOURCE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <SearchableSelectField
+            label="Bank"
+            value={acceptForm.bankName}
+            onChange={(value) => setAcceptForm((prev) => ({ ...prev, bankName: String(value || '') }))}
+            options={bankOptions}
+            placeholder="Search bank"
+          />
+        </form>
+      </Modal>
 
       <Modal
         open={vehicleOpen}

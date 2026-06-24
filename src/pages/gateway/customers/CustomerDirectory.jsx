@@ -6,7 +6,6 @@ import {
   ChevronLeft,
   ChevronRight,
   MoreVertical,
-  Plus,
   RefreshCw,
   Search,
   Send,
@@ -147,7 +146,7 @@ const CustomerDirectory = ({
           </label>
           <button type="button" className="customer-reset" onClick={reset}><RefreshCw size={16} />Reset</button>
           <Can any={['GW_OPS_WRITE']}>
-            <button type="button" className="customer-primary-button" onClick={onInvite}><Plus size={18} />Add Customer</button>
+            <button type="button" className="customer-primary-button" onClick={onInvite}><Send size={18} />Send Invite</button>
           </Can>
         </div>
 

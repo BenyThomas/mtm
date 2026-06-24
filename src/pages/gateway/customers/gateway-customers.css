@@ -451,6 +451,12 @@
   gap: 12px;
 }
 
+.invite-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .loan-delete-button {
   display: inline-grid;
   width: 31px;
@@ -1240,6 +1246,10 @@
   .loan-filter-row { grid-template-columns: 1fr; }
   .loan-filter-row .customer-search-box:first-child { grid-column: auto; }
   .customer-search-box { grid-column: auto; }
+  .customer-directory-footer { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .customer-pagination { flex-wrap: wrap; gap: 6px; }
+  .customer-row-links, .invite-row-actions { flex-wrap: wrap; }
+  .customer-view-button { min-height: 31px; }
   .customer-position-card { display: block; }
   .customer-hero-fact { min-width: 150px; padding: 8px 10px; border: 0; }
 }
