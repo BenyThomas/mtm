@@ -1009,27 +1009,45 @@ const DataList = () => {
         </div>
       </section> : null}
       {cfg.apiType === 'customers' ? (
-        <CustomerDirectory
-          rows={rows}
-          total={total}
-          loading={loading}
-          page={page}
-          limit={limit}
-          search={search}
-          status={status}
-          onSearch={(value) => {
-            setSearch(value);
-            setPage(0);
-          }}
-          onStatus={(value) => {
-            setStatus(value);
-            setPage(0);
-          }}
-          onPage={setPage}
-          onClear={clearFilters}
-          onOpen={onRowClick}
-          onInvite={openCreate}
-        />
+        <Tabs
+          tabs={[
+            { key: 'customers', label: 'Customers' },
+            { key: 'invites', label: 'Invites' },
+          ]}
+          active={customerTab}
+          onChange={setCustomerTab}
+        >
+          <div data-tab="customers">
+            <CustomerDirectory
+              rows={rows}
+              total={total}
+              loading={loading}
+              page={page}
+              limit={limit}
+              search={search}
+              status={status}
+              onSearch={(value) => {
+                setSearch(value);
+                setPage(0);
+              }}
+              onStatus={(value) => {
+                setStatus(value);
+                setPage(0);
+              }}
+              onPage={setPage}
+              onClear={clearFilters}
+              onOpen={onRowClick}
+              onInvite={openCreate}
+            />
+          </div>
+          <div data-tab="invites">
+            <InvitesList
+              embedded
+              autoOpenCreate={customerInviteCreateRequested}
+              onAutoOpenConsumed={() => setCustomerInviteCreateRequested(false)}
+            />
+          </div>
+        </Tabs>
       ) : (
         <>
           <Card>

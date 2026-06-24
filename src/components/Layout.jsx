@@ -159,6 +159,7 @@ const Layout = () => {
   const location = useLocation();
   const isGatewayOnlyLoanOfficer = Boolean(user?.isGatewayOnlyLoanOfficer);
   const isCustomerWorkspace = location.pathname === '/gateway/data/customers'
+    || location.pathname === '/gateway/invites'
     || location.pathname.startsWith('/gateway/customers/')
     || location.pathname === '/gateway/loans'
     || location.pathname.startsWith('/gateway/loans/');
