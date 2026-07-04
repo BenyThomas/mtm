@@ -60,6 +60,12 @@ const GwArrearsLoans = () => {
   const debouncedSearch = useDebouncedValue(search, 450);
   const [customerId, setCustomerId] = useState('');
   const [productCode, setProductCode] = useState('');
+  const [branch, setBranch] = useState('');
+  const [officer, setOfficer] = useState('');
+  const [date, setDate] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [dateField, setDateField] = useState('arrearsAsOf');
   const [sortBy, setSortBy] = useState('daysInArrears');
   const [sortDir, setSortDir] = useState('desc');
   const [page, setPage] = useState(0);
@@ -69,6 +75,12 @@ const GwArrearsLoans = () => {
     setSearch('');
     setCustomerId('');
     setProductCode('');
+    setBranch('');
+    setOfficer('');
+    setDate('');
+    setFrom('');
+    setTo('');
+    setDateField('arrearsAsOf');
     setSortBy('daysInArrears');
     setSortDir('desc');
     setSummary(null);
@@ -85,6 +97,12 @@ const GwArrearsLoans = () => {
           q: debouncedSearch || undefined,
           customerId: customerId || undefined,
           productCode: productCode || undefined,
+          branch: branch || undefined,
+          officer: officer || undefined,
+          date: date || undefined,
+          from: from || undefined,
+          to: to || undefined,
+          dateField,
           orderBy: sortBy,
           sortOrder: sortDir,
           offset: page * limit,
@@ -109,7 +127,7 @@ const GwArrearsLoans = () => {
     return () => {
       cancelled = true;
     };
-  }, [mode, debouncedSearch, customerId, productCode, sortBy, sortDir, page, limit]);
+  }, [mode, debouncedSearch, customerId, productCode, branch, officer, date, from, to, dateField, sortBy, sortDir, page, limit]);
 
   const onSort = (key) => {
     if (sortBy === key) {
@@ -323,6 +341,35 @@ const GwArrearsLoans = () => {
               }}
               className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
             />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Branch</label>
+            <input value={branch} onChange={(e) => { setBranch(e.target.value); setPage(0); }} className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Officer</label>
+            <input value={officer} onChange={(e) => { setOfficer(e.target.value); setPage(0); }} placeholder="Name or staff ID" className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Date</label>
+            <input type="date" value={date} onChange={(e) => { setDate(e.target.value); setPage(0); }} className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">From</label>
+            <input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setPage(0); }} className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">To</label>
+            <input type="date" value={to} onChange={(e) => { setTo(e.target.value); setPage(0); }} className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Date Field</label>
+            <select value={dateField} onChange={(e) => { setDateField(e.target.value); setPage(0); }} className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600">
+              <option value="arrearsAsOf">Arrears As Of</option>
+              <option value="nextDueDate">Next Due</option>
+              <option value="appliedAt">Applied</option>
+              <option value="disbursedAt">Disbursed</option>
+            </select>
           </div>
         </div>
 

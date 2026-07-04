@@ -126,6 +126,10 @@ const PerformanceKpis = () => {
     date: today(),
     role: 'FIELD_OFFICER',
     groupBy: '',
+    from: '',
+    to: '',
+    branch: '',
+    officer: '',
   });
   const [payload, setPayload] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -141,6 +145,10 @@ const PerformanceKpis = () => {
       role: filters.role,
     };
     if (filters.groupBy) params.groupBy = filters.groupBy;
+    if (filters.from) params.from = filters.from;
+    if (filters.to) params.to = filters.to;
+    if (filters.branch?.trim()) params.branch = filters.branch.trim();
+    if (filters.officer?.trim()) params.officer = filters.officer.trim();
     return params;
   }, [filters]);
 
@@ -246,6 +254,22 @@ const PerformanceKpis = () => {
             >
               {ROLE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">From</label>
+            <input type="date" value={filters.from} onChange={(e) => setFilter('from', e.target.value)} className="mt-1 w-full rounded-xl border p-2.5 dark:border-gray-600 dark:bg-gray-700" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">To</label>
+            <input type="date" value={filters.to} onChange={(e) => setFilter('to', e.target.value)} className="mt-1 w-full rounded-xl border p-2.5 dark:border-gray-600 dark:bg-gray-700" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Branch</label>
+            <input value={filters.branch} onChange={(e) => setFilter('branch', e.target.value)} placeholder="All branches" className="mt-1 w-full rounded-xl border p-2.5 dark:border-gray-600 dark:bg-gray-700" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Officer</label>
+            <input value={filters.officer} onChange={(e) => setFilter('officer', e.target.value)} placeholder="Name or staff ID" className="mt-1 w-full rounded-xl border p-2.5 dark:border-gray-600 dark:bg-gray-700" />
           </div>
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Group By</label>

@@ -151,6 +151,8 @@ const defaultFilters = () => {
     platformLoanId: '',
     customerId: '',
     days: 90,
+    branch: '',
+    officer: '',
   };
 };
 
@@ -263,6 +265,8 @@ const GwReports = () => {
     if (reportConfig.filters.includes('platformLoanId') && filters.platformLoanId) params.platformLoanId = filters.platformLoanId.trim();
     if (reportConfig.filters.includes('customerId') && filters.customerId) params.customerId = filters.customerId.trim();
     if (reportConfig.filters.includes('days') && filters.days) params.days = Number(filters.days);
+    if (filters.branch?.trim()) params.branch = filters.branch.trim();
+    if (filters.officer?.trim()) params.officer = filters.officer.trim();
     return params;
   }, [filters, reportConfig.filters, selectedReport]);
 
@@ -366,6 +370,25 @@ const GwReports = () => {
           </div>
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Branch</label>
+              <input
+                value={filters.branch}
+                onChange={(e) => setFilter('branch', e.target.value)}
+                placeholder="All branches"
+                className="mt-1 w-full rounded-xl border p-2.5 dark:border-gray-600 dark:bg-gray-700"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Officer</label>
+              <input
+                value={filters.officer}
+                onChange={(e) => setFilter('officer', e.target.value)}
+                placeholder="Name or staff ID"
+                className="mt-1 w-full rounded-xl border p-2.5 dark:border-gray-600 dark:bg-gray-700"
+              />
+            </div>
             {reportConfig.filters.includes('groupBy') ? (
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Group By</label>

@@ -236,6 +236,12 @@ const DataList = () => {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebouncedValue(search, 450);
   const [status, setStatus] = useState('');
+  const [branch, setBranch] = useState('');
+  const [officer, setOfficer] = useState('');
+  const [date, setDate] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [dateField, setDateField] = useState('appliedAt');
 
   // sorting
   const [sortBy, setSortBy] = useState(cfg?.defaultSortBy || 'createdAt');
@@ -300,6 +306,12 @@ const DataList = () => {
     setSortDir('desc');
     setSearch('');
     setStatus('');
+    setBranch('');
+    setOfficer('');
+    setDate('');
+    setFrom('');
+    setTo('');
+    setDateField('appliedAt');
     setPage(0);
     setCustomerLoanMetaById({});
     setCustomerTab('customers');
@@ -450,6 +462,12 @@ const DataList = () => {
           q: customerIdSearch ? undefined : debouncedSearch || undefined,
           fineractClientId: customerIdSearch || undefined,
           status: status || undefined,
+          branch: ['customers', 'loans'].includes(cfg.apiType) ? branch || undefined : undefined,
+          officer: ['customers', 'loans'].includes(cfg.apiType) ? officer || undefined : undefined,
+          date: cfg.apiType === 'loans' ? date || undefined : undefined,
+          from: cfg.apiType === 'loans' ? from || undefined : undefined,
+          to: cfg.apiType === 'loans' ? to || undefined : undefined,
+          dateField: cfg.apiType === 'loans' ? dateField : undefined,
           offset: page * limit,
           limit,
           orderBy: sortBy,
@@ -489,7 +507,7 @@ const DataList = () => {
     return () => {
       cancelled = true;
     };
-  }, [cfg?.apiType, debouncedSearch, status, page, limit, sortBy, sortDir, refreshTick]);
+  }, [cfg?.apiType, debouncedSearch, status, branch, officer, date, from, to, dateField, page, limit, sortBy, sortDir, refreshTick]);
 
   useEffect(() => {
     if (cfg?.apiType !== 'customers' || !rows.length) return () => {};
@@ -609,6 +627,12 @@ const DataList = () => {
   const clearFilters = () => {
     setSearch('');
     setStatus('');
+    setBranch('');
+    setOfficer('');
+    setDate('');
+    setFrom('');
+    setTo('');
+    setDateField('appliedAt');
     setPage(0);
   };
 
@@ -1034,6 +1058,16 @@ const DataList = () => {
                 setStatus(value);
                 setPage(0);
               }}
+              branch={branch}
+              officer={officer}
+              onBranch={(value) => {
+                setBranch(value);
+                setPage(0);
+              }}
+              onOfficer={(value) => {
+                setOfficer(value);
+                setPage(0);
+              }}
               onPage={setPage}
               onClear={clearFilters}
               onOpen={onRowClick}
@@ -1077,6 +1111,45 @@ const DataList = () => {
                   className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
                 />
               </div>
+              {['customers', 'loans'].includes(cfg.apiType) ? (
+                <>
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Branch</label>
+                    <input value={branch} onChange={(e) => { setBranch(e.target.value); setPage(0); }} className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Officer</label>
+                    <input value={officer} onChange={(e) => { setOfficer(e.target.value); setPage(0); }} placeholder="Name or staff ID" className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" />
+                  </div>
+                </>
+              ) : null}
+              {cfg.apiType === 'loans' ? (
+                <>
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Date</label>
+                    <input type="date" value={date} onChange={(e) => { setDate(e.target.value); setPage(0); }} className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">From</label>
+                    <input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setPage(0); }} className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">To</label>
+                    <input type="date" value={to} onChange={(e) => { setTo(e.target.value); setPage(0); }} className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Date Field</label>
+                    <select value={dateField} onChange={(e) => { setDateField(e.target.value); setPage(0); }} className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600">
+                      <option value="appliedAt">Applied</option>
+                      <option value="approvedAt">Approved</option>
+                      <option value="disbursedAt">Disbursed</option>
+                      <option value="closedAt">Closed</option>
+                      <option value="nextDueDate">Next Due</option>
+                      <option value="arrearsAsOf">Arrears As Of</option>
+                    </select>
+                  </div>
+                </>
+              ) : null}
             </div>
 
             <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

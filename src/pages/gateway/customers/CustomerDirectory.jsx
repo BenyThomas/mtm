@@ -65,14 +65,17 @@ const CustomerDirectory = ({
   limit,
   search,
   status,
+  branch,
+  officer,
   onSearch,
   onStatus,
+  onBranch,
+  onOfficer,
   onPage,
   onClear,
   onOpen,
   onInvite,
 }) => {
-  const [branch, setBranch] = useState('');
   const [onboarding, setOnboarding] = useState('');
   const [loanStatus, setLoanStatus] = useState('');
 
@@ -89,7 +92,6 @@ const CustomerDirectory = ({
   const pageNumbers = Array.from(new Set([0, 1, 2, 3, 4, pages - 1])).filter((item) => item >= 0 && item < pages);
 
   const reset = () => {
-    setBranch('');
     setOnboarding('');
     setLoanStatus('');
     onClear();
@@ -120,13 +122,11 @@ const CustomerDirectory = ({
             </select>
             <ChevronDown size={16} />
           </label>
-          <label className="customer-select">
-            <select value={branch} onChange={(event) => setBranch(event.target.value)}>
-              <option value="">Branch</option>
-              <option>Head Office</option>
-              <option>Kane Branch</option>
-            </select>
-            <ChevronDown size={16} />
+          <label className="customer-search-box loan-compact-filter">
+            <input value={branch} onChange={(event) => onBranch(event.target.value)} placeholder="Branch" />
+          </label>
+          <label className="customer-search-box loan-compact-filter">
+            <input value={officer} onChange={(event) => onOfficer(event.target.value)} placeholder="Officer" />
           </label>
           <label className="customer-select optional-filter">
             <select value={onboarding} onChange={(event) => setOnboarding(event.target.value)}>
