@@ -171,6 +171,12 @@ const GwLoansList = () => {
   const [status, setStatus] = useState('');
   const [customerId, setCustomerId] = useState('');
   const [productCode, setProductCode] = useState('');
+  const [branch, setBranch] = useState('');
+  const [officer, setOfficer] = useState('');
+  const [date, setDate] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [dateField, setDateField] = useState('appliedAt');
 
   // sorting
   const [sortBy, setSortBy] = useState('appliedAt'); // appliedAt | principal | status | customerId | productCode
@@ -188,6 +194,12 @@ const GwLoansList = () => {
     setStatus('');
     setCustomerId('');
     setProductCode('');
+    setBranch('');
+    setOfficer('');
+    setDate('');
+    setFrom('');
+    setTo('');
+    setDateField('appliedAt');
     setPage(0);
   };
 
@@ -240,6 +252,12 @@ const GwLoansList = () => {
           status: status || undefined,
           customerId: customerId || undefined,
           productCode: productCode || undefined,
+          branch: branch || undefined,
+          officer: officer || undefined,
+          date: date || undefined,
+          from: from || undefined,
+          to: to || undefined,
+          dateField: status === 'OVERDUE' && dateField === 'appliedAt' ? 'arrearsAsOf' : dateField,
           offset: page * limit,
           limit,
           orderBy: sortBy,
@@ -250,6 +268,12 @@ const GwLoansList = () => {
             q: request.q,
             customerId: request.customerId,
             productCode: request.productCode,
+            branch: request.branch,
+            officer: request.officer,
+            date: request.date,
+            from: request.from,
+            to: request.to,
+            dateField: request.dateField,
             offset: request.offset,
             limit: request.limit,
             orderBy: sortBy === 'status' ? 'daysInArrears' : request.orderBy,
@@ -273,7 +297,7 @@ const GwLoansList = () => {
     return () => {
       cancelled = true;
     };
-  }, [debouncedSearch, status, customerId, productCode, page, limit, sortBy, sortDir, refreshTick]);
+  }, [debouncedSearch, status, customerId, productCode, branch, officer, date, from, to, dateField, page, limit, sortBy, sortDir, refreshTick]);
 
   useEffect(() => {
     let cancelled = false;
@@ -750,6 +774,32 @@ const GwLoansList = () => {
           </label>
           <label className="customer-search-box loan-compact-filter">
             <input value={productCode} onChange={(event) => { setProductCode(event.target.value); setPage(0); }} placeholder="Product Code" />
+          </label>
+          <label className="customer-search-box loan-compact-filter">
+            <input value={branch} onChange={(event) => { setBranch(event.target.value); setPage(0); }} placeholder="Branch" />
+          </label>
+          <label className="customer-search-box loan-compact-filter">
+            <input value={officer} onChange={(event) => { setOfficer(event.target.value); setPage(0); }} placeholder="Officer" />
+          </label>
+          <label className="customer-search-box loan-compact-filter">
+            <input type="date" value={date} onChange={(event) => { setDate(event.target.value); setPage(0); }} title="Exact date" />
+          </label>
+          <label className="customer-search-box loan-compact-filter">
+            <input type="date" value={from} onChange={(event) => { setFrom(event.target.value); setPage(0); }} title="From date" />
+          </label>
+          <label className="customer-search-box loan-compact-filter">
+            <input type="date" value={to} onChange={(event) => { setTo(event.target.value); setPage(0); }} title="To date" />
+          </label>
+          <label className="customer-select loan-compact-filter">
+            <select value={dateField} onChange={(event) => { setDateField(event.target.value); setPage(0); }}>
+              <option value="appliedAt">Applied</option>
+              <option value="approvedAt">Approved</option>
+              <option value="disbursedAt">Disbursed</option>
+              <option value="closedAt">Closed</option>
+              <option value="nextDueDate">Next Due</option>
+              <option value="arrearsAsOf">Arrears As Of</option>
+            </select>
+            <ChevronDown size={16} />
           </label>
           <label className="customer-select loan-row-limit">
             <select value={limit} onChange={(event) => { setLimit(Number(event.target.value)); setPage(0); }}>
