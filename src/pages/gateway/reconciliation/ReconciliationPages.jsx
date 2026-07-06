@@ -53,6 +53,31 @@ const ReconciliationHeader = ({ title, subtitle, actions }) => (
   </div>
 );
 
+const BankAccountSelect = ({ value, onChange, className = '' }) => {
+  const [accounts, setAccounts] = useState([]);
+
+  useEffect(() => {
+    gatewayApi.get('/gateway/reconciliation/bank-accounts')
+      .then((response) => setAccounts(unwrap(response) || []))
+      .catch(() => setAccounts([]));
+  }, []);
+
+  return (
+    <select
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      className={`rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 ${className}`}
+    >
+      <option value="">Select bank account</option>
+      {accounts.map((account) => (
+        <option key={account.id} value={account.id}>
+          {[account.bankName, account.accountName, account.accountNumber].filter(Boolean).join(' - ')}
+        </option>
+      ))}
+    </select>
+  );
+};
+
 const MetricCard = ({ label, value, icon: Icon, tone = 'blue', caption }) => (
   <Card className="flex items-center gap-4">
     <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg ${iconToneClass[tone] || iconToneClass.blue}`}>
@@ -252,7 +277,7 @@ export const ReconImportStatement = () => {
       <div className="grid gap-4 xl:grid-cols-[420px_minmax(0,1fr)]">
         <Card className="space-y-4">
           <label className="block text-sm font-semibold">Bank Account ID</label>
-          <input value={bankAccountId} onChange={(event) => setBankAccountId(event.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800" placeholder="Mongo bank account id" />
+          <BankAccountSelect value={bankAccountId} onChange={setBankAccountId} className="w-full" />
           <label className="block text-sm font-semibold">Statement Date</label>
           <input type="date" value={statementDate} onChange={(event) => setStatementDate(event.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800" />
           <label className="block text-sm font-semibold">Statement File</label>
@@ -365,11 +390,41 @@ export const ReconTransactions = ({ mode = 'transactions' }) => {
 
   const runAction = async (row, action) => {
     try {
-      await gatewayApi.post(`/gateway/reconciliation/transactions/${row.id}/${action}`);
+      const path = mode === 'failed' && action === 'retry'
+        ? `/gateway/reconciliation/failed/${row.id}/retry`
+        : `/gateway/reconciliation/transactions/${row.id}/${action}`;
+      await gatewayApi.post(path);
       addToast('Action completed.', 'success');
       await reload();
     } catch (error) {
       addToast(error?.response?.data?.message || 'Action failed', 'error');
+    }
+  };
+
+  const manualMatch = async (row) => {
+    const clientId = window.prompt('Fineract client ID');
+    if (!clientId) return;
+    const loanId = window.prompt('Fineract loan/account ID');
+    if (!loanId) return;
+    try {
+      const path = mode === 'unmatched'
+        ? `/gateway/reconciliation/unmatched/${row.id}/match-client`
+        : `/gateway/reconciliation/transactions/${row.id}/match`;
+      if (mode === 'unmatched') {
+        await gatewayApi.post(path, {
+          clientId,
+          loanId,
+          loanAccountNo: loanId,
+          score: 100,
+          reason: 'Manual match',
+        });
+      } else {
+        await gatewayApi.post(path);
+      }
+      addToast('Manual match saved.', 'success');
+      await reload();
+    } catch (error) {
+      addToast(error?.response?.data?.message || 'Manual match failed', 'error');
     }
   };
 
@@ -379,8 +434,10 @@ export const ReconTransactions = ({ mode = 'transactions' }) => {
       <TableShell title={loading ? 'Loading Transactions...' : config.title}>
         <ReconTable rows={rows} columns={transactionColumns((row) => (
           <div className="flex gap-2">
-            {mode !== 'posted' ? <button className="font-semibold text-[var(--tenant-primary)]" onClick={() => runAction(row, 'match')}>Match</button> : null}
+            {mode !== 'posted' && mode !== 'failed' ? <button className="font-semibold text-[var(--tenant-primary)]" onClick={() => manualMatch(row)}>Match</button> : null}
+            {row.matchStatus === 'REVIEW_REQUIRED' ? <button className="font-semibold text-[var(--tenant-primary)]" onClick={() => runAction(row, 'approve')}>Approve</button> : null}
             {row.matchStatus === 'APPROVED_FOR_POSTING' ? <button className="font-semibold text-green-700" onClick={() => runAction(row, 'post')}>Post</button> : null}
+            {mode === 'failed' ? <button className="font-semibold text-red-700" onClick={() => runAction(row, 'retry')}>Retry</button> : null}
           </div>
         ))} />
       </TableShell>
@@ -424,6 +481,15 @@ export const ReconReports = () => {
     <div className="space-y-5">
       <ReconciliationHeader title="Reports" subtitle="Generate reconciliation summaries and exception reports." />
       <Card>
+        <div className="mb-4 flex justify-end">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => gatewayApi.post('/gateway/reconciliation/reports/generate')}
+          >
+            <FileSpreadsheet size={17} />Generate Summary
+          </Button>
+        </div>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           {(reports.length ? reports : fallbackReports).map((report) => (
             <div key={report} className="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
@@ -476,6 +542,30 @@ export const ReconSettings = () => {
           </label>
         </> : <div className="text-sm text-slate-500">Loading settings...</div>}
       </Card>
+    </div>
+  );
+};
+
+export const ReconAuditTrail = () => {
+  const { rows, loading, reload } = useReconList('/gateway/reconciliation/audit');
+  return (
+    <div className="space-y-5">
+      <ReconciliationHeader
+        title="Audit Trail"
+        subtitle="Review reconciliation posting and workflow activity."
+        actions={<Button variant="secondary" onClick={reload}><RefreshCcw size={17} />Refresh</Button>}
+      />
+      <TableShell title={loading ? 'Loading Audit Trail...' : 'Audit Trail'}>
+        <ReconTable rows={rows} columns={[
+          { key: 'occurredAt', header: 'Occurred At' },
+          { key: 'entityType', header: 'Entity Type' },
+          { key: 'entityId', header: 'Entity ID' },
+          { key: 'batchId', header: 'Batch' },
+          { key: 'action', header: 'Action', render: (row) => <Badge tone={statusTone(row.action)}>{row.action || '-'}</Badge> },
+          { key: 'actorId', header: 'Actor' },
+          { key: 'details', header: 'Details', render: (row) => row.details?.errorMessage || row.details?.externalId || '-' },
+        ]} />
+      </TableShell>
     </div>
   );
 };
