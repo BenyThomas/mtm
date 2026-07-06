@@ -137,6 +137,7 @@ import {
     ReconciliationDashboard,
     ReconBatchDetails,
     ReconBatches,
+    ReconAuditTrail,
     ReconImportStatement,
     ReconMappings,
     ReconReports,
@@ -354,6 +355,7 @@ const App = () => {
                             <Route path="/gateway/reconciliation/mappings" element={<ReconMappings />} />
                             <Route path="/gateway/reconciliation/reports" element={<ReconReports />} />
                             <Route path="/gateway/reconciliation/settings" element={<ReconSettings />} />
+                            <Route path="/gateway/reconciliation/audit" element={<ReconAuditTrail />} />
                             <Route path="/gateway/reports" element={<GwReports />} />
                             <Route path="/gateway/performance" element={<PerformanceKpis />} />
                             <Route path="/gateway/notifications/templates" element={<NotificationTemplates />} />

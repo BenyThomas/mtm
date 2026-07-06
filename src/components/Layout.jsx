@@ -16,7 +16,27 @@ const NAV_GROUPS = [
       { to: '/gateway/loans', label: 'GW Loans', icon: 'L', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_LOAN'] },
       { to: '/gateway/loans/arrears', label: 'Arrears Loans', icon: 'AR', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_LOAN'] },
       { to: '/gateway/collections', label: 'Collections', icon: 'Co', any: ['GW_OPS_READ', 'GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_LOAN', 'READ_CLIENT'] },
-      { to: '/gateway/reconciliation', label: 'Reconciliation', icon: 'Re', any: ['GW_OPS_READ', 'GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_LOAN', 'READ_CLIENT'] },
+      {
+        to: '/gateway/reconciliation',
+        label: 'Reconciliation',
+        icon: 'Re',
+        any: ['GW_OPS_READ', 'GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_LOAN', 'READ_CLIENT'],
+        children: [
+          { to: '/gateway/reconciliation', label: 'Recon Dashboard', icon: 'RD' },
+          { to: '/gateway/reconciliation/import', label: 'Import Statement', icon: 'IS' },
+          { to: '/gateway/reconciliation/batches', label: 'Statement Batches', icon: 'SB' },
+          { to: '/gateway/reconciliation/transactions', label: 'Transaction Workbench', icon: 'TW' },
+          { to: '/gateway/reconciliation/review', label: 'Review Queue', icon: 'RQ' },
+          { to: '/gateway/reconciliation/unmatched', label: 'Unmatched Payments', icon: 'UP' },
+          { to: '/gateway/reconciliation/suspense', label: 'Suspense', icon: 'Su' },
+          { to: '/gateway/reconciliation/posted', label: 'Posted Payments', icon: 'PP' },
+          { to: '/gateway/reconciliation/failed', label: 'Failed Postings', icon: 'FP' },
+          { to: '/gateway/reconciliation/mappings', label: 'Manual Mappings', icon: 'MM' },
+          { to: '/gateway/reconciliation/reports', label: 'Reports', icon: 'Rp' },
+          { to: '/gateway/reconciliation/settings', label: 'Settings', icon: 'Se' },
+          { to: '/gateway/reconciliation/audit', label: 'Audit Trail', icon: 'AT' },
+        ],
+      },
       { to: '/gateway/reports', label: 'Gateway Reports', icon: 'GR', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_LOAN'] },
       { to: '/gateway/performance', label: 'Performance KPIs', icon: 'KP', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_REPORT', 'READ_LOAN'] },
       { to: '/gateway/notifications/templates', label: 'Notif Templates', icon: 'NT', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
@@ -167,22 +187,34 @@ const Layout = () => {
 
   // filter items by single 'perm' or permission groups
   const visibleGroups = useMemo(() => {
+    const canSee = (it) => {
+      if (Array.isArray(it.all) && it.all.length > 0) return it.all.every((code) => can(code));
+      if (Array.isArray(it.any) && it.any.length > 0) return it.any.some((code) => can(code));
+      if (it.perm) return can(it.perm);
+      return true;
+    };
+    const filterItem = (it) => {
+      if (!canSee(it)) return null;
+      const children = Array.isArray(it.children)
+        ? it.children.map((child) => ({ ...child, any: child.any || it.any, perm: child.perm || it.perm })).map(filterItem).filter(Boolean)
+        : undefined;
+      return { ...it, children };
+    };
     return NAV_GROUPS.map(g => ({
       ...g,
       hidden: isGatewayOnlyLoanOfficer && !g.title.startsWith('Gateway'),
-      items: g.items.filter((it) => {
-        if (Array.isArray(it.all) && it.all.length > 0) return it.all.every((code) => can(code));
-        if (Array.isArray(it.any) && it.any.length > 0) return it.any.some((code) => can(code));
-        if (it.perm) return can(it.perm);
-        return true;
-      }),
+      items: g.items.map(filterItem).filter(Boolean),
     })).filter(g => !g.hidden && g.items.length > 0);
   }, [can, isGatewayOnlyLoanOfficer]);
 
   const pageMeta = useMemo(() => {
     const pathname = location.pathname.replace(/\/+$/, '') || '/';
+    const flattenItems = (item, groupTitle) => [
+      { ...item, groupTitle },
+      ...(Array.isArray(item.children) ? item.children.flatMap((child) => flattenItems(child, groupTitle)) : []),
+    ];
     const candidates = visibleGroups.flatMap((group) =>
-      group.items.map((item) => ({ ...item, groupTitle: group.title }))
+      group.items.flatMap((item) => flattenItems(item, group.title))
     );
     const matched = candidates
       .filter((item) => pathname === item.to || (item.to !== '/' && pathname.startsWith(`${item.to}/`)))
@@ -251,16 +283,33 @@ const Layout = () => {
                   <div className="customer-nav-heading">{group.title}</div>
                   <div className="customer-nav-items">
                     {group.items.map((item) => (
-                      <NavLink
-                        key={item.to}
-                        to={item.to}
-                        end={item.to === '/' || item.to === '/gateway'}
-                        onClick={() => setOpen(false)}
-                        className={({ isActive }) => `customer-nav-link ${isActive ? 'active' : ''}`}
-                      >
-                        <span className="customer-nav-icon">{navigationGlyph(item.label)}</span>
-                        <span>{item.label}</span>
-                      </NavLink>
+                      <div key={item.to}>
+                        <NavLink
+                          to={item.to}
+                          end={item.to === '/' || item.to === '/gateway' || item.to === '/gateway/reconciliation'}
+                          onClick={() => setOpen(false)}
+                          className={({ isActive }) => `customer-nav-link ${isActive ? 'active' : ''}`}
+                        >
+                          <span className="customer-nav-icon">{navigationGlyph(item.label)}</span>
+                          <span>{item.label}</span>
+                        </NavLink>
+                        {Array.isArray(item.children) && item.children.length > 0 ? (
+                          <div className="customer-nav-subitems">
+                            {item.children.map((child) => (
+                              <NavLink
+                                key={child.to}
+                                to={child.to}
+                                end={child.to === '/gateway/reconciliation'}
+                                onClick={() => setOpen(false)}
+                                className={({ isActive }) => `customer-nav-sublink ${isActive ? 'active' : ''}`}
+                              >
+                                <span className="customer-nav-subicon">{navigationGlyph(child.label)}</span>
+                                <span>{child.label}</span>
+                              </NavLink>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
                     ))}
                   </div>
                 </div>

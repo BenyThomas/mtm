@@ -144,6 +144,48 @@
   font-weight: 800;
 }
 
+.customer-nav-subitems {
+  display: grid;
+  gap: 2px;
+  margin: 3px 0 6px 37px;
+  padding-left: 10px;
+  border-left: 1px solid #dfe7f1;
+}
+
+.customer-nav-sublink {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 32px;
+  border-radius: 8px;
+  padding: 0 10px;
+  color: #53617d;
+  font-size: 12px;
+  font-weight: 650;
+  transition: 150ms ease;
+}
+
+.customer-nav-sublink:hover {
+  background: #f3f8fa;
+  color: #233252;
+}
+
+.customer-nav-sublink.active {
+  background: color-mix(in srgb, var(--customer-primary) 9%, white);
+  color: var(--customer-primary);
+}
+
+.customer-nav-subicon {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  place-items: center;
+  color: currentColor;
+  font-size: 8px;
+  font-weight: 800;
+}
+
 .customer-version-card {
   position: relative;
   flex: 0 0 auto;
