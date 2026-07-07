@@ -126,6 +126,28 @@
   color: var(--customer-primary);
 }
 
+.customer-nav-parent {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+
+.customer-nav-parent span:nth-child(2) {
+  flex: 1;
+}
+
+.customer-nav-chevron {
+  margin-left: auto;
+  color: currentColor;
+  transition: transform 150ms ease;
+}
+
+.customer-nav-parent.expanded .customer-nav-chevron {
+  transform: rotate(180deg);
+}
 .customer-nav-link svg {
   width: 21px;
   height: 21px;
