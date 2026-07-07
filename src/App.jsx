@@ -133,6 +133,17 @@ import MerchantIndustryTypesConfig from "./pages/gateway/MerchantIndustryTypesCo
 import SelcomRepaymentSync from "./pages/gateway/SelcomRepaymentSync";
 import Queues from "./pages/gateway/Queues";
 import AssistedCollectionsDesk from "./pages/gateway/collections/AssistedCollectionsDesk";
+import {
+    ReconciliationDashboard,
+    ReconBatchDetails,
+    ReconBatches,
+    ReconAuditTrail,
+    ReconImportStatement,
+    ReconMappings,
+    ReconReports,
+    ReconSettings,
+    ReconTransactions,
+} from "./pages/gateway/reconciliation/ReconciliationPages";
 
 import NotificationTemplates from "./pages/gateway/notifications/NotificationTemplates";
 import NotificationDispatches from "./pages/gateway/notifications/NotificationDispatches";
@@ -331,6 +342,20 @@ const App = () => {
                             <Route path="/gateway/loans" element={<GwLoansList />} />
                             <Route path="/gateway/loans/arrears" element={<GwArrearsLoans />} />
                             <Route path="/gateway/collections" element={<AssistedCollectionsDesk />} />
+                            <Route path="/gateway/reconciliation" element={<ReconciliationDashboard />} />
+                            <Route path="/gateway/reconciliation/import" element={<ReconImportStatement />} />
+                            <Route path="/gateway/reconciliation/batches" element={<ReconBatches />} />
+                            <Route path="/gateway/reconciliation/batches/:batchId" element={<ReconBatchDetails />} />
+                            <Route path="/gateway/reconciliation/transactions" element={<ReconTransactions mode="transactions" />} />
+                            <Route path="/gateway/reconciliation/review" element={<ReconTransactions mode="review" />} />
+                            <Route path="/gateway/reconciliation/unmatched" element={<ReconTransactions mode="unmatched" />} />
+                            <Route path="/gateway/reconciliation/suspense" element={<ReconTransactions mode="suspense" />} />
+                            <Route path="/gateway/reconciliation/posted" element={<ReconTransactions mode="posted" />} />
+                            <Route path="/gateway/reconciliation/failed" element={<ReconTransactions mode="failed" />} />
+                            <Route path="/gateway/reconciliation/mappings" element={<ReconMappings />} />
+                            <Route path="/gateway/reconciliation/reports" element={<ReconReports />} />
+                            <Route path="/gateway/reconciliation/settings" element={<ReconSettings />} />
+                            <Route path="/gateway/reconciliation/audit" element={<ReconAuditTrail />} />
                             <Route path="/gateway/reports" element={<GwReports />} />
                             <Route path="/gateway/performance" element={<PerformanceKpis />} />
                             <Route path="/gateway/notifications/templates" element={<NotificationTemplates />} />

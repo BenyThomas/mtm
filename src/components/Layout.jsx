@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { CalendarDays, Menu } from 'lucide-react';
+import { CalendarDays, ChevronDown, Menu } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import '../pages/gateway/customers/gateway-customers.css';
 
@@ -16,6 +16,27 @@ const NAV_GROUPS = [
       { to: '/gateway/loans', label: 'GW Loans', icon: 'L', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_LOAN'] },
       { to: '/gateway/loans/arrears', label: 'Arrears Loans', icon: 'AR', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_LOAN'] },
       { to: '/gateway/collections', label: 'Collections', icon: 'Co', any: ['GW_OPS_READ', 'GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_LOAN', 'READ_CLIENT'] },
+      {
+        to: '/gateway/reconciliation',
+        label: 'Reconciliation',
+        icon: 'Re',
+        any: ['RECON_DASHBOARD_VIEW', 'RECON_BATCH_VIEW', 'RECON_TRANSACTION_VIEW', 'GW_OPS_READ', 'GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_LOAN', 'READ_CLIENT'],
+        children: [
+          { to: '/gateway/reconciliation', label: 'Recon Dashboard', icon: 'RD', any: ['RECON_DASHBOARD_VIEW', 'GW_OPS_READ', 'GW_OPS_ALL'] },
+          { to: '/gateway/reconciliation/import', label: 'Import Statement', icon: 'IS', any: ['RECON_STATEMENT_IMPORT', 'GW_OPS_WRITE', 'GW_OPS_ALL'] },
+          { to: '/gateway/reconciliation/batches', label: 'Statement Batches', icon: 'SB', any: ['RECON_BATCH_VIEW', 'GW_OPS_READ', 'GW_OPS_ALL'] },
+          { to: '/gateway/reconciliation/transactions', label: 'Transaction Workbench', icon: 'TW', any: ['RECON_TRANSACTION_VIEW', 'GW_OPS_READ', 'GW_OPS_ALL'] },
+          { to: '/gateway/reconciliation/review', label: 'Review Queue', icon: 'RQ', any: ['RECON_TRANSACTION_APPROVE', 'GW_OPS_READ', 'GW_OPS_ALL'] },
+          { to: '/gateway/reconciliation/unmatched', label: 'Unmatched Payments', icon: 'UP', any: ['RECON_UNMATCHED_MANAGE', 'GW_OPS_READ', 'GW_OPS_ALL'] },
+          { to: '/gateway/reconciliation/suspense', label: 'Suspense', icon: 'Su', any: ['RECON_SUSPENSE_VIEW', 'GW_OPS_READ', 'GW_OPS_ALL'] },
+          { to: '/gateway/reconciliation/posted', label: 'Posted Payments', icon: 'PP', any: ['RECON_TRANSACTION_VIEW', 'GW_OPS_READ', 'GW_OPS_ALL'] },
+          { to: '/gateway/reconciliation/failed', label: 'Failed Postings', icon: 'FP', any: ['RECON_FAILED_RETRY', 'GW_OPS_READ', 'GW_OPS_ALL'] },
+          { to: '/gateway/reconciliation/mappings', label: 'Manual Mappings', icon: 'MM', any: ['RECON_MAPPING_VIEW', 'GW_OPS_READ', 'GW_OPS_ALL'] },
+          { to: '/gateway/reconciliation/reports', label: 'Reports', icon: 'Rp', any: ['RECON_REPORT_VIEW', 'GW_OPS_READ', 'GW_OPS_ALL'] },
+          { to: '/gateway/reconciliation/settings', label: 'Settings', icon: 'Se', any: ['RECON_SETTINGS_VIEW', 'GW_OPS_READ', 'GW_OPS_ALL'] },
+          { to: '/gateway/reconciliation/audit', label: 'Audit Trail', icon: 'AT', any: ['RECON_AUDIT_VIEW', 'GW_OPS_READ', 'GW_OPS_ALL'] },
+        ],
+      },
       { to: '/gateway/reports', label: 'Gateway Reports', icon: 'GR', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_LOAN'] },
       { to: '/gateway/performance', label: 'Performance KPIs', icon: 'KP', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_REPORT', 'READ_LOAN'] },
       { to: '/gateway/notifications/templates', label: 'Notif Templates', icon: 'NT', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
@@ -155,6 +176,7 @@ const humanizeSegment = (value) => String(value || '')
 
 const Layout = () => {
   const [open, setOpen] = useState(false);
+  const [expandedNavItems, setExpandedNavItems] = useState({});
   const { can, user, tenantConfig, logout } = useAuth();
   const location = useLocation();
   const isGatewayOnlyLoanOfficer = Boolean(user?.isGatewayOnlyLoanOfficer);
@@ -166,22 +188,34 @@ const Layout = () => {
 
   // filter items by single 'perm' or permission groups
   const visibleGroups = useMemo(() => {
+    const canSee = (it) => {
+      if (Array.isArray(it.all) && it.all.length > 0) return it.all.every((code) => can(code));
+      if (Array.isArray(it.any) && it.any.length > 0) return it.any.some((code) => can(code));
+      if (it.perm) return can(it.perm);
+      return true;
+    };
+    const filterItem = (it) => {
+      if (!canSee(it)) return null;
+      const children = Array.isArray(it.children)
+        ? it.children.map((child) => ({ ...child, any: child.any || it.any, perm: child.perm || it.perm })).map(filterItem).filter(Boolean)
+        : undefined;
+      return { ...it, children };
+    };
     return NAV_GROUPS.map(g => ({
       ...g,
       hidden: isGatewayOnlyLoanOfficer && !g.title.startsWith('Gateway'),
-      items: g.items.filter((it) => {
-        if (Array.isArray(it.all) && it.all.length > 0) return it.all.every((code) => can(code));
-        if (Array.isArray(it.any) && it.any.length > 0) return it.any.some((code) => can(code));
-        if (it.perm) return can(it.perm);
-        return true;
-      }),
+      items: g.items.map(filterItem).filter(Boolean),
     })).filter(g => !g.hidden && g.items.length > 0);
   }, [can, isGatewayOnlyLoanOfficer]);
 
   const pageMeta = useMemo(() => {
     const pathname = location.pathname.replace(/\/+$/, '') || '/';
+    const flattenItems = (item, groupTitle) => [
+      { ...item, groupTitle },
+      ...(Array.isArray(item.children) ? item.children.flatMap((child) => flattenItems(child, groupTitle)) : []),
+    ];
     const candidates = visibleGroups.flatMap((group) =>
-      group.items.map((item) => ({ ...item, groupTitle: group.title }))
+      group.items.flatMap((item) => flattenItems(item, group.title))
     );
     const matched = candidates
       .filter((item) => pathname === item.to || (item.to !== '/' && pathname.startsWith(`${item.to}/`)))
@@ -219,6 +253,19 @@ const Layout = () => {
     };
   }, [location.pathname, visibleGroups]);
 
+  const isNavItemActive = (item) => {
+    const pathname = location.pathname.replace(/\/+$/, '') || '/';
+    const itemPath = item.to.replace(/\/+$/, '') || '/';
+    if (pathname === itemPath) return true;
+    if (Array.isArray(item.children)) {
+      return item.children.some((child) => {
+        const childPath = child.to.replace(/\/+$/, '') || '/';
+        return pathname === childPath || (childPath !== '/' && pathname.startsWith(`${childPath}/`));
+      });
+    }
+    return itemPath !== '/' && pathname.startsWith(`${itemPath}/`);
+  };
+
   {
     const branding = tenantConfig || {};
     const displayName = user?.staffDisplayName || user?.username || 'User';
@@ -249,18 +296,54 @@ const Layout = () => {
                 <div className="customer-nav-group" key={group.title}>
                   <div className="customer-nav-heading">{group.title}</div>
                   <div className="customer-nav-items">
-                    {group.items.map((item) => (
-                      <NavLink
-                        key={item.to}
-                        to={item.to}
-                        end={item.to === '/' || item.to === '/gateway'}
-                        onClick={() => setOpen(false)}
-                        className={({ isActive }) => `customer-nav-link ${isActive ? 'active' : ''}`}
-                      >
-                        <span className="customer-nav-icon">{navigationGlyph(item.label)}</span>
-                        <span>{item.label}</span>
-                      </NavLink>
-                    ))}
+                    {group.items.map((item) => {
+                      const hasChildren = Array.isArray(item.children) && item.children.length > 0;
+                      const isActive = isNavItemActive(item);
+                      const isExpanded = hasChildren && (expandedNavItems[item.to] ?? isActive);
+
+                      return (
+                        <div key={item.to}>
+                          {hasChildren ? (
+                            <button
+                              type="button"
+                              className={`customer-nav-link customer-nav-parent ${isActive ? 'active' : ''} ${isExpanded ? 'expanded' : ''}`}
+                              aria-expanded={isExpanded}
+                              onClick={() => setExpandedNavItems((items) => ({ ...items, [item.to]: !isExpanded }))}
+                            >
+                              <span className="customer-nav-icon">{navigationGlyph(item.label)}</span>
+                              <span>{item.label}</span>
+                              <ChevronDown className="customer-nav-chevron" size={16} />
+                            </button>
+                          ) : (
+                            <NavLink
+                              to={item.to}
+                              end={item.to === '/' || item.to === '/gateway'}
+                              onClick={() => setOpen(false)}
+                              className={({ isActive }) => `customer-nav-link ${isActive ? 'active' : ''}`}
+                            >
+                              <span className="customer-nav-icon">{navigationGlyph(item.label)}</span>
+                              <span>{item.label}</span>
+                            </NavLink>
+                          )}
+                          {hasChildren && isExpanded ? (
+                            <div className="customer-nav-subitems">
+                              {item.children.map((child) => (
+                                <NavLink
+                                  key={child.to}
+                                  to={child.to}
+                                  end={child.to === '/gateway/reconciliation'}
+                                  onClick={() => setOpen(false)}
+                                  className={({ isActive }) => `customer-nav-sublink ${isActive ? 'active' : ''}`}
+                                >
+                                  <span className="customer-nav-subicon">{navigationGlyph(child.label)}</span>
+                                  <span>{child.label}</span>
+                                </NavLink>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               ))}
