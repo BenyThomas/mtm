@@ -120,6 +120,96 @@ const MetricCard = ({ label, value, icon: Icon, tone = 'blue', caption }) => (
   </Card>
 );
 
+const sumBy = (rows, field) => rows.reduce((total, row) => total + Number(row?.[field] || 0), 0);
+
+const countWhere = (rows, predicate) => rows.filter(predicate).length;
+
+const ratio = (value, total) => total > 0 ? `${Math.round((value / total) * 100)}%` : '0%';
+
+const statusText = (value) => String(value || '').toUpperCase();
+
+const compactDate = (value) => {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 16);
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(date);
+};
+
+const InsightPanel = ({ title, children, actions }) => (
+  <Card className="p-0">
+    <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+      <h3 className="text-sm font-bold text-slate-950 dark:text-slate-50">{title}</h3>
+      {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
+    </div>
+    <div className="p-4">{children}</div>
+  </Card>
+);
+
+const MiniMetric = ({ label, value, caption, tone = 'blue' }) => (
+  <div className={`rounded-lg border p-3 ${tone === 'red' ? 'border-red-100 bg-red-50 dark:border-red-900/30 dark:bg-red-950/20' : tone === 'green' ? 'border-green-100 bg-green-50 dark:border-green-900/30 dark:bg-green-950/20' : tone === 'orange' ? 'border-orange-100 bg-orange-50 dark:border-orange-900/30 dark:bg-orange-950/20' : 'border-blue-100 bg-blue-50 dark:border-blue-900/30 dark:bg-blue-950/20'}`}>
+    <div className="text-xs font-semibold uppercase text-slate-500">{label}</div>
+    <div className="mt-1 text-lg font-bold text-slate-950 dark:text-slate-50">{value}</div>
+    {caption ? <div className="mt-1 text-xs text-slate-500">{caption}</div> : null}
+  </div>
+);
+
+const WorkflowSteps = ({ steps }) => (
+  <div className="grid gap-2 md:grid-cols-4">
+    {steps.map((step, index) => (
+      <div key={step.label} className="rounded-lg border border-slate-100 p-3 text-sm dark:border-slate-800">
+        <div className="flex items-center gap-2">
+          <span className="grid h-6 w-6 place-items-center rounded-full bg-blue-50 text-xs font-bold text-[var(--tenant-primary)] dark:bg-blue-950/30">{index + 1}</span>
+          <span className="font-semibold text-slate-900 dark:text-slate-100">{step.label}</span>
+        </div>
+        <div className="mt-2 text-xs text-slate-500">{step.detail}</div>
+      </div>
+    ))}
+  </div>
+);
+
+const QueueSummary = ({ rows, mode }) => {
+  const total = rows.length;
+  const approved = countWhere(rows, (row) => statusText(row.postingStatus).includes('APPROVED'));
+  const posted = countWhere(rows, (row) => statusText(row.postingStatus).includes('POSTED'));
+  const failed = countWhere(rows, (row) => statusText(row.postingStatus).includes('FAILED') || statusText(row.postingStatus).includes('RETRY'));
+  const review = countWhere(rows, (row) => statusText(row.matchStatus).includes('REVIEW'));
+  const unmatched = countWhere(rows, (row) => statusText(row.matchStatus).includes('UNMATCHED'));
+  const suspense = countWhere(rows, (row) => statusText(row.matchStatus).includes('SUSPENSE'));
+  const amount = sumBy(rows, 'creditAmount');
+  const labels = {
+    transactions: ['Loaded Rows', 'Approved', 'Exceptions', 'Credit Value'],
+    review: ['Review Items', 'Ready', 'Needs Match', 'Review Value'],
+    unmatched: ['Unmatched', 'Candidate Matches', 'To Suspense', 'Unmatched Value'],
+    suspense: ['Suspense Items', 'Allocated', 'Open Items', 'Suspense Value'],
+    posted: ['Posted Items', 'Receipt Ready', 'Success Rate', 'Posted Value'],
+    failed: ['Failed Items', 'Retry Due', 'Blocked', 'Failed Value'],
+  }[mode] || ['Rows', 'Approved', 'Exceptions', 'Value'];
+  const exceptionCount = review + unmatched + suspense + failed;
+  return (
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <MetricCard label={labels[0]} value={total} icon={ListChecks} tone={mode === 'failed' ? 'red' : 'blue'} caption={`${ratio(total, Number(total || 0))} of current result`} />
+      <MetricCard label={labels[1]} value={mode === 'posted' ? posted : approved} icon={CheckCircle2} tone="green" caption={mode === 'posted' ? 'Fineract receipt posted' : 'Approved for posting'} />
+      <MetricCard label={labels[2]} value={mode === 'failed' ? failed : exceptionCount} icon={AlertTriangle} tone={mode === 'posted' ? 'green' : 'orange'} caption={`${review} review, ${unmatched} unmatched`} />
+      <MetricCard label={labels[3]} value={`TZS ${money(amount)}`} icon={FileSpreadsheet} tone="blue" caption="Current filtered rows" />
+    </div>
+  );
+};
+
+const TransactionModePanel = ({ mode, rows, onBulkAction }) => {
+  const copy = {
+    transactions: { title: 'Workbench Flow', steps: [['Import', 'Statement rows are validated and normalized.'], ['Match', 'Rules and manual review attach clients and loans.'], ['Approve', 'High confidence items are approved for posting.'], ['Post', 'Repayments are sent to Fineract with audit trail.']] },
+    review: { title: 'Review Decision Queue', steps: [['Inspect', 'Open the detail drawer and compare candidates.'], ['Search Loan', 'Manual match supports client or loan lookup.'], ['Approve', 'Approve accurate matches for posting.'], ['Escalate', 'Hold, split, or route to suspense when needed.']] },
+    unmatched: { title: 'Unmatched Resolution', steps: [['Identify', 'Use typed customer number, sender, and narration.'], ['Search', 'Find customer or loan from Fineract client ID.'], ['Save Mapping', 'Create a reusable rule after confirming target.'], ['Allocate', 'Match or move to suspense.']] },
+    suspense: { title: 'Suspense Allocation', steps: [['Classify', 'Confirm why receipt cannot be posted.'], ['Allocate', 'Search and select client or loan.'], ['Resolve', 'Mark refund or non-client deposit when appropriate.'], ['Audit', 'Keep reason and actor history.']] },
+    posted: { title: 'Posted Payment Controls', steps: [['Verify', 'Confirm external ID and receipt reference.'], ['Export', 'Download receipt or posting evidence.'], ['Audit', 'Review posting attempt history.'], ['Report', 'Feed daily reconciliation summary.']] },
+    failed: { title: 'Failed Posting Recovery', steps: [['Diagnose', 'Review Fineract error and payload.'], ['Correct', 'Fix mapping, payment type, or duplicate issue.'], ['Retry', 'Retry single or due failures.'], ['Resolve', 'Exclude or mark resolved with reason.']] },
+  }[mode];
+  return (
+    <InsightPanel title={copy.title} actions={mode === 'review' ? <Button type="button" size="sm" variant="secondary" onClick={onBulkAction}>Bulk Approve Visible</Button> : null}>
+      <WorkflowSteps steps={copy.steps.map(([label, detail]) => ({ label, detail }))} />
+    </InsightPanel>
+  );
+};
 const TableShell = ({ children, title, actions }) => (
   <Card className="p-0">
     <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
@@ -561,12 +651,14 @@ const ManualMatchDrawer = ({ row, mode, onClose, onSaved }) => {
 export const ReconciliationDashboard = () => {
   const [dashboard, setDashboard] = useState({});
   const [loading, setLoading] = useState(true);
+  const [bankAccountId, setBankAccountId] = useState('');
+  const [dashboardDate, setDashboardDate] = useState(new Date().toISOString().slice(0, 10));
   const { addToast } = useToast();
 
   const load = async () => {
     setLoading(true);
     try {
-      const response = await gatewayApi.get('/gateway/reconciliation/dashboard');
+      const response = await gatewayApi.get('/gateway/reconciliation/dashboard', { params: { date: dashboardDate, bankAccountId: bankAccountId || undefined } });
       setDashboard(unwrap(response) || {});
     } catch (error) {
       addToast(error?.response?.data?.message || 'Failed to load dashboard', 'error');
@@ -577,7 +669,15 @@ export const ReconciliationDashboard = () => {
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [dashboardDate, bankAccountId]);
+
+  const total = Number(dashboard.totalTransactions || 0);
+  const posted = Number(dashboard.posted || 0);
+  const review = Number(dashboard.pendingReview || 0);
+  const unmatched = Number(dashboard.unmatched || 0);
+  const failed = Number(dashboard.failed || 0);
+  const duplicates = Number(dashboard.duplicates || 0);
+  const suspense = Number(dashboard.suspense || 0);
 
   return (
     <div className="space-y-5">
@@ -589,19 +689,42 @@ export const ReconciliationDashboard = () => {
           <Link to="/gateway/reconciliation/reports"><Button variant="secondary"><Download size={17} />Reports</Button></Link>
         </>}
       />
+      <Card className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_180px_auto] md:items-end">
+        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Collection Account<BankAccountSelect value={bankAccountId} onChange={setBankAccountId} className="mt-1 w-full" /></label>
+        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Business Date<input type="date" className={drawerField} value={dashboardDate} onChange={(event) => setDashboardDate(event.target.value)} /></label>
+        <MiniMetric label="Completion" value={ratio(posted, total)} caption={`${posted} of ${total} posted`} tone="green" />
+        <Button type="button" variant="secondary" disabled={loading} onClick={load}><RefreshCcw size={17} />Refresh</Button>
+      </Card>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Bank Credits" value={`TZS ${money(dashboard.totalCreditAmount)}`} icon={FileSpreadsheet} tone="blue" />
-        <MetricCard label="Auto Matched" value={dashboard.autoMatched || 0} icon={CheckCircle2} tone="green" />
-        <MetricCard label="Pending Review" value={dashboard.pendingReview || 0} icon={ClipboardCheck} tone="yellow" />
-        <MetricCard label="Failed" value={dashboard.failed || 0} icon={AlertTriangle} tone="red" />
+        <MetricCard label="Bank Credits" value={`TZS ${money(dashboard.totalCreditAmount)}`} icon={FileSpreadsheet} tone="blue" caption={`${total} credit rows`} />
+        <MetricCard label="Auto Matched" value={dashboard.autoMatched || 0} icon={CheckCircle2} tone="green" caption={`${ratio(Number(dashboard.autoMatched || 0), total)} matched`} />
+        <MetricCard label="Pending Review" value={review} icon={ClipboardCheck} tone="yellow" caption="Needs approval or correction" />
+        <MetricCard label="Failed" value={failed} icon={AlertTriangle} tone="red" caption="Requires posting recovery" />
       </div>
-      <TableShell title={loading ? 'Latest Statement Batches Loading...' : 'Latest Statement Batches'}>
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <InsightPanel title="Exception Overview">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <MiniMetric label="Unmatched" value={unmatched} caption="Manual match required" tone="orange" />
+            <MiniMetric label="Suspense" value={suspense} caption="Awaiting allocation" tone="orange" />
+            <MiniMetric label="Duplicates" value={duplicates} caption="Duplicate detection" tone="red" />
+            <MiniMetric label="Posted" value={posted} caption="Completed postings" tone="green" />
+          </div>
+        </InsightPanel>
+        <InsightPanel title="Operational Flow">
+          <WorkflowSteps steps={[
+            { label: 'Import', detail: 'Load CRDB statement and validate rows.' },
+            { label: 'Match', detail: 'Apply mapping rules and manual loan search.' },
+            { label: 'Approve', detail: 'Review exceptions and approve posting.' },
+            { label: 'Post', detail: 'Send repayment payload to Fineract.' },
+          ]} />
+        </InsightPanel>
+      </div>
+      <TableShell title={loading ? 'Latest Statement Batches Loading...' : 'Latest Statement Batches'} actions={<Link className="text-sm font-semibold text-[var(--tenant-primary)]" to="/gateway/reconciliation/batches">View all</Link>}>
         <ReconTable rows={dashboard.latestBatches || []} columns={batchColumns} />
       </TableShell>
     </div>
   );
 };
-
 export const ReconImportStatement = () => {
   const [file, setFile] = useState(null);
   const [bankAccountId, setBankAccountId] = useState('');
@@ -610,6 +733,7 @@ export const ReconImportStatement = () => {
   const [periodTo, setPeriodTo] = useState('');
   const [preview, setPreview] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [importOptions, setImportOptions] = useState({ importCreditOnly: true, checkDuplicates: true, runAutoMatching: false, autoPostHighConfidence: false });
   const { addToast } = useToast();
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
@@ -622,10 +746,10 @@ export const ReconImportStatement = () => {
     data.append('statementDate', statementDate);
     data.append('periodFrom', periodFrom);
     data.append('periodTo', periodTo);
-    data.append('importCreditOnly', true);
-    data.append('checkDuplicates', true);
-    data.append('runAutoMatching', false);
-    data.append('autoPostHighConfidence', false);
+    data.append('importCreditOnly', importOptions.importCreditOnly);
+    data.append('checkDuplicates', importOptions.checkDuplicates);
+    data.append('runAutoMatching', importOptions.runAutoMatching);
+    data.append('autoPostHighConfidence', importOptions.autoPostHighConfidence);
     return data;
   };
 
@@ -675,8 +799,27 @@ export const ReconImportStatement = () => {
             </label>
           </div>
           <label className="block text-sm font-semibold">Statement File</label>
-          <input ref={fileInputRef} name="file" type="file" accept=".csv,.xls,.xlsx,.pdf" onChange={(event) => { setFile(event.target.files?.[0] || null); setPreview(null); }} className="w-full rounded-lg border border-dashed border-slate-300 px-3 py-5 text-sm dark:border-slate-700" />
+          <div className="rounded-lg border border-dashed border-blue-200 bg-blue-50/60 p-4 dark:border-blue-900/40 dark:bg-blue-950/20">
+            <input ref={fileInputRef} name="file" type="file" accept=".csv,.xls,.xlsx,.pdf" onChange={(event) => { setFile(event.target.files?.[0] || null); setPreview(null); }} className="w-full text-sm" />
+            <div className="mt-3 grid gap-2 text-xs text-slate-600 dark:text-slate-300 md:grid-cols-2">
+              <span>Accepted: CSV, XLS, XLSX, text PDF</span>
+              <span>Credits only import is enabled by default</span>
+            </div>
+          </div>
           {file ? <p className="text-xs text-slate-500 dark:text-slate-400">Selected: {file.name} ({money(file.size)} bytes)</p> : null}
+          <div className="grid gap-2 rounded-lg border border-slate-100 p-3 text-sm dark:border-slate-800">
+            {[
+              ['importCreditOnly', 'Import credit transactions only'],
+              ['checkDuplicates', 'Check duplicates during import'],
+              ['runAutoMatching', 'Run auto matching after import'],
+              ['autoPostHighConfidence', 'Auto-post high confidence matches'],
+            ].map(([key, label]) => (
+              <label key={key} className="flex items-center justify-between gap-3">
+                <span className="font-medium text-slate-700 dark:text-slate-200">{label}</span>
+                <input type="checkbox" checked={Boolean(importOptions[key])} onChange={(event) => setImportOptions({ ...importOptions, [key]: event.target.checked })} />
+              </label>
+            ))}
+          </div>
           <div className="flex gap-2 pt-2">
             <Button type="button" variant="secondary" disabled={busy || !file || !bankAccountId || !statementDate} onClick={() => submit('preview')}><Search size={17} />Preview</Button>
             <Button type="button" disabled={busy || !file || !bankAccountId || !statementDate} onClick={() => submit('import')}><UploadCloud size={17} />Import</Button>
@@ -693,11 +836,20 @@ export const ReconImportStatement = () => {
         </TableShell>
       </div>
       {preview ? (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-          <MetricCard label="Rows Found" value={preview.totalRowsFound || 0} icon={ListChecks} />
-          <MetricCard label="Credits" value={preview.creditTransactions || 0} icon={CheckCircle2} tone="green" />
-          <MetricCard label="Duplicates" value={preview.possibleDuplicates || 0} icon={AlertTriangle} tone="red" />
-          <MetricCard label="Credit Amount" value={`TZS ${money(preview.totalCreditAmount)}`} icon={FileSpreadsheet} tone="blue" />
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+            <MetricCard label="Rows Found" value={preview.totalRowsFound || 0} icon={ListChecks} />
+            <MetricCard label="Credits" value={preview.creditTransactions || 0} icon={CheckCircle2} tone="green" />
+            <MetricCard label="Duplicates" value={preview.possibleDuplicates || 0} icon={AlertTriangle} tone="red" />
+            <MetricCard label="Credit Amount" value={`TZS ${money(preview.totalCreditAmount)}`} icon={FileSpreadsheet} tone="blue" />
+          </div>
+          <InsightPanel title="Import Validation">
+            <div className="grid gap-3 md:grid-cols-3">
+              <MiniMetric label="Duplicate Risk" value={preview.possibleDuplicates || 0} caption="Rows that may already exist" tone={Number(preview.possibleDuplicates || 0) > 0 ? 'red' : 'green'} />
+              <MiniMetric label="Credit Share" value={ratio(Number(preview.creditTransactions || 0), Number(preview.totalRowsFound || 0))} caption="Credit rows selected for import" tone="blue" />
+              <MiniMetric label="Ready State" value={Number(preview.creditTransactions || 0) > 0 ? 'Ready' : 'Review'} caption="Import after validating preview rows" tone={Number(preview.creditTransactions || 0) > 0 ? 'green' : 'orange'} />
+            </div>
+          </InsightPanel>
         </div>
       ) : null}
     </div>
@@ -705,17 +857,34 @@ export const ReconImportStatement = () => {
 };
 
 export const ReconBatches = () => {
-  const { rows, loading, reload } = useReconList('/gateway/reconciliation/batches');
+  const [filters, setFilters] = useState({ bankAccountId: '', status: '', from: '', to: '' });
+  const params = useMemo(() => Object.fromEntries(Object.entries(filters).filter(([, value]) => value)), [filters]);
+  const { rows, loading, reload } = useReconList('/gateway/reconciliation/batches', params);
+  const totalRows = sumBy(rows, 'totalRows');
+  const posted = sumBy(rows, 'postedCount');
+  const review = sumBy(rows, 'reviewCount');
+  const failed = sumBy(rows, 'failedCount');
   return (
     <div className="space-y-5">
-      <ReconciliationHeader title="Statement Batches" subtitle="Manage imported bank statement batches." actions={<Button variant="secondary" onClick={reload}><RefreshCcw size={17} />Refresh</Button>} />
+      <ReconciliationHeader title="Statement Batches" subtitle="Manage imported bank statement batches." actions={<><Link to="/gateway/reconciliation/import"><Button><UploadCloud size={17} />Import Statement</Button></Link><Button variant="secondary" onClick={reload}><RefreshCcw size={17} />Refresh</Button></>} />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard label="Batches" value={rows.length} icon={FileSpreadsheet} tone="blue" caption="Filtered result" />
+        <MetricCard label="Rows Imported" value={totalRows} icon={ListChecks} tone="blue" caption="Total statement rows" />
+        <MetricCard label="Posted" value={posted} icon={CheckCircle2} tone="green" caption={`${ratio(posted, totalRows)} of rows`} />
+        <MetricCard label="Exceptions" value={review + failed} icon={AlertTriangle} tone="orange" caption={`${review} review, ${failed} failed`} />
+      </div>
+      <Card className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 xl:col-span-2">Bank Account<BankAccountSelect value={filters.bankAccountId} onChange={(value) => setFilters({ ...filters, bankAccountId: value })} className="mt-1 w-full" /></label>
+        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Status<select className={drawerField} value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}><option value="">All</option><option value="IMPORTED">Imported</option><option value="PROCESSED">Processed</option><option value="CANCELLED">Cancelled</option></select></label>
+        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">From<input type="date" className={drawerField} value={filters.from} onChange={(event) => setFilters({ ...filters, from: event.target.value })} /></label>
+        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">To<input type="date" className={drawerField} value={filters.to} onChange={(event) => setFilters({ ...filters, to: event.target.value })} /></label>
+      </Card>
       <TableShell title={loading ? 'Loading Batches...' : 'Statement Batches'}>
         <ReconTable rows={rows} columns={batchColumns} />
       </TableShell>
     </div>
   );
 };
-
 export const ReconBatchDetails = () => {
   const { batchId } = useParams();
   const [batch, setBatch] = useState(null);
@@ -735,13 +904,27 @@ export const ReconBatchDetails = () => {
     void load().catch(() => addToast('Failed to load batch details', 'error'));
   }, [batchId]);
 
-  const action = async (path, message) => {
+  const action = async (path, message, body) => {
     try {
-      await gatewayApi.post(path);
+      await gatewayApi.post(path, body || {});
       addToast(message, 'success');
       await load();
     } catch (error) {
       addToast(error?.response?.data?.message || message, 'error');
+    }
+  };
+
+  const exportBatch = async () => {
+    try {
+      const response = await gatewayApi.get(`/gateway/reconciliation/batches/${batchId}/export`, { responseType: 'blob' });
+      const url = URL.createObjectURL(new Blob([response.data], { type: 'text/csv;charset=utf-8;' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${batch?.batchNumber || batchId}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      addToast(error?.response?.data?.message || 'Failed to export batch', 'error');
     }
   };
 
@@ -752,15 +935,25 @@ export const ReconBatchDetails = () => {
         subtitle={batch?.batchNumber}
         actions={<>
           <Button variant="secondary" onClick={() => action(`/gateway/reconciliation/batches/${batchId}/auto-match`, 'Auto match complete')}><RefreshCcw size={17} />Auto Match</Button>
+          <Button variant="secondary" onClick={exportBatch}><Download size={17} />Export</Button>
+          <Button variant="danger" onClick={() => action(`/gateway/reconciliation/batches/${batchId}/cancel`, 'Batch cancelled', { reason: 'Cancelled from reconciliation UI' })}><AlertTriangle size={17} />Cancel</Button>
           <Button onClick={() => action(`/gateway/reconciliation/batches/${batchId}/auto-post`, 'Auto post complete')}><CheckCircle2 size={17} />Post Approved</Button>
         </>}
       />
       <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <MetricCard label="Total Rows" value={batch?.totalRows || 0} icon={ListChecks} />
-        <MetricCard label="Posted" value={batch?.postedCount || 0} icon={CheckCircle2} tone="green" />
-        <MetricCard label="Review" value={batch?.reviewCount || 0} icon={ClipboardCheck} tone="yellow" />
-        <MetricCard label="Failed" value={batch?.failedCount || 0} icon={AlertTriangle} tone="red" />
+        <MetricCard label="Posted" value={batch?.postedCount || 0} icon={CheckCircle2} tone="green" caption={`${ratio(Number(batch?.postedCount || 0), Number(batch?.totalRows || 0))} complete`} />
+        <MetricCard label="Review" value={batch?.reviewCount || 0} icon={ClipboardCheck} tone="yellow" caption="Needs approval" />
+        <MetricCard label="Failed" value={batch?.failedCount || 0} icon={AlertTriangle} tone="red" caption="Posting recovery" />
       </div>
+      <InsightPanel title="Batch Processing Path">
+        <WorkflowSteps steps={[
+          { label: 'Imported', detail: `${batch?.totalRows || 0} rows captured from statement.` },
+          { label: 'Matched', detail: `${batch?.matchedCount || batch?.postedCount || 0} rows have client or loan context.` },
+          { label: 'Reviewed', detail: `${batch?.reviewCount || 0} items remain in manual review.` },
+          { label: 'Posted', detail: `${batch?.postedCount || 0} repayments posted to Fineract.` },
+        ]} />
+      </InsightPanel>
       <TableShell title="Batch Transactions">
         <ReconTable rows={transactions} columns={transactionColumns((row) => <Link className="text-[var(--tenant-primary)]" to={`/gateway/reconciliation/transactions?transactionId=${row.id}`}>View</Link>)} />
       </TableShell>
@@ -817,6 +1010,21 @@ export const ReconTransactions = ({ mode = 'transactions' }) => {
     }
   };
 
+  const bulkApproveVisible = async () => {
+    const transactionIds = rows.filter((row) => row.matchStatus === 'REVIEW_REQUIRED').map((row) => row.id).filter(Boolean);
+    if (!transactionIds.length) {
+      addToast('No visible review items to approve.', 'error');
+      return;
+    }
+    try {
+      await gatewayApi.post('/gateway/reconciliation/review/bulk-approve', { transactionIds });
+      addToast('Visible review items approved.', 'success');
+      await reload();
+    } catch (error) {
+      addToast(error?.response?.data?.message || 'Bulk approve failed', 'error');
+    }
+  };
+
   const openMatch = (row) => {
     setSelectedRow(row);
     setMatchRow(row);
@@ -839,6 +1047,8 @@ export const ReconTransactions = ({ mode = 'transactions' }) => {
         subtitle="Search, review, match, and post reconciliation transactions."
         actions={<Button variant="secondary" onClick={reload}><RefreshCcw size={17} />Refresh</Button>}
       />
+      <QueueSummary rows={rows} mode={mode} />
+      <TransactionModePanel mode={mode} rows={rows} onBulkAction={bulkApproveVisible} />
       <TransactionFilterBar filters={filters} onChange={setFilters} onReset={resetFilters} />
       <TableShell title={loading ? 'Loading Transactions...' : config.title}>
         <ReconTable
@@ -855,64 +1065,236 @@ export const ReconTransactions = ({ mode = 'transactions' }) => {
   );
 };
 
-export const ReconMappings = () => {
-  const { rows, loading, reload } = useReconList('/gateway/reconciliation/mappings');
-  return (
-    <div className="space-y-5">
-      <ReconciliationHeader title="Manual Mappings" subtitle="Maintain reusable transaction-to-client matching rules." actions={<Button variant="secondary" onClick={reload}><RefreshCcw size={17} />Refresh</Button>} />
-      <TableShell title={loading ? 'Loading Mappings...' : 'Manual Mappings'}>
-        <ReconTable rows={rows} columns={[
-          { key: 'mappingType', header: 'Type' },
-          { key: 'identifier', header: 'Identifier' },
-          { key: 'targetClientName', header: 'Client' },
-          { key: 'targetLoanAccountNo', header: 'Loan' },
-          { key: 'confidence', header: 'Confidence', render: (row) => `${row.confidence || 0}%` },
-          { key: 'status', header: 'Status', render: (row) => <Badge tone={statusTone(row.status)}>{row.status}</Badge> },
-        ]} />
-      </TableShell>
-    </div>
-  );
-};
+const mappingDefaults = { mappingType: 'CUSTOMER_NUMBER', identifier: '', bankReferencePattern: '', narrationPattern: '', targetClientId: '', targetCustomerId: '', targetClientName: '', targetLoanId: '', targetLoanAccountNo: '', confidence: 95, status: 'ACTIVE', notes: '' };
 
-export const ReconReports = () => {
-  const [reports, setReports] = useState([]);
+const MappingEditorDrawer = ({ mapping, onClose, onSaved }) => {
+  const { addToast } = useToast();
+  const [form, setForm] = useState({ ...mappingDefaults, ...(mapping || {}) });
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    gatewayApi.get('/gateway/reconciliation/reports')
-      .then((response) => {
-        const data = unwrap(response);
-        setReports(Array.isArray(data?.reports) ? data.reports : []);
-      })
-      .catch(() => setReports([]));
-  }, []);
+    setForm({ ...mappingDefaults, ...(mapping || {}) });
+  }, [mapping?.id]);
 
-  const fallbackReports = ['Daily Reconciliation Summary', 'Unmatched Transactions Detail', 'Failed Postings Analysis', 'Suspense Account Summary'];
+  if (!mapping) return null;
+
+  const update = (field) => (event) => setForm({ ...form, [field]: event.target.value });
+
+  const save = async () => {
+    const hasSource = form.identifier || form.bankReferencePattern || form.narrationPattern;
+    if (!hasSource) {
+      addToast('At least one mapping source is required.', 'error');
+      return;
+    }
+    if (!form.targetClientId) {
+      addToast('Target client is required.', 'error');
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = { ...form, confidence: Number(form.confidence || 95) };
+      const response = form.id
+        ? await gatewayApi.put(`/gateway/reconciliation/mappings/${form.id}`, payload)
+        : await gatewayApi.post('/gateway/reconciliation/mappings', payload);
+      addToast('Mapping saved.', 'success');
+      await onSaved(unwrap(response));
+      onClose();
+    } catch (error) {
+      addToast(error?.response?.data?.message || 'Failed to save mapping', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <div className="space-y-5">
-      <ReconciliationHeader title="Reports" subtitle="Generate reconciliation summaries and exception reports." />
-      <Card>
-        <div className="mb-4 flex justify-end">
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => gatewayApi.post('/gateway/reconciliation/reports/generate')}
-          >
-            <FileSpreadsheet size={17} />Generate Summary
-          </Button>
+    <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-lg flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+      <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-slate-800">
+        <div>
+          <div className="text-base font-bold text-slate-950 dark:text-slate-50">{form.id ? 'Edit Mapping' : 'New Mapping'}</div>
+          <div className="text-xs text-slate-500">Reusable transaction-to-client matching rule</div>
         </div>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {(reports.length ? reports : fallbackReports).map((report) => (
-            <div key={report} className="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
-              <FileSpreadsheet className="mb-3 text-[var(--tenant-primary)]" size={22} />
-              <div className="font-semibold">{report}</div>
-            </div>
-          ))}
+        <button type="button" className="rounded-md px-2 py-1 text-xl text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" onClick={onClose}>x</button>
+      </div>
+      <div className="flex-1 space-y-4 overflow-y-auto p-5">
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Mapping Type<select className={drawerField} value={form.mappingType || 'CUSTOMER_NUMBER'} onChange={update('mappingType')}>{['CUSTOMER_NUMBER','CLIENT_ID','ACCOUNT_NUMBER','PHONE_NUMBER','NARRATION_MATCH','BANK_REFERENCE'].map((item) => <option key={item}>{item}</option>)}</select></label>
+          <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Status<select className={drawerField} value={form.status || 'ACTIVE'} onChange={update('status')}>{['ACTIVE','PENDING_REVIEW','INACTIVE','REMOVED'].map((item) => <option key={item}>{item}</option>)}</select></label>
         </div>
-      </Card>
+        <InsightPanel title="Source Criteria">
+          <div className="space-y-3">
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Identifier<input className={drawerField} value={form.identifier || ''} onChange={update('identifier')} /></label>
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Bank Reference Pattern<input className={drawerField} value={form.bankReferencePattern || ''} onChange={update('bankReferencePattern')} /></label>
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Narration Pattern<input className={drawerField} value={form.narrationPattern || ''} onChange={update('narrationPattern')} /></label>
+          </div>
+        </InsightPanel>
+        <InsightPanel title="Target Client And Loan">
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Target Client ID<input className={drawerField} value={form.targetClientId || ''} onChange={update('targetClientId')} /></label>
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Target Customer ID<input className={drawerField} value={form.targetCustomerId || ''} onChange={update('targetCustomerId')} /></label>
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 md:col-span-2">Client Name<input className={drawerField} value={form.targetClientName || ''} onChange={update('targetClientName')} /></label>
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Loan ID<input className={drawerField} value={form.targetLoanId || ''} onChange={update('targetLoanId')} /></label>
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Loan Account<input className={drawerField} value={form.targetLoanAccountNo || ''} onChange={update('targetLoanAccountNo')} /></label>
+          </div>
+        </InsightPanel>
+        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Confidence<input type="number" min="0" max="100" className={drawerField} value={form.confidence || 95} onChange={update('confidence')} /></label>
+        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Notes<input className={drawerField} value={form.notes || ''} onChange={update('notes')} /></label>
+      </div>
+      <div className="grid grid-cols-2 gap-2 border-t border-slate-100 p-4 dark:border-slate-800">
+        <Button type="button" variant="secondary" disabled={saving} onClick={onClose}>Cancel</Button>
+        <Button type="button" disabled={saving} onClick={save}><Save size={16} />Save Mapping</Button>
+      </div>
     </div>
   );
 };
+export const ReconMappings = () => {
+  const [filters, setFilters] = useState({ search: '', status: '', type: '' });
+  const [editorMapping, setEditorMapping] = useState(null);
+  const { rows, loading, reload } = useReconList('/gateway/reconciliation/mappings', Object.fromEntries(Object.entries({ status: filters.status, type: filters.type }).filter(([, value]) => value)));
+  const { addToast } = useToast();
 
+  const filteredRows = useMemo(() => rows.filter((row) => {
+    const haystack = [row.mappingType, row.identifier, row.bankReferencePattern, row.narrationPattern, row.targetClientId, row.targetClientName, row.targetLoanAccountNo].filter(Boolean).join(' ').toLowerCase();
+    return !filters.search || haystack.includes(filters.search.toLowerCase());
+  }), [rows, filters.search]);
+  const activeCount = countWhere(rows, (row) => statusText(row.status) === 'ACTIVE');
+  const pendingCount = countWhere(rows, (row) => statusText(row.status).includes('PENDING'));
+  const avgConfidence = rows.length ? Math.round(rows.reduce((total, row) => total + Number(row.confidence || 0), 0) / rows.length) : 0;
+
+  const deactivate = async (row) => {
+    try {
+      await gatewayApi.post(`/gateway/reconciliation/mappings/${row.id}/deactivate`, { reason: 'Deactivated from reconciliation UI' });
+      addToast('Mapping deactivated.', 'success');
+      await reload();
+    } catch (error) {
+      addToast(error?.response?.data?.message || 'Failed to deactivate mapping', 'error');
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      <ReconciliationHeader title="Manual Mappings" subtitle="Maintain reusable transaction-to-client matching rules." actions={<><Button onClick={() => setEditorMapping({ ...mappingDefaults })}><Plus size={17} />New Mapping</Button><Button variant="secondary" onClick={reload}><RefreshCcw size={17} />Refresh</Button></>} />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard label="Mappings" value={rows.length} icon={SlidersHorizontal} tone="blue" caption="All configured rules" />
+        <MetricCard label="Active" value={activeCount} icon={CheckCircle2} tone="green" caption={`${ratio(activeCount, rows.length)} active`} />
+        <MetricCard label="Pending Review" value={pendingCount} icon={ClipboardCheck} tone="yellow" caption="Needs approval" />
+        <MetricCard label="Avg Confidence" value={`${avgConfidence}%`} icon={ShieldCheck} tone="blue" caption="Configured mapping score" />
+      </div>
+      <Card className="grid gap-3 md:grid-cols-4">
+        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 md:col-span-2">Search<div className="relative"><input className={`${drawerField} pr-9`} value={filters.search} onChange={(event) => setFilters({ ...filters, search: event.target.value })} placeholder="Identifier, client, loan, narration..." /><Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} /></div></label>
+        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Type<select className={drawerField} value={filters.type} onChange={(event) => setFilters({ ...filters, type: event.target.value })}><option value="">All</option><option value="CUSTOMER_NUMBER">Customer Number</option><option value="CLIENT_ID">Client ID</option><option value="ACCOUNT_NUMBER">Account Number</option><option value="PHONE_NUMBER">Phone</option><option value="NARRATION_MATCH">Narration</option></select></label>
+        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Status<select className={drawerField} value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}><option value="">All</option><option value="ACTIVE">Active</option><option value="PENDING_REVIEW">Pending Review</option><option value="INACTIVE">Inactive</option></select></label>
+      </Card>
+      <TableShell title={loading ? 'Loading Mappings...' : 'Configured Mappings'}>
+        <ReconTable rows={filteredRows} columns={[
+          { key: 'mappingType', header: 'Type' },
+          { key: 'identifier', header: 'Source', render: (row) => row.identifier || row.bankReferencePattern || row.narrationPattern || '-' },
+          { key: 'targetClientName', header: 'Client', render: (row) => row.targetClientName || row.targetClientId || '-' },
+          { key: 'targetLoanAccountNo', header: 'Loan', render: (row) => row.targetLoanAccountNo || row.targetLoanId || '-' },
+          { key: 'confidence', header: 'Confidence', render: (row) => `${row.confidence || 0}%` },
+          { key: 'status', header: 'Status', render: (row) => <Badge tone={statusTone(row.status)}>{row.status}</Badge> },
+          { key: 'actions', header: 'Actions', render: (row) => <div className="flex gap-2"><button type="button" className="font-semibold text-[var(--tenant-primary)]" onClick={() => setEditorMapping(row)}>Edit</button>{row.status === 'ACTIVE' ? <button type="button" className="font-semibold text-red-700" onClick={() => deactivate(row)}>Deactivate</button> : null}</div> },
+        ]} />
+      </TableShell>
+      <InsightPanel title="Mapping Validation Rules">
+        <WorkflowSteps steps={[
+          { label: 'Source Required', detail: 'Identifier, bank reference, or narration pattern must be present.' },
+          { label: 'Target Client', detail: 'Target Fineract client ID is required for active mappings.' },
+          { label: 'No Duplicate Active Rule', detail: 'Backend prevents duplicate active mapping type and source.' },
+          { label: 'Confidence Bounds', detail: 'Score must stay inside configured mapping rule limits.' },
+        ]} />
+      </InsightPanel>
+      <MappingEditorDrawer mapping={editorMapping} onClose={() => setEditorMapping(null)} onSaved={reload} />
+    </div>
+  );
+};
+export const ReconReports = () => {
+  const [reports, setReports] = useState([]);
+  const [scheduled, setScheduled] = useState([]);
+  const [filters, setFilters] = useState({ reportType: 'Daily Reconciliation Summary', from: '', to: '', format: 'CSV', frequency: 'DAILY' });
+  const { addToast } = useToast();
+
+  const load = async () => {
+    try {
+      const [reportResponse, scheduledResponse] = await Promise.all([
+        gatewayApi.get('/gateway/reconciliation/reports'),
+        gatewayApi.get('/gateway/reconciliation/reports/scheduled'),
+      ]);
+      const data = unwrap(reportResponse);
+      setReports(Array.isArray(data?.reports) ? data.reports : []);
+      setScheduled(unwrap(scheduledResponse) || []);
+    } catch (error) {
+      setReports([]);
+      setScheduled([]);
+    }
+  };
+
+  useEffect(() => { void load(); }, []);
+
+  const generate = async () => {
+    try {
+      await gatewayApi.post('/gateway/reconciliation/reports/generate', filters);
+      addToast('Report generated.', 'success');
+      await load();
+    } catch (error) {
+      addToast(error?.response?.data?.message || 'Failed to generate report', 'error');
+    }
+  };
+
+  const schedule = async () => {
+    try {
+      await gatewayApi.post('/gateway/reconciliation/reports/schedule', filters);
+      addToast('Report scheduled.', 'success');
+      await load();
+    } catch (error) {
+      addToast(error?.response?.data?.message || 'Failed to schedule report', 'error');
+    }
+  };
+
+  const fallbackReports = ['Daily Reconciliation Summary', 'Unmatched Transactions Detail', 'Failed Postings Analysis', 'Suspense Account Summary'];
+  const reportList = reports.length ? reports : fallbackReports;
+  return (
+    <div className="space-y-5">
+      <ReconciliationHeader title="Reports" subtitle="Generate reconciliation summaries and exception reports." actions={<Button variant="secondary" onClick={load}><RefreshCcw size={17} />Refresh</Button>} />
+      <Card className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 xl:col-span-2">Report<select className={drawerField} value={filters.reportType} onChange={(event) => setFilters({ ...filters, reportType: event.target.value })}>{reportList.map((report) => <option key={report}>{report}</option>)}</select></label>
+        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">From<input type="date" className={drawerField} value={filters.from} onChange={(event) => setFilters({ ...filters, from: event.target.value })} /></label>
+        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">To<input type="date" className={drawerField} value={filters.to} onChange={(event) => setFilters({ ...filters, to: event.target.value })} /></label>
+        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Format<select className={drawerField} value={filters.format} onChange={(event) => setFilters({ ...filters, format: event.target.value })}>{['CSV','XLSX','PDF'].map((item) => <option key={item}>{item}</option>)}</select></label>
+        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Frequency<select className={drawerField} value={filters.frequency} onChange={(event) => setFilters({ ...filters, frequency: event.target.value })}>{['DAILY','WEEKLY','MONTHLY'].map((item) => <option key={item}>{item}</option>)}</select></label>
+      </Card>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {reportList.map((report) => (
+          <Card key={report} className="flex min-h-[150px] flex-col justify-between">
+            <div>
+              <FileSpreadsheet className="mb-3 text-[var(--tenant-primary)]" size={22} />
+              <div className="font-semibold text-slate-950 dark:text-slate-50">{report}</div>
+              <div className="mt-2 text-xs text-slate-500">Filtered by account/date and export format.</div>
+            </div>
+            <div className="mt-4 flex gap-2">
+              <Button type="button" size="sm" variant="secondary" onClick={() => setFilters({ ...filters, reportType: report })}>Select</Button>
+              <Button type="button" size="sm" onClick={generate}>Generate</Button>
+            </div>
+          </Card>
+        ))}
+      </div>
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <InsightPanel title="Report Workflow" actions={<><Button type="button" size="sm" onClick={generate}><FileSpreadsheet size={16} />Generate</Button><Button type="button" size="sm" variant="secondary" onClick={schedule}><Bell size={16} />Schedule</Button></>}>
+          <WorkflowSteps steps={[
+            { label: 'Choose', detail: 'Select summary or exception report.' },
+            { label: 'Filter', detail: 'Set date range, account, and format.' },
+            { label: 'Generate', detail: 'Create an auditable reconciliation output.' },
+            { label: 'Schedule', detail: 'Automate recurring reports for operations.' },
+          ]} />
+        </InsightPanel>
+        <InsightPanel title="Scheduled Reports">
+          <div className="space-y-2">
+            {scheduled.length ? scheduled.slice(0, 6).map((item) => <div key={item.id || item.reportType} className="rounded-lg border border-slate-100 p-3 text-sm dark:border-slate-800"><div className="font-semibold text-slate-900 dark:text-slate-100">{item.reportType || item.name || 'Scheduled Report'}</div><div className="mt-1 text-xs text-slate-500">{item.frequency || '-'} - {item.createdBy || 'system'}</div></div>) : <div className="text-sm text-slate-500">No scheduled reports yet.</div>}
+          </div>
+        </InsightPanel>
+      </div>
+    </div>
+  );
+};
 export const ReconSettings = () => {
   const defaults = {
     systemName: 'Gateway Bank Reconciliation', fiscalYearStartMonth: 'January', defaultDateRange: 'This Month', timeZone: '(UTC+03:00) East Africa Time', defaultCurrency: 'TZS', numberFormat: '1,234,567.89', defaultItemsPerPage: 20, theme: 'Light',
@@ -1028,7 +1410,26 @@ export const ReconSettings = () => {
 
   const renderBankAccounts = () => { const activeCount = accounts.filter((account) => account.active).length; const inactiveCount = accounts.length - activeCount; const defaultAccount = accounts.find((account) => account.defaultCollectionAccount); return <div className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_320px]"><div className="space-y-4"><div><h3 className="text-xl font-bold text-slate-950 dark:text-slate-50">Bank Accounts</h3><p className="text-sm text-slate-500">Manage collection accounts, settlement accounts, and GL mappings.</p></div><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4"><MetricCard label="Total Bank Accounts" value={accounts.length} icon={Building2} tone="blue" caption="All configured accounts" /><MetricCard label="Active Accounts" value={activeCount} icon={CheckCircle2} tone="green" caption="Currently active" /><MetricCard label="Default Collection Account" value={defaultAccount?.accountName || '-'} icon={Star} tone="blue" caption={defaultAccount?.accountNumber || 'Not configured'} /><MetricCard label="Inactive Accounts" value={inactiveCount} icon={AlertTriangle} tone="orange" caption="Not currently active" /></div><div className="flex flex-wrap gap-3"><Button type="button" onClick={() => setAccountForm({ ...accountDefaults })}><Plus size={17} />Add Bank Account</Button><Button type="button" variant="secondary" onClick={exportAccounts}><Download size={17} />Export</Button><Button type="button" variant="secondary" disabled={saving} onClick={() => accountAction('/gateway/reconciliation/bank-accounts/sync', 'Accounts synced.')}><RefreshCcw size={17} />Sync Accounts</Button></div><Card className="grid gap-3 md:grid-cols-3 xl:grid-cols-6"><Field label="Search"><div className="relative"><input className={`${inputClass} pr-9`} value={filters.search} onChange={(event) => setFilters({ ...filters, search: event.target.value })} placeholder="Search account name or number..." /><Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} /></div></Field><Field label="Bank"><select className={inputClass} value={filters.bank} onChange={(event) => setFilters({ ...filters, bank: event.target.value })}><option value="">All Banks</option>{unique('bankName').map((item) => <option key={item}>{item}</option>)}</select></Field><Field label="Account Type"><select className={inputClass} value={filters.accountType} onChange={(event) => setFilters({ ...filters, accountType: event.target.value })}><option value="">All Types</option>{unique('accountType').map((item) => <option key={item}>{item}</option>)}</select></Field><Field label="Branch"><select className={inputClass} value={filters.branch} onChange={(event) => setFilters({ ...filters, branch: event.target.value })}><option value="">All Branches</option>{unique('branchName').map((item) => <option key={item}>{item}</option>)}</select></Field><Field label="Currency"><select className={inputClass} value={filters.currency} onChange={(event) => setFilters({ ...filters, currency: event.target.value })}><option value="">All Currencies</option>{unique('currency').map((item) => <option key={item}>{item}</option>)}</select></Field><Field label="Status"><select className={inputClass} value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}><option value="">All Statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select></Field></Card><Card className="p-0"><div className="overflow-x-auto"><table className="min-w-full text-sm"><thead className="bg-slate-50 text-xs font-bold uppercase text-slate-500 dark:bg-slate-800/60"><tr>{['Account Name','Account Number','Bank','Account Type','Currency','Branch','GL Account','Default','Status','Last Synced','Actions'].map((head) => <th key={head} className="whitespace-nowrap px-3 py-3 text-left">{head}</th>)}</tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-800">{filteredAccounts.map((account) => <tr key={account.id} onClick={() => setSelectedAccountId(account.id)} className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 ${selectedAccount?.id === account.id ? 'bg-blue-50/60 dark:bg-blue-950/20' : ''}`}><td className="px-3 py-3 font-semibold text-slate-900 dark:text-slate-100">{account.accountName}</td><td className="px-3 py-3">{account.accountNumber}</td><td className="px-3 py-3">{account.bankName}</td><td className="px-3 py-3"><Badge tone="blue">{account.accountType || 'Collection'}</Badge></td><td className="px-3 py-3">{account.currency}</td><td className="px-3 py-3">{account.branchName || '-'}</td><td className="px-3 py-3">{account.glAccountName || '-'}</td><td className="px-3 py-3"><Badge tone={account.defaultCollectionAccount ? 'blue' : 'gray'}>{account.defaultCollectionAccount ? 'Yes' : 'No'}</Badge></td><td className="px-3 py-3"><Badge tone={account.active ? 'green' : 'red'}>{account.active ? 'Active' : 'Inactive'}</Badge></td><td className="px-3 py-3">{formatDate(account.lastSyncedAt)}</td><td className="px-3 py-3"><div className="flex gap-1"><button type="button" title="Edit" onClick={(event) => { event.stopPropagation(); setAccountForm({ ...accountDefaults, ...account }); }} className="rounded p-1 text-[var(--tenant-primary)] hover:bg-blue-50"><Edit3 size={15} /></button><button type="button" title="Sync" onClick={(event) => { event.stopPropagation(); accountAction(`/gateway/reconciliation/bank-accounts/${account.id}/sync`, 'Account synced.'); }} className="rounded p-1 text-slate-600 hover:bg-slate-100"><RefreshCcw size={15} /></button><MoreVertical size={15} className="mt-1 text-slate-400" /></div></td></tr>)}{filteredAccounts.length === 0 ? <EmptyRow colSpan={11} message="No bank accounts found." /> : null}</tbody></table></div><div className="border-t border-slate-100 px-4 py-3 text-sm text-slate-600 dark:border-slate-800">Showing 1 to {filteredAccounts.length} of {accounts.length} accounts</div></Card><div className="grid gap-4 xl:grid-cols-2"><SettingsCard icon={FileSpreadsheet} tone="border-green-200 bg-green-50 text-green-700" title="Statement Import Rules" subtitle="Configure how statements are imported and validated." action="Configure Import Rules" onAction={() => saveSettings('Import rules saved.')}><SettingRow label="Accepted File Formats" field="acceptedFileFormats" type="text" /><SettingRow label="Require Header Row" field="requireStatementHeaderRow" /><SettingRow label="Check for Duplicates on Import" field="checkDuplicatesOnImport" /><SettingRow label="Check Plain Ref External ID" field="checkPlainReferenceExternalId" /><SettingRow label="Auto-match Transactions After Import" field="autoMatchAfterImport" /></SettingsCard><SettingsCard icon={ClipboardCheck} tone="border-purple-200 bg-purple-50 text-purple-700" title="GL & Posting Mapping" subtitle="Define GL mappings for postings and reconciliation." action="Configure GL Mapping" onAction={() => saveSettings('GL mapping saved.')}><SettingRow label="Mapped Payment Type" field="mappedPaymentType" type="text" /><SettingRow label="Default Payment Type ID" field="defaultPaymentTypeId" type="number" /><SettingRow label="Suspense Account" type="static" value={`${settings.suspenseAccountName} (${settings.suspenseAccountCode})`} /><SettingRow label="Duplicate Clearing Account" type="static" value={`${settings.duplicateClearingAccountName} (${settings.duplicateClearingAccountCode})`} /><SettingRow label="Failed Posting Account" type="static" value={`${settings.failedPostingAccountName} (${settings.failedPostingAccountCode})`} /></SettingsCard></div></div><Card className="p-0"><div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-slate-800"><div className="text-base font-bold text-slate-950 dark:text-slate-50">Bank Account Details</div><ChevronRight size={18} className="rotate-180 text-slate-500" /></div><div className="p-5">{accountForm ? renderAccountForm() : selectedAccount ? <div className="space-y-4 text-sm"><div><div className="text-xs font-semibold text-slate-500">Account Name</div><div className="mt-1 font-bold text-slate-900 dark:text-slate-100">{selectedAccount.accountName}</div></div><div><div className="text-xs font-semibold text-slate-500">Account Number</div><div className="mt-1 font-bold">{selectedAccount.accountNumber}</div></div><div><div className="text-xs font-semibold text-slate-500">Bank Name</div><div className="mt-1 font-bold">{selectedAccount.bankName}</div></div><div><div className="text-xs font-semibold text-slate-500">Account Type</div><Badge tone="blue">{selectedAccount.accountType || 'Collection'}</Badge></div><div className="grid grid-cols-2 gap-3"><div><div className="text-xs font-semibold text-slate-500">Branch</div><div className="mt-1 font-bold">{selectedAccount.branchName || '-'}</div></div><div><div className="text-xs font-semibold text-slate-500">Currency</div><div className="mt-1 font-bold">{selectedAccount.currency || '-'}</div></div></div><div className="border-t border-slate-100 pt-4 dark:border-slate-800"><div className="flex items-center justify-between py-2"><span>Default Collection Account</span><Toggle checked={Boolean(selectedAccount.defaultCollectionAccount)} onChange={() => accountAction(`/gateway/reconciliation/bank-accounts/${selectedAccount.id}/default`, 'Default account updated.')} /></div><div className="flex items-center justify-between py-2"><span>Auto Import Enabled</span><Toggle checked={Boolean(selectedAccount.autoImportEnabled)} onChange={(next) => { setAccountForm({ ...accountDefaults, ...selectedAccount, autoImportEnabled: next }); }} /></div></div><div><div className="text-xs font-semibold text-slate-500">Statement Format</div><div className="mt-1 font-bold">{selectedAccount.statementFormat || '-'}</div></div><div><div className="text-xs font-semibold text-slate-500">GL Account Mapping</div><div className="mt-1 font-bold">{selectedAccount.glAccountName || '-'} {selectedAccount.glAccountId ? `(${selectedAccount.glAccountId})` : ''}</div></div><div><div className="text-xs font-semibold text-slate-500">Reconciliation Frequency</div><div className="mt-1 font-bold">{selectedAccount.reconciliationFrequency || '-'}</div></div><div><div className="text-xs font-semibold text-slate-500">Last Sync Time</div><div className="mt-1 font-bold">{formatDate(selectedAccount.lastSyncedAt)}</div></div><div className="space-y-3 pt-3"><Button type="button" className="w-full" onClick={() => setAccountForm({ ...accountDefaults, ...selectedAccount })}><Edit3 size={16} />Edit Account</Button><Button type="button" variant="secondary" className="w-full" onClick={() => accountAction(`/gateway/reconciliation/bank-accounts/${selectedAccount.id}/default`, 'Default account updated.')}><Star size={16} />Set as Default</Button><Button type="button" variant="danger" className="w-full" onClick={() => accountAction(`/gateway/reconciliation/bank-accounts/${selectedAccount.id}/deactivate`, 'Account deactivated.')}><Trash2 size={16} />Deactivate</Button></div></div> : <div className="text-sm text-slate-500">Select an account to view details.</div>}</div></Card></div>; };
 
-  return <div className="space-y-5"><ReconciliationHeader title="Settings" subtitle={`Reconciliation > Settings > ${activeSection}`} /><div className="grid gap-5 xl:grid-cols-[290px_minmax(0,1fr)]"><Card className="p-0"><div className="border-b border-slate-100 px-5 py-4 text-base font-bold text-slate-950 dark:border-slate-800 dark:text-slate-50">Settings</div><div className="space-y-1 p-2">{settingsNav.map((item) => { const Icon = item.icon; const active = activeSection === item.label; return <button type="button" key={item.label} onClick={() => setActiveSection(item.label)} className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition ${active ? 'bg-blue-50 text-[var(--tenant-primary)] dark:bg-blue-950/30' : 'text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800'}`}><Icon size={21} className="shrink-0" /><span className="min-w-0"><span className="block text-sm font-bold">{item.label}</span><span className="block truncate text-xs font-medium text-slate-500 dark:text-slate-400">{item.description}</span></span></button>; })}</div></Card>{activeSection === 'Bank Accounts' ? renderBankAccounts() : activeSection === 'Mapping Rules' ? renderMappingRules() : renderGeneralSettings()}</div></div>;
+  const renderSettingsSection = () => {
+    if (activeSection === 'Bank Accounts') return renderBankAccounts();
+    if (activeSection === 'Mapping Rules') return renderMappingRules();
+    if (activeSection === 'General Settings') return renderGeneralSettings();
+    const sectionMap = {
+      'Branches': { icon: GitBranch, title: 'Branches', subtitle: 'Manage branch defaults used in reconciliation.', rows: [['Default Branch', 'Main Branch'], ['Branch Controls', 'Use bank account branch metadata'], ['Location Matching', 'Enabled']] },
+      'Users & Roles': { icon: Users, title: 'Users & Roles', subtitle: 'Control reconciliation permissions and operational roles.', rows: [['Maker Role', 'Accountant'], ['Checker Role', 'Branch Manager'], ['Admin Role', 'Finance Admin']] },
+      'Workflows': { icon: GitBranch, title: 'Workflows', subtitle: 'Review, approval, suspense, and retry workflow settings.', rows: [['Manual Match Approval', settings.requireApprovalForManualMatch ? 'Required' : 'Not required'], ['Approval Limit', `TZS ${settings.manualMatchApprovalLimit}`], ['Multi Level Approval', settings.multiLevelApprovalEnabled ? 'Enabled' : 'Disabled'], ['Auto Post After Approval', settings.autoPostAfterApprovalEnabled ? 'Enabled' : 'Disabled']] },
+      'Notifications': { icon: Bell, title: 'Notifications', subtitle: 'Email and system alert preferences.', rows: [['Daily Summary', settings.dailySummaryEmailEnabled ? 'Enabled' : 'Disabled'], ['Exception Alerts', settings.exceptionAlertsEnabled ? 'Enabled' : 'Disabled'], ['Batch Completion', settings.batchCompletionAlertsEnabled ? 'Enabled' : 'Disabled'], ['Failed Postings', settings.failedPostingAlertsEnabled ? 'Enabled' : 'Disabled']] },
+      'File & Import Settings': { icon: Upload, title: 'File & Import Settings', subtitle: 'Statement parsing, validation, duplicate, and auto-match controls.', rows: [['Accepted Formats', settings.acceptedFileFormats], ['Header Row', settings.requireStatementHeaderRow ? 'Required' : 'Optional'], ['Duplicates on Import', settings.checkDuplicatesOnImport ? 'Enabled' : 'Disabled'], ['Auto Match After Import', settings.autoMatchAfterImport ? 'Enabled' : 'Disabled']] },
+      'Retentions & Archival': { icon: Archive, title: 'Retentions & Archival', subtitle: 'Data retention and archival policy.', rows: [['Reconciliation Data', `${settings.retentionYears} years`], ['Audit Logs', `${settings.auditRetentionYears} years`], ['Archive Inactive Batches', `${settings.archiveInactiveBatchesAfterDays} days`], ['Auto Purge', settings.autoPurgeEnabled ? 'Enabled' : 'Disabled']] },
+      'Audit Settings': { icon: FileSpreadsheet, title: 'Audit Settings', subtitle: 'Audit log coverage for imports, matching, posting, and settings changes.', rows: [['Import Events', 'Tracked'], ['Manual Match Events', 'Tracked'], ['Posting Attempts', 'Tracked'], ['Settings Changes', 'Tracked']] },
+      'Integrations': { icon: Plug, title: 'Integrations', subtitle: 'External systems used by reconciliation.', rows: [['Core Banking', 'Fineract'], ['Bank Statement Source', 'CRDB Statement Upload'], ['Payment Type', `${settings.mappedPaymentType} (${settings.defaultPaymentTypeId})`], ['External ID Check', settings.checkPlainReferenceExternalId ? 'Plain ref enabled' : 'Strict only']] },
+      'System Preferences': { icon: SlidersHorizontal, title: 'System Preferences', subtitle: 'Regional, display, and user experience defaults.', rows: [['Currency', settings.defaultCurrency], ['Number Format', settings.numberFormat], ['Time Zone', settings.timeZone], ['Theme', settings.theme]] },
+    };
+    const section = sectionMap[activeSection] || sectionMap.Workflows;
+    const Icon = section.icon;
+    return <div className="space-y-4"><div><h3 className="text-xl font-bold text-slate-950 dark:text-slate-50">{section.title}</h3><p className="text-sm text-slate-500">{section.subtitle}</p></div><div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]"><InsightPanel title={`${section.title} Controls`} actions={<Button type="button" size="sm" onClick={() => saveSettings(`${section.title} saved.`)}><Save size={16} />Save</Button>}><div className="grid gap-3 md:grid-cols-2">{section.rows.map(([label, value]) => <MiniMetric key={label} label={label} value={value || '-'} tone="blue" />)}</div></InsightPanel><InsightPanel title="Implementation Status"><WorkflowSteps steps={[{ label: 'Configured', detail: 'Values are read from reconciliation settings.' }, { label: 'Editable', detail: 'Primary values can be changed from the relevant cards.' }, { label: 'Audited', detail: 'Settings saves are sent to the backend.' }, { label: 'Enforced', detail: 'Backend services consume persisted settings.' }]} /></InsightPanel></div></div>;
+  };
+  return <div className="space-y-5"><ReconciliationHeader title="Settings" subtitle={`Reconciliation > Settings > ${activeSection}`} /><div className="grid gap-5 xl:grid-cols-[290px_minmax(0,1fr)]"><Card className="p-0"><div className="border-b border-slate-100 px-5 py-4 text-base font-bold text-slate-950 dark:border-slate-800 dark:text-slate-50">Settings</div><div className="space-y-1 p-2">{settingsNav.map((item) => { const Icon = item.icon; const active = activeSection === item.label; return <button type="button" key={item.label} onClick={() => setActiveSection(item.label)} className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition ${active ? 'bg-blue-50 text-[var(--tenant-primary)] dark:bg-blue-950/30' : 'text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800'}`}><Icon size={21} className="shrink-0" /><span className="min-w-0"><span className="block text-sm font-bold">{item.label}</span><span className="block truncate text-xs font-medium text-slate-500 dark:text-slate-400">{item.description}</span></span></button>; })}</div></Card>{renderSettingsSection()}</div></div>;
 };
 export const ReconAuditTrail = () => {
   const { rows, loading, reload } = useReconList('/gateway/reconciliation/audit');
