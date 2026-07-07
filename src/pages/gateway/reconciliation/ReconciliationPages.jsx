@@ -136,7 +136,7 @@ const EmptyRow = ({ colSpan = 8, message = 'No records found.' }) => (
   </tr>
 );
 
-const ReconTable = ({ rows, columns, emptyMessage }) => (
+const ReconTable = ({ rows, columns, emptyMessage, onRowClick, selectedRowId }) => (
   <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
     <thead className="bg-slate-50 dark:bg-slate-800/60">
       <tr>
@@ -149,7 +149,11 @@ const ReconTable = ({ rows, columns, emptyMessage }) => (
     </thead>
     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
       {rows.length ? rows.map((row, index) => (
-        <tr key={row.id || row.batchNumber || index} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+        <tr
+          key={row.id || row.batchNumber || index}
+          onClick={onRowClick ? () => onRowClick(row) : undefined}
+          className={`${onRowClick ? 'cursor-pointer' : ''} ${selectedRowId === row.id ? 'bg-blue-50/70 dark:bg-blue-950/30' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}
+        >
           {columns.map((column) => (
             <td key={column.key} className="whitespace-nowrap px-4 py-3 text-slate-700 dark:text-slate-200">
               {column.render ? column.render(row) : row[column.key]}
@@ -163,6 +167,7 @@ const ReconTable = ({ rows, columns, emptyMessage }) => (
 
 const useReconList = (path, params = {}) => {
   const [rows, setRows] = useState([]);
+  const [meta, setMeta] = useState({ total: 0, page: 0, size: 20, totalPages: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -172,10 +177,18 @@ const useReconList = (path, params = {}) => {
     try {
       const response = await gatewayApi.get(path, { params });
       const data = unwrap(response);
-      setRows(Array.isArray(data) ? data : data?.items || data?.rows || []);
+      const items = Array.isArray(data) ? data : data?.items || data?.rows || [];
+      setRows(items);
+      setMeta({
+        total: Array.isArray(data) ? items.length : Number(data?.total ?? items.length),
+        page: Number(data?.page ?? params.page ?? 0),
+        size: Number(data?.size ?? params.size ?? (items.length || 20)),
+        totalPages: Number(data?.totalPages ?? 1),
+      });
     } catch (err) {
       setError(err?.response?.data?.message || 'Failed to load data');
       setRows([]);
+      setMeta({ total: 0, page: Number(params.page || 0), size: Number(params.size || 20), totalPages: 0 });
     } finally {
       setLoading(false);
     }
@@ -185,9 +198,8 @@ const useReconList = (path, params = {}) => {
     void load();
   }, [path, JSON.stringify(params)]);
 
-  return { rows, loading, error, reload: load };
+  return { rows, meta, loading, error, reload: load };
 };
-
 const batchColumns = [
   { key: 'batchNumber', header: 'Batch No', render: (row) => <Link className="font-semibold text-[var(--tenant-primary)]" to={`/gateway/reconciliation/batches/${row.id}`}>{row.batchNumber}</Link> },
   { key: 'statementDate', header: 'Statement Date' },
@@ -212,6 +224,340 @@ const transactionColumns = (actions) => [
   { key: 'actions', header: 'Actions', render: actions },
 ];
 
+
+const transactionModeDefaults = {
+  transactions: {},
+  review: { matchStatus: 'REVIEW_REQUIRED' },
+  unmatched: { matchStatus: 'UNMATCHED' },
+  suspense: { matchStatus: 'SUSPENSE' },
+  posted: { postingStatus: 'POSTED' },
+  failed: { postingStatus: 'FAILED,RETRY_REQUIRED' },
+};
+
+const inferFineractClientId = (row = {}) => {
+  const identifierType = String(row.identifierType || '').toUpperCase();
+  if (row.matchedClientId) return row.matchedClientId;
+  if (row.matchedCustomerId) return row.matchedCustomerId;
+  if (identifierType.includes('CLIENT') || identifierType.includes('CUSTOMER')) return row.customerTypedIdentifier || '';
+  return row.customerTypedIdentifier || '';
+};
+
+const drawerField = 'mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-[var(--tenant-primary)] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100';
+
+const DetailItem = ({ label, value }) => (
+  <div>
+    <div className="text-xs font-semibold uppercase text-slate-500">{label}</div>
+    <div className="mt-1 break-words text-sm font-semibold text-slate-900 dark:text-slate-100">{value || '-'}</div>
+  </div>
+);
+
+const TransactionFilterBar = ({ filters, onChange, onReset }) => {
+  const set = (field) => (event) => onChange({ ...filters, [field]: event.target.value, page: 0 });
+  return (
+    <Card className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
+      <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 xl:col-span-2">
+        Search
+        <div className="relative mt-1">
+          <input className={`${drawerField} pr-9`} value={filters.search || ''} onChange={set('search')} />
+          <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
+        </div>
+      </label>
+      <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
+        Match
+        <select className={drawerField} value={filters.matchStatus || ''} onChange={set('matchStatus')}>
+          <option value="">All</option>
+          <option value="MATCHED">Matched</option>
+          <option value="REVIEW_REQUIRED">Review</option>
+          <option value="UNMATCHED">Unmatched</option>
+          <option value="SUSPENSE">Suspense</option>
+          <option value="DUPLICATE">Duplicate</option>
+        </select>
+      </label>
+      <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
+        Posting
+        <select className={drawerField} value={filters.postingStatus || ''} onChange={set('postingStatus')}>
+          <option value="">All</option>
+          <option value="NOT_POSTED">Not Posted</option>
+          <option value="APPROVED_FOR_POSTING">Approved</option>
+          <option value="POSTED">Posted</option>
+          <option value="FAILED,RETRY_REQUIRED">Failed</option>
+        </select>
+      </label>
+      <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
+        Identifier
+        <select className={drawerField} value={filters.identifierType || ''} onChange={set('identifierType')}>
+          <option value="">All</option>
+          <option value="CLIENT_ID">Client ID</option>
+          <option value="CUSTOMER_NUMBER">Customer No</option>
+          <option value="ACCOUNT_NUMBER">Account No</option>
+          <option value="PHONE_NUMBER">Phone</option>
+        </select>
+      </label>
+      <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
+        From
+        <input type="date" className={drawerField} value={filters.from || ''} onChange={set('from')} />
+      </label>
+      <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
+        To
+        <input type="date" className={drawerField} value={filters.to || ''} onChange={set('to')} />
+      </label>
+      <div className="flex items-end">
+        <Button type="button" variant="secondary" className="w-full" onClick={onReset}><RotateCcw size={16} />Reset</Button>
+      </div>
+    </Card>
+  );
+};
+
+const PaginationBar = ({ meta, page, size, onPage, onSize }) => {
+  const total = Number(meta.total || 0);
+  const totalPages = Math.max(1, Number(meta.totalPages || Math.ceil(total / size) || 1));
+  const start = total === 0 ? 0 : page * size + 1;
+  const end = Math.min(total, (page + 1) * size);
+  return (
+    <div className="flex flex-col gap-3 border-t border-slate-100 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 md:flex-row md:items-center md:justify-between">
+      <div>Showing {start} to {end} of {total}</div>
+      <div className="flex flex-wrap items-center gap-2">
+        <select className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-800" value={size} onChange={(event) => onSize(Number(event.target.value))}>
+          {[10, 20, 50, 100].map((item) => <option key={item} value={item}>{item} / page</option>)}
+        </select>
+        <Button type="button" variant="secondary" disabled={page <= 0} onClick={() => onPage(page - 1)}>Previous</Button>
+        <span className="px-2 font-semibold text-slate-900 dark:text-slate-100">{page + 1} / {totalPages}</span>
+        <Button type="button" variant="secondary" disabled={page + 1 >= totalPages} onClick={() => onPage(page + 1)}>Next</Button>
+      </div>
+    </div>
+  );
+};
+
+const TransactionDetailDrawer = ({ row, mode, onClose, onMatch, onAction }) => {
+  if (!row) return null;
+  return (
+    <div className="fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+      <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-slate-800">
+        <div>
+          <div className="text-base font-bold text-slate-950 dark:text-slate-50">Transaction Details</div>
+          <div className="text-xs text-slate-500">{row.bankReference || row.id}</div>
+        </div>
+        <button type="button" className="rounded-md px-2 py-1 text-xl text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" onClick={onClose}>x</button>
+      </div>
+      <div className="flex-1 space-y-5 overflow-y-auto p-5">
+        <div className="grid grid-cols-2 gap-4">
+          <DetailItem label="Posting Date" value={row.postingDate} />
+          <DetailItem label="Amount" value={`TZS ${money(row.creditAmount)}`} />
+          <DetailItem label="Sender" value={row.senderName} />
+          <DetailItem label="Identifier" value={row.customerTypedIdentifier} />
+          <DetailItem label="Identifier Type" value={row.identifierType} />
+          <DetailItem label="Client ID" value={row.matchedClientId || inferFineractClientId(row)} />
+          <DetailItem label="Loan" value={row.matchedLoanAccountNo || row.matchedLoanId} />
+          <DetailItem label="Score" value={row.matchScore != null ? `${row.matchScore}%` : '-'} />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div><div className="mb-1 text-xs font-semibold uppercase text-slate-500">Match</div><Badge tone={statusTone(row.matchStatus)}>{row.matchStatus || '-'}</Badge></div>
+          <div><div className="mb-1 text-xs font-semibold uppercase text-slate-500">Posting</div><Badge tone={statusTone(row.postingStatus)}>{row.postingStatus || '-'}</Badge></div>
+        </div>
+        <DetailItem label="Narration" value={row.narration} />
+        <DetailItem label="Match Reason" value={row.matchReason} />
+        {Array.isArray(row.matchCandidates) && row.matchCandidates.length ? <div>
+          <div className="mb-2 text-xs font-semibold uppercase text-slate-500">Candidates</div>
+          <div className="space-y-2">
+            {row.matchCandidates.slice(0, 5).map((candidate, index) => (
+              <div key={`${candidate.clientId || candidate.loanId || index}`} className="rounded-lg border border-slate-100 p-3 text-sm dark:border-slate-800">
+                <div className="font-semibold text-slate-900 dark:text-slate-100">{candidate.clientName || candidate.clientId || '-'}</div>
+                <div className="mt-1 text-xs text-slate-500">{candidate.loanAccountNo || candidate.loanId || '-'} - {candidate.score || 0}%</div>
+              </div>
+            ))}
+          </div>
+        </div> : null}
+      </div>
+      <div className="grid gap-2 border-t border-slate-100 p-4 dark:border-slate-800">
+        {mode !== 'posted' && mode !== 'failed' ? <Button type="button" onClick={() => onMatch(row)}><Check size={16} />Manual Match</Button> : null}
+        {row.matchStatus === 'REVIEW_REQUIRED' ? <Button type="button" variant="secondary" onClick={() => onAction(row, 'approve')}>Approve</Button> : null}
+        {(row.postingStatus === 'APPROVED_FOR_POSTING' || row.matchStatus === 'APPROVED_FOR_POSTING') ? <Button type="button" variant="secondary" onClick={() => onAction(row, 'post')}>Post</Button> : null}
+        {mode === 'failed' ? <Button type="button" variant="danger" onClick={() => onAction(row, 'retry')}>Retry</Button> : null}
+      </div>
+    </div>
+  );
+};
+
+const ManualMatchDrawer = ({ row, mode, onClose, onSaved }) => {
+  const { addToast } = useToast();
+  const [saving, setSaving] = useState(false);
+  const [saveMapping, setSaveMapping] = useState(false);
+  const [loanQuery, setLoanQuery] = useState('');
+  const [loanResults, setLoanResults] = useState([]);
+  const [loanSearching, setLoanSearching] = useState(false);
+  const [selectedLoan, setSelectedLoan] = useState(null);
+  const [form, setForm] = useState({ clientId: '', clientName: '', loanId: '', loanAccountNo: '', customerId: '', score: 100, reason: 'Manual match' });
+
+  useEffect(() => {
+    if (!row) return;
+    const inferredClientId = inferFineractClientId(row);
+    setForm({
+      clientId: inferredClientId,
+      clientName: row.matchedClientName || row.parsedName || row.senderName || '',
+      loanId: row.matchedLoanId || '',
+      loanAccountNo: row.matchedLoanAccountNo || '',
+      customerId: row.matchedCustomerId || inferredClientId,
+      score: 100,
+      reason: 'Manual match',
+    });
+    setLoanQuery(inferredClientId || row.senderName || row.customerTypedIdentifier || '');
+    setLoanResults([]);
+    setSelectedLoan(null);
+    setSaveMapping(false);
+  }, [row?.id]);
+
+  if (!row) return null;
+
+  const update = (field) => (event) => setForm({ ...form, [field]: event.target.value });
+
+  const searchLoans = async () => {
+    const query = loanQuery.trim();
+    if (query.length < 2) {
+      addToast('Enter at least two characters to search loans.', 'error');
+      return;
+    }
+    setLoanSearching(true);
+    try {
+      const response = await gatewayApi.get('/gateway/reconciliation/transactions/loan-search', { params: { query } });
+      const data = unwrap(response);
+      setLoanResults(Array.isArray(data) ? data : []);
+      if (!Array.isArray(data) || data.length === 0) addToast('No loans found.', 'error');
+    } catch (error) {
+      addToast(error?.response?.data?.message || 'Loan search failed', 'error');
+      setLoanResults([]);
+    } finally {
+      setLoanSearching(false);
+    }
+  };
+
+  const selectLoan = (loan) => {
+    setSelectedLoan(loan);
+    setForm({
+      ...form,
+      clientId: loan.clientId || loan.customerNumber || form.clientId,
+      customerId: loan.customerId || loan.clientId || form.customerId,
+      clientName: loan.customerName || form.clientName,
+      loanId: loan.loanId || loan.fineractLoanId || loan.platformLoanId || '',
+      loanAccountNo: loan.loanAccountNo || loan.fineractLoanId || loan.platformLoanId || '',
+    });
+  };
+
+  const submit = async () => {
+    if (!form.clientId.trim()) {
+      addToast('Customer / Fineract client ID is required.', 'error');
+      return;
+    }
+    setSaving(true);
+    const payload = {
+      clientId: form.clientId.trim(),
+      customerId: (form.customerId || form.clientId).trim(),
+      clientName: form.clientName.trim(),
+      loanId: form.loanId.trim(),
+      loanAccountNo: (form.loanAccountNo || form.loanId).trim(),
+      score: Number(form.score || 100),
+      reason: form.reason.trim() || 'Manual match',
+    };
+    try {
+      if (saveMapping) {
+        await gatewayApi.post(`/gateway/reconciliation/unmatched/${row.id}/save-mapping`, {
+          mappingType: row.identifierType || 'CUSTOMER_NUMBER',
+          identifier: row.customerTypedIdentifier || form.clientId,
+          targetClientId: payload.clientId,
+          targetCustomerId: payload.customerId,
+          targetClientName: payload.clientName,
+          targetLoanId: payload.loanId,
+          targetLoanAccountNo: payload.loanAccountNo,
+          confidence: payload.score,
+          status: 'ACTIVE',
+        });
+      } else if (mode === 'suspense') {
+        await gatewayApi.post(`/gateway/reconciliation/suspense/${row.id}/allocate`, payload);
+      } else {
+        await gatewayApi.post(`/gateway/reconciliation/transactions/${row.id}/manual-match`, payload);
+      }
+      addToast('Manual match saved.', 'success');
+      await onSaved();
+      onClose();
+    } catch (error) {
+      addToast(error?.response?.data?.message || 'Manual match failed', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+      <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-slate-800">
+        <div>
+          <div className="text-base font-bold text-slate-950 dark:text-slate-50">Manual Match</div>
+          <div className="text-xs text-slate-500">{row.bankReference || row.customerTypedIdentifier || row.id}</div>
+        </div>
+        <button type="button" className="rounded-md px-2 py-1 text-xl text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" onClick={onClose}>x</button>
+      </div>
+      <div className="flex-1 space-y-4 overflow-y-auto p-5">
+        <div className="rounded-lg border border-slate-100 p-3 text-sm dark:border-slate-800">
+          <div className="font-semibold text-slate-900 dark:text-slate-100">TZS {money(row.creditAmount)}</div>
+          <div className="mt-1 text-xs text-slate-500">{row.senderName || '-'} - {row.customerTypedIdentifier || '-'}</div>
+        </div>
+        <div className="rounded-lg border border-slate-100 p-3 dark:border-slate-800">
+          <div className="text-xs font-semibold uppercase text-slate-500">Search loan</div>
+          <div className="mt-2 flex gap-2">
+            <input
+              className={drawerField}
+              value={loanQuery}
+              onChange={(event) => setLoanQuery(event.target.value)}
+              onKeyDown={(event) => { if (event.key === 'Enter') searchLoans(); }}
+            />
+            <Button type="button" variant="secondary" disabled={loanSearching} onClick={searchLoans}><Search size={16} />Search</Button>
+          </div>
+          <div className="mt-3 max-h-48 space-y-2 overflow-y-auto">
+            {loanResults.map((loan) => (
+              <button
+                type="button"
+                key={`${loan.platformLoanId || loan.loanId}`}
+                onClick={() => selectLoan(loan)}
+                className={`w-full rounded-lg border p-3 text-left text-sm ${selectedLoan?.platformLoanId === loan.platformLoanId ? 'border-[var(--tenant-primary)] bg-blue-50 dark:bg-blue-950/30' : 'border-slate-100 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800'}`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-semibold text-slate-900 dark:text-slate-100">{loan.customerName || loan.customerNumber || '-'}</span>
+                  <Badge tone={statusTone(loan.status)}>{loan.status || '-'}</Badge>
+                </div>
+                <div className="mt-1 text-xs text-slate-500">{loan.loanAccountNo || loan.loanId || '-'} | Customer {loan.customerNumber || loan.clientId || '-'}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+        {selectedLoan ? <div className="grid grid-cols-2 gap-3 rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm dark:border-blue-900/40 dark:bg-blue-950/20">
+          <DetailItem label="Loan Account" value={selectedLoan.loanAccountNo || selectedLoan.loanId} />
+          <DetailItem label="Outstanding" value={`TZS ${money(selectedLoan.outstandingAmount ?? selectedLoan.outstanding)}`} />
+          <DetailItem label="Amount Due" value={`TZS ${money(selectedLoan.amountDue)}`} />
+          <DetailItem label="Overdue" value={`TZS ${money(selectedLoan.overdueAmount ?? selectedLoan.overdue)}`} />
+          <DetailItem label="Next Due" value={selectedLoan.nextDueDate} />
+          <DetailItem label="Days In Arrears" value={selectedLoan.daysInArrears ?? '-'} />
+        </div> : null}
+        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Customer / Fineract Client ID<input className={drawerField} value={form.clientId} onChange={update('clientId')} /></label>
+        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Client Name<input className={drawerField} value={form.clientName} onChange={update('clientName')} /></label>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Loan ID<input className={drawerField} value={form.loanId} onChange={update('loanId')} /></label>
+          <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Loan Account<input className={drawerField} value={form.loanAccountNo} onChange={update('loanAccountNo')} /></label>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Customer ID<input className={drawerField} value={form.customerId} onChange={update('customerId')} /></label>
+          <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Score<input type="number" min="0" max="100" className={drawerField} value={form.score} onChange={update('score')} /></label>
+        </div>
+        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Reason<input className={drawerField} value={form.reason} onChange={update('reason')} /></label>
+        <label className="flex items-center justify-between rounded-lg border border-slate-100 p-3 text-sm font-semibold text-slate-700 dark:border-slate-800 dark:text-slate-200">
+          Save mapping rule
+          <input type="checkbox" checked={saveMapping} onChange={(event) => setSaveMapping(event.target.checked)} />
+        </label>
+      </div>
+      <div className="grid grid-cols-2 gap-2 border-t border-slate-100 p-4 dark:border-slate-800">
+        <Button type="button" variant="secondary" disabled={saving} onClick={onClose}>Cancel</Button>
+        <Button type="button" disabled={saving} onClick={submit}><Save size={16} />Save Match</Button>
+      </div>
+    </div>
+  );
+};
 export const ReconciliationDashboard = () => {
   const [dashboard, setDashboard] = useState({});
   const [loading, setLoading] = useState(true);
@@ -425,17 +771,37 @@ export const ReconBatchDetails = () => {
 export const ReconTransactions = ({ mode = 'transactions' }) => {
   const config = useMemo(() => {
     const map = {
-      transactions: { title: 'Transaction Workbench', path: '/gateway/reconciliation/transactions', params: {} },
-      review: { title: 'Review Queue', path: '/gateway/reconciliation/review', params: {} },
-      unmatched: { title: 'Unmatched Payments', path: '/gateway/reconciliation/unmatched', params: {} },
-      suspense: { title: 'Suspense', path: '/gateway/reconciliation/suspense', params: {} },
-      posted: { title: 'Posted Payments', path: '/gateway/reconciliation/posted', params: {} },
-      failed: { title: 'Failed Postings', path: '/gateway/reconciliation/failed', params: {} },
+      transactions: { title: 'Transaction Workbench' },
+      review: { title: 'Review Queue' },
+      unmatched: { title: 'Unmatched Payments' },
+      suspense: { title: 'Suspense' },
+      posted: { title: 'Posted Payments' },
+      failed: { title: 'Failed Postings' },
     };
     return map[mode] || map.transactions;
   }, [mode]);
-  const { rows, loading, reload } = useReconList(config.path, config.params);
+  const modeDefaults = transactionModeDefaults[mode] || {};
+  const [filters, setFilters] = useState({ search: '', matchStatus: '', postingStatus: '', identifierType: '', from: '', to: '', page: 0, size: 20 });
+  const [selectedRow, setSelectedRow] = useState(null);
+  const [matchRow, setMatchRow] = useState(null);
+  const queryParams = useMemo(() => {
+    const merged = { ...filters };
+    if (!filters.matchStatus && modeDefaults.matchStatus) merged.matchStatus = modeDefaults.matchStatus;
+    if (!filters.postingStatus && modeDefaults.postingStatus) merged.postingStatus = modeDefaults.postingStatus;
+    return Object.fromEntries(Object.entries(merged).filter(([, value]) => value !== '' && value != null));
+  }, [filters, modeDefaults.matchStatus, modeDefaults.postingStatus]);
+  const { rows, meta, loading, reload } = useReconList('/gateway/reconciliation/transactions', queryParams);
   const { addToast } = useToast();
+
+  useEffect(() => {
+    setSelectedRow(null);
+    setMatchRow(null);
+    setFilters((current) => ({ ...current, matchStatus: '', postingStatus: '', page: 0 }));
+  }, [mode]);
+
+  const resetFilters = () => setFilters({ search: '', matchStatus: '', postingStatus: '', identifierType: '', from: '', to: '', page: 0, size: filters.size });
+  const setPage = (page) => setFilters({ ...filters, page });
+  const setSize = (size) => setFilters({ ...filters, size, page: 0 });
 
   const runAction = async (row, action) => {
     try {
@@ -445,51 +811,46 @@ export const ReconTransactions = ({ mode = 'transactions' }) => {
       await gatewayApi.post(path);
       addToast('Action completed.', 'success');
       await reload();
+      setSelectedRow(null);
     } catch (error) {
       addToast(error?.response?.data?.message || 'Action failed', 'error');
     }
   };
 
-  const manualMatch = async (row) => {
-    const clientId = window.prompt('Fineract client ID');
-    if (!clientId) return;
-    const loanId = window.prompt('Fineract loan/account ID');
-    if (!loanId) return;
-    try {
-      const path = mode === 'unmatched'
-        ? `/gateway/reconciliation/unmatched/${row.id}/match-client`
-        : `/gateway/reconciliation/transactions/${row.id}/match`;
-      if (mode === 'unmatched') {
-        await gatewayApi.post(path, {
-          clientId,
-          loanId,
-          loanAccountNo: loanId,
-          score: 100,
-          reason: 'Manual match',
-        });
-      } else {
-        await gatewayApi.post(path);
-      }
-      addToast('Manual match saved.', 'success');
-      await reload();
-    } catch (error) {
-      addToast(error?.response?.data?.message || 'Manual match failed', 'error');
-    }
+  const openMatch = (row) => {
+    setSelectedRow(row);
+    setMatchRow(row);
   };
+
+  const actions = (row) => (
+    <div className="flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
+      <button type="button" className="font-semibold text-[var(--tenant-primary)]" onClick={() => setSelectedRow(row)}>View</button>
+      {mode !== 'posted' && mode !== 'failed' ? <button type="button" className="font-semibold text-[var(--tenant-primary)]" onClick={() => openMatch(row)}>Match</button> : null}
+      {row.matchStatus === 'REVIEW_REQUIRED' ? <button type="button" className="font-semibold text-[var(--tenant-primary)]" onClick={() => runAction(row, 'approve')}>Approve</button> : null}
+      {(row.postingStatus === 'APPROVED_FOR_POSTING' || row.matchStatus === 'APPROVED_FOR_POSTING') ? <button type="button" className="font-semibold text-green-700" onClick={() => runAction(row, 'post')}>Post</button> : null}
+      {mode === 'failed' ? <button type="button" className="font-semibold text-red-700" onClick={() => runAction(row, 'retry')}>Retry</button> : null}
+    </div>
+  );
 
   return (
     <div className="space-y-5">
-      <ReconciliationHeader title={config.title} subtitle="Search, review, match, and post reconciliation transactions." actions={<Button variant="secondary" onClick={reload}><Filter size={17} />Refresh</Button>} />
+      <ReconciliationHeader
+        title={config.title}
+        subtitle="Search, review, match, and post reconciliation transactions."
+        actions={<Button variant="secondary" onClick={reload}><RefreshCcw size={17} />Refresh</Button>}
+      />
+      <TransactionFilterBar filters={filters} onChange={setFilters} onReset={resetFilters} />
       <TableShell title={loading ? 'Loading Transactions...' : config.title}>
-        <ReconTable rows={rows} columns={transactionColumns((row) => (
-          <div className="flex gap-2">
-            {mode !== 'posted' && mode !== 'failed' ? <button className="font-semibold text-[var(--tenant-primary)]" onClick={() => manualMatch(row)}>Match</button> : null}
-            {row.matchStatus === 'REVIEW_REQUIRED' ? <button className="font-semibold text-[var(--tenant-primary)]" onClick={() => runAction(row, 'approve')}>Approve</button> : null}
-            {(row.postingStatus === 'APPROVED_FOR_POSTING' || row.matchStatus === 'APPROVED_FOR_POSTING') ? <button className="font-semibold text-green-700" onClick={() => runAction(row, 'post')}>Post</button> : null}
-            {mode === 'failed' ? <button className="font-semibold text-red-700" onClick={() => runAction(row, 'retry')}>Retry</button> : null}
-          </div>
-        ))} />
+        <ReconTable
+          rows={rows}
+          columns={transactionColumns(actions)}
+          onRowClick={setSelectedRow}
+          selectedRowId={selectedRow?.id}
+        />
+        <PaginationBar meta={meta} page={filters.page} size={filters.size} onPage={setPage} onSize={setSize} />
       </TableShell>
+      <TransactionDetailDrawer row={selectedRow} mode={mode} onClose={() => setSelectedRow(null)} onMatch={openMatch} onAction={runAction} />
+      <ManualMatchDrawer row={matchRow} mode={mode} onClose={() => setMatchRow(null)} onSaved={reload} />
     </div>
   );
 };
