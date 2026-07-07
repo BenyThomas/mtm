@@ -44,22 +44,22 @@ jobs:
         run: |
           set -euo pipefail
           install -m 700 -d ~/.ssh
-          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" | tr -d '\r' > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
+          ssh-keyscan -T 20 -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts || true
 
       - name: Upload artifact to server
         shell: bash
         run: |
           set -euo pipefail
-          scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes mtm-dist.tar.gz \
-            "${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_HOST }}:/tmp/mtm-dist.tar.gz"
+          scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new mtm-dist.tar.gz \
+            "${{ secrets.DEPLOY_SSH_USER }}@$DEPLOY_HOST:/tmp/mtm-dist.tar.gz"
 
       - name: Deploy artifact on server
         shell: bash
         run: |
           set -euo pipefail
-          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_HOST }}" <<'REMOTE'
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new "${{ secrets.DEPLOY_SSH_USER }}@$DEPLOY_HOST" <<'REMOTE'
             set -euo pipefail
             sudo mkdir -p /var/www/bo.epikx.co.tz
             sudo tar -xzf /tmp/mtm-dist.tar.gz -C /var/www/bo.epikx.co.tz
