@@ -299,6 +299,48 @@ const todayDateString = () => {
   return `${year}-${month}-${day}`;
 };
 
+const savingsAccountFormInit = {
+  productId: '',
+  submittedOnDate: todayDateString(),
+  externalId: '',
+  approveNow: true,
+  approvedOnDate: todayDateString(),
+  activateNow: true,
+  activatedOnDate: todayDateString(),
+};
+
+const asFineractItems = (payload) => Array.isArray(payload) ? payload : payload?.pageItems || [];
+
+const parseFineractError = (error, fallback) =>
+  error?.response?.data?.errors?.[0]?.defaultUserMessage
+  || error?.response?.data?.defaultUserMessage
+  || error?.response?.data?.message
+  || error?.message
+  || fallback;
+
+const hasUnsupportedDateFormatError = (error) => {
+  const errors = error?.response?.data?.errors || [];
+  return errors.some((item) => item?.parameterName === 'dateFormat' || /dateFormat is not supported/i.test(item?.defaultUserMessage || item?.developerMessage || ''));
+};
+
+const postWithDateFormatFallback = async (url, payload) => {
+  try {
+    return await api.post(url, payload);
+  } catch (error) {
+    if (!hasUnsupportedDateFormatError(error) || !Object.prototype.hasOwnProperty.call(payload || {}, 'dateFormat')) {
+      throw error;
+    }
+    const { dateFormat, ...retryPayload } = payload;
+    return api.post(url, retryPayload);
+  }
+};
+
+const savingsStatusCode = (account) => normalizeClientState(account?.status);
+const isActiveSavingsAccount = (account) => {
+  if (account?.status && typeof account.status === 'object' && account.status.active === true) return true;
+  const code = savingsStatusCode(account);
+  return code.includes('ACTIVE') && !code.includes('INACTIVE');
+};
 const inviteMatchesCustomer = (invite, customer, onboarding) => {
   const invitePhone = String(invite?.prefill?.phoneNumber || '').replace(/\s+/g, '');
   const customerPhone = String(customer?.profile?.phone || '').replace(/\s+/g, '');
@@ -359,6 +401,12 @@ const GwCustomerDetails = () => {
   const [acceptSaving, setAcceptSaving] = useState(false);
   const [acceptInvite, setAcceptInvite] = useState(null);
   const [acceptForm, setAcceptForm] = useState(acceptInviteFormInit);
+  const [savingsAccountOpen, setSavingsAccountOpen] = useState(false);
+  const [savingsAccountSaving, setSavingsAccountSaving] = useState(false);
+  const [savingsProductsLoading, setSavingsProductsLoading] = useState(false);
+  const [savingsProducts, setSavingsProducts] = useState([]);
+  const [savingsAccountForm, setSavingsAccountForm] = useState(savingsAccountFormInit);
+  const [selectedSavingsAccount, setSelectedSavingsAccount] = useState(null);
   const [bankOptions, setBankOptions] = useState([]);
   const [activeTab, setActiveTab] = useState(location?.state?.tab || 'overview');
 
@@ -476,6 +524,9 @@ const GwCustomerDetails = () => {
   const onboarding = summary?.onboarding || null;
   const missingFields = Array.isArray(summary?.missingFields) ? summary.missingFields : [];
   const savingsAccounts = useMemo(() => (Array.isArray(accounts?.savingsAccounts) ? accounts.savingsAccounts : []), [accounts]);
+  const activeServingAccounts = useMemo(() => savingsAccounts.filter(isActiveSavingsAccount), [savingsAccounts]);
+  const hasActiveServingAccount = activeServingAccounts.length > 0;
+  const hasMultipleActiveServingAccounts = activeServingAccounts.length > 1;
   const customerDisplayName = fullName(customer?.profile, customer?.username || customer?.gatewayCustomerId || customer?.platformCustomerId);
   const fineractStatus = clientStatusText(fineractClient?.status);
   const fineractStatusObj = fineractClient?.status && typeof fineractClient.status === 'object' ? fineractClient.status : null;
@@ -495,6 +546,7 @@ const GwCustomerDetails = () => {
   const isClosedClient = hasClientStatusFlag(fineractStatusObj, 'closed')
     || fineractClientState.includes('CLOSED');
   const canApplyLoanOnBehalf = Boolean(applyLoanCustomerId) && !hasBlockingLoan && !isClosedClient;
+  const savingsCreateClientId = customer?.fineractClientId || fineractClient?.id;
   const pendingInvites = useMemo(() => (invites || []).filter(canAcceptInvite), [invites]);
   const staffOptions = useMemo(
     () => staff.map((item) => ({ id: String(item.id), label: `${item.displayName}${item.officeName ? ` - ${item.officeName}` : ''} (${item.id})` })),
@@ -896,6 +948,120 @@ const GwCustomerDetails = () => {
     },
   ]), [customerDisplayName, customer?.profile?.phone, onboarding?.mobileNo]);
 
+  const loadSavingsProducts = async () => {
+    setSavingsProductsLoading(true);
+    try {
+      const response = await api.get('/savingsproducts');
+      const items = asFineractItems(response.data);
+      setSavingsProducts(items);
+      setSavingsAccountForm((current) => ({
+        ...current,
+        productId: current.productId || (items.length === 1 ? String(items[0].id) : ''),
+      }));
+    } catch (error) {
+      setSavingsProducts([]);
+      addToast(parseFineractError(error, 'Could not load savings products'), 'error');
+    } finally {
+      setSavingsProductsLoading(false);
+    }
+  };
+
+  const openSavingsAccountModal = async () => {
+    if (!savingsCreateClientId) {
+      addToast('Missing Fineract client ID for this customer', 'error');
+      return;
+    }
+    if (hasActiveServingAccount) {
+      addToast('This customer already has an active serving account. Close the existing account before creating another.', 'error');
+      return;
+    }
+    setSavingsAccountForm({
+      ...savingsAccountFormInit,
+      submittedOnDate: todayDateString(),
+      approvedOnDate: todayDateString(),
+      activatedOnDate: todayDateString(),
+    });
+    setSavingsAccountOpen(true);
+    if (!savingsProducts.length) {
+      await loadSavingsProducts();
+    }
+  };
+
+  const updateSavingsAccountForm = (field) => (event) => {
+    const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
+    setSavingsAccountForm((current) => ({ ...current, [field]: value }));
+  };
+
+  const refreshSavingsAccountsForClient = async () => {
+    if (!savingsCreateClientId) return [];
+    const response = await api.get(`/clients/${encodeURIComponent(savingsCreateClientId)}/accounts`);
+    const nextAccounts = response.data || null;
+    setAccounts(nextAccounts);
+    return Array.isArray(nextAccounts?.savingsAccounts) ? nextAccounts.savingsAccounts : [];
+  };
+
+  const createSavingsAccountForCustomer = async (event) => {
+    event?.preventDefault?.();
+    if (!savingsCreateClientId) {
+      addToast('Missing Fineract client ID for this customer', 'error');
+      return;
+    }
+    if (!savingsAccountForm.productId) {
+      addToast('Savings product is required', 'error');
+      return;
+    }
+    setSavingsAccountSaving(true);
+    try {
+      const latestSavingsAccounts = await refreshSavingsAccountsForClient().catch(() => savingsAccounts);
+      if (latestSavingsAccounts.some(isActiveSavingsAccount)) {
+        addToast('This customer already has an active serving account. Close the existing account before creating another.', 'error');
+        return;
+      }
+
+      const payload = {
+        locale: 'en',
+        dateFormat: 'yyyy-MM-dd',
+        clientId: Number(savingsCreateClientId),
+        productId: Number(savingsAccountForm.productId),
+        submittedOnDate: savingsAccountForm.submittedOnDate || todayDateString(),
+      };
+      if (savingsAccountForm.externalId.trim()) {
+        payload.externalId = savingsAccountForm.externalId.trim();
+      }
+
+      const createResponse = await postWithDateFormatFallback('/savingsaccounts', payload);
+      const accountId = createResponse.data?.resourceId || createResponse.data?.savingsId || createResponse.data?.id;
+      if (!accountId) {
+        addToast('Savings account created, but Fineract did not return an account ID', 'warning');
+        await load();
+        return;
+      }
+
+      const shouldApprove = savingsAccountForm.approveNow || savingsAccountForm.activateNow;
+      if (shouldApprove) {
+        await postWithDateFormatFallback(`/savingsaccounts/${accountId}?command=approve`, {
+          locale: 'en',
+          dateFormat: 'yyyy-MM-dd',
+          approvedOnDate: savingsAccountForm.approvedOnDate || savingsAccountForm.submittedOnDate || todayDateString(),
+        });
+      }
+      if (savingsAccountForm.activateNow) {
+        await postWithDateFormatFallback(`/savingsaccounts/${accountId}?command=activate`, {
+          locale: 'en',
+          dateFormat: 'yyyy-MM-dd',
+          activatedOnDate: savingsAccountForm.activatedOnDate || savingsAccountForm.approvedOnDate || savingsAccountForm.submittedOnDate || todayDateString(),
+        });
+      }
+
+      setSavingsAccountOpen(false);
+      addToast(savingsAccountForm.activateNow ? 'Serving account created, approved, and activated' : shouldApprove ? 'Serving account created and approved' : 'Serving account created', 'success');
+      await load();
+    } catch (error) {
+      addToast(parseFineractError(error, 'Failed to create serving account'), 'error');
+    } finally {
+      setSavingsAccountSaving(false);
+    }
+  };
   const saveProfile = async (event) => {
     event?.preventDefault?.();
     setSaving(true);
@@ -1299,10 +1465,26 @@ const GwCustomerDetails = () => {
 
         <div data-tab="savings" className="space-y-4">
           <Card>
-            <div className="mb-3 flex items-center justify-between">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <div className="font-semibold">Savings Accounts</div>
+              {savingsCreateClientId && !isClosedClient ? (
+                <Can any={['CREATE_SAVINGSACCOUNT', 'GW_OPS_WRITE']}>
+                  <Button size="sm" onClick={openSavingsAccountModal} disabled={hasActiveServingAccount}>
+                    <CirclePlus size={16} /> Add Savings Account
+                  </Button>
+                </Can>
+              ) : null}
             </div>
 
+            {hasMultipleActiveServingAccounts ? (
+              <div className="mb-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
+                This customer has more than one active serving account. Close duplicate active accounts before creating or using another serving account.
+              </div>
+            ) : hasActiveServingAccount ? (
+              <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300">
+                Active serving account exists. New serving account creation is available only after the active account is closed.
+              </div>
+            ) : null}
             {!savingsAccounts.length ? (
               <div className="text-sm text-gray-600 dark:text-gray-400">No savings accounts.</div>
             ) : (
@@ -1329,7 +1511,7 @@ const GwCustomerDetails = () => {
                           </td>
                           <td className="py-2 pr-4">{balance != null ? `${formatMoney(balance)} ${currency}`.trim() : '-'}</td>
                           <td className="py-2 pr-4">
-                            <Button variant="secondary" onClick={() => navigate(`/savings/${account.id}`)}>View</Button>
+                            <Button variant="secondary" onClick={() => setSelectedSavingsAccount(account)}>View</Button>
                           </td>
                         </tr>
                       );
@@ -1673,6 +1855,150 @@ const GwCustomerDetails = () => {
         </form>
       </Modal>
 
+      <Modal
+        open={Boolean(selectedSavingsAccount)}
+        onClose={() => setSelectedSavingsAccount(null)}
+        title="Serving Account Details"
+        footer={(
+          <Button variant="secondary" onClick={() => setSelectedSavingsAccount(null)}>Close</Button>
+        )}
+      >
+        {selectedSavingsAccount ? (
+          <div className="grid gap-4 sm:grid-cols-2 text-sm">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Product</div>
+              <div className="mt-1 font-semibold text-slate-900 dark:text-slate-100">{selectedSavingsAccount.productName || selectedSavingsAccount.savingsProductName || 'Savings Account'}</div>
+            </div>
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Account ID</div>
+              <div className="mt-1 font-semibold text-slate-900 dark:text-slate-100">{selectedSavingsAccount.id || '-'}</div>
+            </div>
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Account No</div>
+              <div className="mt-1 font-semibold text-slate-900 dark:text-slate-100">{selectedSavingsAccount.accountNo || selectedSavingsAccount.externalId || '-'}</div>
+            </div>
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Status</div>
+              <div className="mt-1"><Badge tone={statusTone(selectedSavingsAccount.status)}>{selectedSavingsAccount.status?.value || selectedSavingsAccount.status?.code || '-'}</Badge></div>
+            </div>
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Balance</div>
+              <div className="mt-1 font-semibold text-slate-900 dark:text-slate-100">
+                {(() => {
+                  const summaryData = selectedSavingsAccount.summary || selectedSavingsAccount;
+                  const balance = summaryData.accountBalance ?? summaryData.balance ?? null;
+                  const currency = summaryData.currency?.code || summaryData.currency?.name || selectedSavingsAccount.currencyCode || '';
+                  return balance != null ? `${formatMoney(balance)} ${currency}`.trim() : '-';
+                })()}
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+      <Modal
+        open={savingsAccountOpen}
+        onClose={() => !savingsAccountSaving && setSavingsAccountOpen(false)}
+        title="Add Serving Account"
+        size="lg"
+        footer={(
+          <div className="flex justify-end gap-3">
+            <Button variant="ghost" onClick={() => setSavingsAccountOpen(false)} disabled={savingsAccountSaving}>Cancel</Button>
+            <Button onClick={createSavingsAccountForCustomer} disabled={savingsAccountSaving || hasActiveServingAccount}>
+              {savingsAccountSaving ? 'Creating...' : 'Create Serving Account'}
+            </Button>
+          </div>
+        )}
+      >
+        <form className="space-y-4" onSubmit={createSavingsAccountForCustomer}>
+          <div className="rounded-xl border border-slate-200/70 bg-slate-50/80 p-3 text-sm dark:border-slate-700/70 dark:bg-slate-900/50">
+            <div className="font-semibold text-slate-900 dark:text-slate-100">{customerDisplayName}</div>
+            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">Fineract Client ID: {savingsCreateClientId || '-'}</div>
+          </div>
+
+          {hasActiveServingAccount ? (
+            <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
+              This customer already has an active serving account. Close it before creating another.
+            </div>
+          ) : null}
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="text-sm sm:col-span-2">
+              Savings Product
+              <select
+                className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                value={savingsAccountForm.productId}
+                onChange={updateSavingsAccountForm('productId')}
+                required
+                disabled={savingsProductsLoading || savingsAccountSaving}
+              >
+                <option value="">{savingsProductsLoading ? 'Loading products...' : 'Select product'}</option>
+                {savingsProducts.map((product) => (
+                  <option key={product.id} value={product.id}>{product.name || product.shortName || `Product ${product.id}`}</option>
+                ))}
+              </select>
+            </label>
+
+            <label className="text-sm">
+              Submitted On
+              <input
+                type="date"
+                className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                value={savingsAccountForm.submittedOnDate}
+                onChange={updateSavingsAccountForm('submittedOnDate')}
+                required
+                disabled={savingsAccountSaving}
+              />
+            </label>
+
+            <label className="text-sm">
+              External ID
+              <input
+                className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                value={savingsAccountForm.externalId}
+                onChange={updateSavingsAccountForm('externalId')}
+                disabled={savingsAccountSaving}
+                placeholder="Optional"
+              />
+            </label>
+
+            <label className="flex items-center gap-2 text-sm sm:col-span-2">
+              <input type="checkbox" checked={savingsAccountForm.approveNow || savingsAccountForm.activateNow} onChange={updateSavingsAccountForm('approveNow')} disabled={savingsAccountForm.activateNow || savingsAccountSaving} />
+              Approve after creation
+            </label>
+
+            {(savingsAccountForm.approveNow || savingsAccountForm.activateNow) ? (
+              <label className="text-sm">
+                Approval Date
+                <input
+                  type="date"
+                  className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                  value={savingsAccountForm.approvedOnDate}
+                  onChange={updateSavingsAccountForm('approvedOnDate')}
+                  disabled={savingsAccountSaving}
+                />
+              </label>
+            ) : null}
+
+            <label className="flex items-center gap-2 text-sm sm:col-span-2">
+              <input type="checkbox" checked={savingsAccountForm.activateNow} onChange={updateSavingsAccountForm('activateNow')} disabled={savingsAccountSaving} />
+              Activate after approval
+            </label>
+
+            {savingsAccountForm.activateNow ? (
+              <label className="text-sm">
+                Activation Date
+                <input
+                  type="date"
+                  className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+                  value={savingsAccountForm.activatedOnDate}
+                  onChange={updateSavingsAccountForm('activatedOnDate')}
+                  disabled={savingsAccountSaving}
+                />
+              </label>
+            ) : null}
+          </div>
+        </form>
+      </Modal>
       <ClientCommandModal
         open={Boolean(commandOpen)}
         client={fineractClient}

@@ -113,6 +113,8 @@ const NAV_GROUPS = [
     items: [
       { to: '/products/charges', label: 'Charges', icon: '💸', perm: 'READ_CHARGE' },
       { to: '/loan-products', label: 'Loan Products', icon: '🔖', perm: 'READ_LOANPRODUCT' },
+      { to: '/savings-products', label: 'Savings Products', icon: 'SP', any: ['READ_SAVINGSPRODUCT', 'CREATE_SAVINGSPRODUCT', 'READ_CONFIGURATION'] },
+      { to: '/savings/new', label: 'New Savings Account', icon: 'SA', any: ['CREATE_SAVINGSACCOUNT', 'ACTIVATE_SAVINGSACCOUNT', 'READ_CLIENT'] },
     ],
   },
   {
