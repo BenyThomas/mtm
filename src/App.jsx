@@ -13,6 +13,8 @@ import LoanProductNew from './pages/LoanProductNew';
 import LoanProductDetails from './pages/LoanProductDetails';
 import LoanProductEdit from './pages/LoanProductEdit';
 import SavingsAccountDetails from './pages/SavingsAccountDetails';
+import SavingsAccountNew from './pages/SavingsAccountNew';
+import SavingsProducts from './pages/SavingsProducts';
 import Offices from './pages/Offices';
 import Staff from './pages/Staff';
 import Reports from './pages/Reports';
@@ -190,7 +192,9 @@ const App = () => {
                             <Route path="loan-products/:id/edit" element={<LoanProductEdit />} />
 
                             {/* Savings */}
+                            <Route path="savings/new" element={<SavingsAccountNew />} />
                             <Route path="savings/:id" element={<SavingsAccountDetails />} />
+                            <Route path="savings-products" element={<SavingsProducts />} />
 
                             {/* Admin: Offices & Staff */}
                             <Route path="offices" element={<Offices />} />
