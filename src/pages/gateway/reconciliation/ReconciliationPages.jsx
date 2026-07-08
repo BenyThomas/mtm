@@ -1016,13 +1016,7 @@ export const ReconTransactions = ({ mode = 'transactions' }) => {
     try {
       let body = {};
       if (action === 'mark-already-posted') {
-        const fineractTransactionId = window.prompt('Fineract transaction ID (leave blank if using external ID)', '') || '';
-        const fineractExternalId = fineractTransactionId.trim() ? '' : (window.prompt('Fineract external ID', row.fineractExternalId || row.bankReference || '') || '');
-        if (!fineractTransactionId.trim() && !fineractExternalId.trim()) {
-          addToast('Fineract transaction ID or external ID is required.', 'error');
-          return;
-        }
-        body = { fineractTransactionId: fineractTransactionId.trim(), fineractExternalId: fineractExternalId.trim(), loanId: row.matchedLoanId };
+        body = { loanId: row.matchedLoanId };
       }
       const path = mode === 'failed' && action === 'retry'
         ? `/gateway/reconciliation/failed/${row.id}/retry`
