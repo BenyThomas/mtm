@@ -329,7 +329,7 @@ const transactionModeDefaults = {
   review: { matchStatus: 'REVIEW_REQUIRED' },
   unmatched: { matchStatus: 'UNMATCHED' },
   suspense: { matchStatus: 'SUSPENSE' },
-  posted: { postingStatus: 'POSTED' },
+  posted: { postingStatus: 'POSTED,ALREADY_POSTED' },
   failed: { postingStatus: 'FAILED,RETRY_REQUIRED' },
 };
 
@@ -378,7 +378,8 @@ const TransactionFilterBar = ({ filters, onChange, onReset }) => {
           <option value="">All</option>
           <option value="NOT_POSTED">Not Posted</option>
           <option value="APPROVED_FOR_POSTING">Approved</option>
-          <option value="POSTED">Posted</option>
+          <option value="POSTED,ALREADY_POSTED">Posted</option>
+          <option value="ALREADY_POSTED">Already Posted</option>
           <option value="FAILED,RETRY_REQUIRED">Failed</option>
         </select>
       </label>
@@ -453,6 +454,11 @@ const TransactionDetailDrawer = ({ row, mode, onClose, onMatch, onAction }) => {
           <div><div className="mb-1 text-xs font-semibold uppercase text-slate-500">Match</div><Badge tone={statusTone(row.matchStatus)}>{row.matchStatus || '-'}</Badge></div>
           <div><div className="mb-1 text-xs font-semibold uppercase text-slate-500">Posting</div><Badge tone={statusTone(row.postingStatus)}>{row.postingStatus || '-'}</Badge></div>
         </div>
+        <DetailItem label="Fineract Transaction" value={row.fineractTransactionId} />
+        <DetailItem label="Fineract External ID" value={row.fineractExternalId} />
+        {row.postingStatus === 'ALREADY_POSTED' ? <DetailItem label="Source" value={row.postingResolutionSource || 'Detected in Fineract'} /> : null}
+        {row.postingStatus === 'ALREADY_POSTED' ? <DetailItem label="Matched Reference" value={row.postingMatchedReference} /> : null}
+        {row.postingStatus === 'ALREADY_POSTED' ? <DetailItem label="Matched Amount / Date" value={`${row.postingMatchedAmount ? `TZS ${money(row.postingMatchedAmount)}` : '-'} / ${row.postingMatchedDate || '-'}`} /> : null}
         <DetailItem label="Narration" value={row.narration} />
         <DetailItem label="Match Reason" value={row.matchReason} />
         {Array.isArray(row.matchCandidates) && row.matchCandidates.length ? <div>
@@ -471,6 +477,7 @@ const TransactionDetailDrawer = ({ row, mode, onClose, onMatch, onAction }) => {
         {mode !== 'posted' && mode !== 'failed' ? <Button type="button" onClick={() => onMatch(row)}><Check size={16} />Manual Match</Button> : null}
         {row.matchStatus === 'REVIEW_REQUIRED' ? <Button type="button" variant="secondary" onClick={() => onAction(row, 'approve')}>Approve</Button> : null}
         {(row.postingStatus === 'APPROVED_FOR_POSTING' || row.matchStatus === 'APPROVED_FOR_POSTING') ? <Button type="button" variant="secondary" onClick={() => onAction(row, 'post')}>Post</Button> : null}
+        {row.postingStatus !== 'POSTED' && row.postingStatus !== 'ALREADY_POSTED' && row.matchStatus !== 'DUPLICATE' ? <Button type="button" variant="secondary" onClick={() => onAction(row, 'mark-already-posted')}>Mark as Already Posted</Button> : null}
         {mode === 'failed' ? <Button type="button" variant="danger" onClick={() => onAction(row, 'retry')}>Retry</Button> : null}
       </div>
     </div>
@@ -1007,10 +1014,20 @@ export const ReconTransactions = ({ mode = 'transactions' }) => {
 
   const runAction = async (row, action) => {
     try {
+      let body = {};
+      if (action === 'mark-already-posted') {
+        const fineractTransactionId = window.prompt('Fineract transaction ID (leave blank if using external ID)', '') || '';
+        const fineractExternalId = fineractTransactionId.trim() ? '' : (window.prompt('Fineract external ID', row.fineractExternalId || row.bankReference || '') || '');
+        if (!fineractTransactionId.trim() && !fineractExternalId.trim()) {
+          addToast('Fineract transaction ID or external ID is required.', 'error');
+          return;
+        }
+        body = { fineractTransactionId: fineractTransactionId.trim(), fineractExternalId: fineractExternalId.trim(), loanId: row.matchedLoanId };
+      }
       const path = mode === 'failed' && action === 'retry'
         ? `/gateway/reconciliation/failed/${row.id}/retry`
         : `/gateway/reconciliation/transactions/${row.id}/${action}`;
-      await gatewayApi.post(path);
+      await gatewayApi.post(path, body);
       addToast('Action completed.', 'success');
       await reload();
       setSelectedRow(null);
