@@ -7,6 +7,7 @@ import {
   Building2,
   Check,
   CheckCircle2,
+  Loader2,
   ChevronRight,
   ClipboardCheck,
   Database,
@@ -477,8 +478,6 @@ const TransactionDetailDrawer = ({ row, mode, onClose, onMatch, onAction }) => {
         {mode !== 'posted' && mode !== 'failed' ? <Button type="button" onClick={() => onMatch(row)}><Check size={16} />Manual Match</Button> : null}
         {row.matchStatus === 'REVIEW_REQUIRED' ? <Button type="button" variant="secondary" onClick={() => onAction(row, 'approve')}>Approve</Button> : null}
         {(row.postingStatus === 'APPROVED_FOR_POSTING' || row.matchStatus === 'APPROVED_FOR_POSTING') ? <Button type="button" variant="secondary" onClick={() => onAction(row, 'post')}>Post</Button> : null}
-        {row.postingStatus !== 'POSTED' && row.postingStatus !== 'ALREADY_POSTED' && row.matchStatus !== 'DUPLICATE' ? <Button type="button" variant="secondary" onClick={() => onAction(row, 'mark-already-posted')}>Mark as Already Posted</Button> : null}
-        {row.postingStatus !== 'POSTED' && row.postingStatus !== 'ALREADY_POSTED' && row.matchStatus !== 'DUPLICATE' ? <Button type="button" variant="danger" onClick={() => onAction(row, 'mark-duplicate')}><Trash2 size={16} />Remove Duplicate</Button> : null}
         {mode === 'failed' ? <Button type="button" variant="danger" onClick={() => onAction(row, 'retry')}>Retry</Button> : null}
       </div>
     </div>
@@ -994,6 +993,8 @@ export const ReconTransactions = ({ mode = 'transactions' }) => {
   const [filters, setFilters] = useState({ search: '', matchStatus: '', postingStatus: '', identifierType: '', from: '', to: '', page: 0, size: 20 });
   const [selectedRow, setSelectedRow] = useState(null);
   const [matchRow, setMatchRow] = useState(null);
+  const [removingDuplicates, setRemovingDuplicates] = useState(false);
+  const [markingAlreadyPosted, setMarkingAlreadyPosted] = useState(false);
   const queryParams = useMemo(() => {
     const merged = { ...filters };
     if (!filters.matchStatus && modeDefaults.matchStatus) merged.matchStatus = modeDefaults.matchStatus;
@@ -1046,6 +1047,36 @@ export const ReconTransactions = ({ mode = 'transactions' }) => {
     }
   };
 
+  const removeDuplicates = async () => {
+    setRemovingDuplicates(true);
+    try {
+      const response = await gatewayApi.post('/gateway/reconciliation/transactions/remove-duplicates', {});
+      const result = unwrap(response) || {};
+      addToast(`${Number(result.removed || 0)} duplicate transaction(s) removed from posting.`, 'success');
+      await reload();
+      setSelectedRow(null);
+    } catch (error) {
+      addToast(error?.response?.data?.message || 'Remove duplicates failed', 'error');
+    } finally {
+      setRemovingDuplicates(false);
+    }
+  };
+
+  const markAlreadyPostedByReference = async () => {
+    setMarkingAlreadyPosted(true);
+    try {
+      const response = await gatewayApi.post('/gateway/reconciliation/transactions/mark-already-posted', {});
+      const result = unwrap(response) || {};
+      addToast(`${Number(result.marked || 0)} transaction(s) marked as already posted.`, 'success');
+      await reload();
+      setSelectedRow(null);
+    } catch (error) {
+      addToast(error?.response?.data?.message || 'Mark already posted failed', 'error');
+    } finally {
+      setMarkingAlreadyPosted(false);
+    }
+  };
+
   const openMatch = (row) => {
     setSelectedRow(row);
     setMatchRow(row);
@@ -1057,7 +1088,6 @@ export const ReconTransactions = ({ mode = 'transactions' }) => {
       {mode !== 'posted' && mode !== 'failed' ? <button type="button" className="font-semibold text-[var(--tenant-primary)]" onClick={() => openMatch(row)}>Match</button> : null}
       {row.matchStatus === 'REVIEW_REQUIRED' ? <button type="button" className="font-semibold text-[var(--tenant-primary)]" onClick={() => runAction(row, 'approve')}>Approve</button> : null}
       {(row.postingStatus === 'APPROVED_FOR_POSTING' || row.matchStatus === 'APPROVED_FOR_POSTING') ? <button type="button" className="font-semibold text-green-700" onClick={() => runAction(row, 'post')}>Post</button> : null}
-      {row.postingStatus !== 'POSTED' && row.postingStatus !== 'ALREADY_POSTED' && row.matchStatus !== 'DUPLICATE' ? <button type="button" className="font-semibold text-red-700" onClick={() => runAction(row, 'mark-duplicate')}>Remove Duplicate</button> : null}
       {mode === 'failed' ? <button type="button" className="font-semibold text-red-700" onClick={() => runAction(row, 'retry')}>Retry</button> : null}
     </div>
   );
@@ -1067,7 +1097,14 @@ export const ReconTransactions = ({ mode = 'transactions' }) => {
       <ReconciliationHeader
         title={config.title}
         subtitle="Search, review, match, and post reconciliation transactions."
-        actions={<Button variant="secondary" onClick={reload}><RefreshCcw size={17} />Refresh</Button>}
+        actions={<>
+          <Button variant="secondary" disabled={markingAlreadyPosted} onClick={markAlreadyPostedByReference}>
+            {markingAlreadyPosted ? <Loader2 size={17} className="animate-spin" /> : <CheckCircle2 size={17} />}
+            {markingAlreadyPosted ? 'Checking Fineract...' : 'Mark Already Posted'}
+          </Button>
+          <Button variant="danger" disabled={removingDuplicates || markingAlreadyPosted} onClick={removeDuplicates}><Trash2 size={17} />Remove Duplicates</Button>
+          <Button variant="secondary" disabled={markingAlreadyPosted} onClick={reload}><RefreshCcw size={17} />Refresh</Button>
+        </>}
       />
       <QueueSummary rows={rows} mode={mode} />
       <TransactionModePanel mode={mode} rows={rows} onBulkAction={bulkApproveVisible} />
