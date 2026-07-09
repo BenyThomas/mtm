@@ -478,6 +478,7 @@ const TransactionDetailDrawer = ({ row, mode, onClose, onMatch, onAction }) => {
         {row.matchStatus === 'REVIEW_REQUIRED' ? <Button type="button" variant="secondary" onClick={() => onAction(row, 'approve')}>Approve</Button> : null}
         {(row.postingStatus === 'APPROVED_FOR_POSTING' || row.matchStatus === 'APPROVED_FOR_POSTING') ? <Button type="button" variant="secondary" onClick={() => onAction(row, 'post')}>Post</Button> : null}
         {row.postingStatus !== 'POSTED' && row.postingStatus !== 'ALREADY_POSTED' && row.matchStatus !== 'DUPLICATE' ? <Button type="button" variant="secondary" onClick={() => onAction(row, 'mark-already-posted')}>Mark as Already Posted</Button> : null}
+        {row.postingStatus !== 'POSTED' && row.postingStatus !== 'ALREADY_POSTED' && row.matchStatus !== 'DUPLICATE' ? <Button type="button" variant="danger" onClick={() => onAction(row, 'mark-duplicate')}><Trash2 size={16} />Remove Duplicate</Button> : null}
         {mode === 'failed' ? <Button type="button" variant="danger" onClick={() => onAction(row, 'retry')}>Retry</Button> : null}
       </div>
     </div>
@@ -1056,6 +1057,7 @@ export const ReconTransactions = ({ mode = 'transactions' }) => {
       {mode !== 'posted' && mode !== 'failed' ? <button type="button" className="font-semibold text-[var(--tenant-primary)]" onClick={() => openMatch(row)}>Match</button> : null}
       {row.matchStatus === 'REVIEW_REQUIRED' ? <button type="button" className="font-semibold text-[var(--tenant-primary)]" onClick={() => runAction(row, 'approve')}>Approve</button> : null}
       {(row.postingStatus === 'APPROVED_FOR_POSTING' || row.matchStatus === 'APPROVED_FOR_POSTING') ? <button type="button" className="font-semibold text-green-700" onClick={() => runAction(row, 'post')}>Post</button> : null}
+      {row.postingStatus !== 'POSTED' && row.postingStatus !== 'ALREADY_POSTED' && row.matchStatus !== 'DUPLICATE' ? <button type="button" className="font-semibold text-red-700" onClick={() => runAction(row, 'mark-duplicate')}>Remove Duplicate</button> : null}
       {mode === 'failed' ? <button type="button" className="font-semibold text-red-700" onClick={() => runAction(row, 'retry')}>Retry</button> : null}
     </div>
   );
