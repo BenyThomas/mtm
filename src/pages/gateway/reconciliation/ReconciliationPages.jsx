@@ -429,7 +429,7 @@ const PaginationBar = ({ meta, page, size, onPage, onSize }) => {
   );
 };
 
-const TransactionDetailDrawer = ({ row, mode, onClose, onMatch, onAction }) => {
+const TransactionDetailDrawer = ({ row, mode, onClose, onMatch, onAction, postingActionId }) => {
   if (!row) return null;
   return (
     <div className="fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
@@ -477,7 +477,10 @@ const TransactionDetailDrawer = ({ row, mode, onClose, onMatch, onAction }) => {
       <div className="grid gap-2 border-t border-slate-100 p-4 dark:border-slate-800">
         {mode !== 'posted' && mode !== 'failed' ? <Button type="button" onClick={() => onMatch(row)}><Check size={16} />Manual Match</Button> : null}
         {row.matchStatus === 'REVIEW_REQUIRED' ? <Button type="button" variant="secondary" onClick={() => onAction(row, 'approve')}>Approve</Button> : null}
-        {(row.postingStatus === 'APPROVED_FOR_POSTING' || row.matchStatus === 'APPROVED_FOR_POSTING') ? <Button type="button" variant="secondary" onClick={() => onAction(row, 'post')}>Post</Button> : null}
+        {(row.postingStatus === 'APPROVED_FOR_POSTING' || row.matchStatus === 'APPROVED_FOR_POSTING') ? <Button type="button" variant="secondary" disabled={Boolean(postingActionId)} onClick={() => onAction(row, 'post')}>
+          {postingActionId === row.id ? <Loader2 size={16} className="animate-spin" /> : null}
+          {postingActionId === row.id ? 'Posting...' : 'Post'}
+        </Button> : null}
         {mode === 'failed' ? <Button type="button" variant="danger" onClick={() => onAction(row, 'retry')}>Retry</Button> : null}
       </div>
     </div>
@@ -995,6 +998,7 @@ export const ReconTransactions = ({ mode = 'transactions' }) => {
   const [matchRow, setMatchRow] = useState(null);
   const [removingDuplicates, setRemovingDuplicates] = useState(false);
   const [markingAlreadyPosted, setMarkingAlreadyPosted] = useState(false);
+  const [postingActionId, setPostingActionId] = useState(null);
   const queryParams = useMemo(() => {
     const merged = { ...filters };
     if (!filters.matchStatus && modeDefaults.matchStatus) merged.matchStatus = modeDefaults.matchStatus;
@@ -1015,6 +1019,8 @@ export const ReconTransactions = ({ mode = 'transactions' }) => {
   const setSize = (size) => setFilters({ ...filters, size, page: 0 });
 
   const runAction = async (row, action) => {
+    if (action === 'post' && postingActionId) return;
+    if (action === 'post') setPostingActionId(row.id);
     try {
       let body = {};
       if (action === 'mark-already-posted') {
@@ -1029,6 +1035,8 @@ export const ReconTransactions = ({ mode = 'transactions' }) => {
       setSelectedRow(null);
     } catch (error) {
       addToast(error?.response?.data?.message || 'Action failed', 'error');
+    } finally {
+      if (action === 'post') setPostingActionId(null);
     }
   };
 
@@ -1087,7 +1095,10 @@ export const ReconTransactions = ({ mode = 'transactions' }) => {
       <button type="button" className="font-semibold text-[var(--tenant-primary)]" onClick={() => setSelectedRow(row)}>View</button>
       {mode !== 'posted' && mode !== 'failed' ? <button type="button" className="font-semibold text-[var(--tenant-primary)]" onClick={() => openMatch(row)}>Match</button> : null}
       {row.matchStatus === 'REVIEW_REQUIRED' ? <button type="button" className="font-semibold text-[var(--tenant-primary)]" onClick={() => runAction(row, 'approve')}>Approve</button> : null}
-      {(row.postingStatus === 'APPROVED_FOR_POSTING' || row.matchStatus === 'APPROVED_FOR_POSTING') ? <button type="button" className="font-semibold text-green-700" onClick={() => runAction(row, 'post')}>Post</button> : null}
+      {(row.postingStatus === 'APPROVED_FOR_POSTING' || row.matchStatus === 'APPROVED_FOR_POSTING') ? <button type="button" disabled={Boolean(postingActionId)} className="inline-flex items-center gap-1 font-semibold text-green-700 disabled:cursor-not-allowed disabled:opacity-50" onClick={() => runAction(row, 'post')}>
+        {postingActionId === row.id ? <Loader2 size={14} className="animate-spin" /> : null}
+        {postingActionId === row.id ? 'Posting...' : 'Post'}
+      </button> : null}
       {mode === 'failed' ? <button type="button" className="font-semibold text-red-700" onClick={() => runAction(row, 'retry')}>Retry</button> : null}
     </div>
   );
@@ -1118,7 +1129,7 @@ export const ReconTransactions = ({ mode = 'transactions' }) => {
         />
         <PaginationBar meta={meta} page={filters.page} size={filters.size} onPage={setPage} onSize={setSize} />
       </TableShell>
-      <TransactionDetailDrawer row={selectedRow} mode={mode} onClose={() => setSelectedRow(null)} onMatch={openMatch} onAction={runAction} />
+      <TransactionDetailDrawer row={selectedRow} mode={mode} onClose={() => setSelectedRow(null)} onMatch={openMatch} onAction={runAction} postingActionId={postingActionId} />
       <ManualMatchDrawer row={matchRow} mode={mode} onClose={() => setMatchRow(null)} onSaved={reload} />
     </div>
   );
