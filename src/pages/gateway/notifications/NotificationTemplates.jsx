@@ -39,15 +39,15 @@ const DEFAULT_EVENT_TYPE_OPTIONS = [
   'GENERIC_OPS',
 ];
 
-const PLACEHOLDER_MAP = {
-  LOAN_REPAYMENT_RECEIVED: ['customerName', 'amount', 'productName', 'paidAt', 'loanAccount'],
-  LOAN_REPAYMENT_REMINDER: ['customerName', 'amount', 'productName', 'paidAt', 'loanAccount'],
+const DEFAULT_PLACEHOLDER_MAP = {
+  LOAN_REPAYMENT_RECEIVED: ['customerName', 'customerNumber', 'amount', 'productName', 'paidAt', 'loanAccount'],
+  LOAN_REPAYMENT_REMINDER: ['customerName', 'customerNumber', 'amount', 'productName', 'paidAt', 'loanAccount'],
   INVITE_SENT: ['customerName', 'inviteCode', 'inviteUrl', 'expiryDate'],
   INVITE_ACCEPTED: ['customerName', 'inviteCode'],
-  LOAN_APPLIED: ['customerName', 'amount', 'productName', 'loanAccount'],
-  LOAN_APPROVED: ['customerName', 'amount', 'productName', 'loanAccount'],
-  LOAN_REJECTED: ['customerName', 'amount', 'productName', 'loanAccount', 'reason'],
-  LOAN_DISBURSED: ['customerName', 'amount', 'productName', 'loanAccount'],
+  LOAN_APPLIED: ['customerName', 'customerNumber', 'amount', 'productName', 'loanAccount'],
+  LOAN_APPROVED: ['customerName', 'customerNumber', 'amount', 'productName', 'loanAccount'],
+  LOAN_REJECTED: ['customerName', 'customerNumber', 'amount', 'productName', 'loanAccount', 'reason'],
+  LOAN_DISBURSED: ['customerName', 'customerNumber', 'amount', 'productName', 'loanAccount'],
   ONBOARDING_ACCEPTED: ['customerName'],
   ASSISTED_ONBOARDING_PIN: ['pin'],
   OTP_SENT: ['customerName', 'otp', 'purpose', 'phone'],
@@ -83,7 +83,7 @@ const NotificationTemplates = () => {
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [metadata, setMetadata] = useState({ channels: [], eventTypes: [] });
+  const [metadata, setMetadata] = useState({ channels: [], eventTypes: [], supportedPlaceholdersByEventType: {} });
   const [page, setPage] = useState(0);
   const [limit, setLimit] = useState(10);
   const [refreshTick, setRefreshTick] = useState(0);
@@ -118,6 +118,18 @@ const NotificationTemplates = () => {
     },
     [metadata.eventTypes]
   );
+  const placeholderMap = useMemo(() => {
+    const backendMap = metadata.supportedPlaceholdersByEventType && typeof metadata.supportedPlaceholdersByEventType === 'object'
+      ? metadata.supportedPlaceholdersByEventType
+      : {};
+    const normalized = Object.entries(backendMap).reduce((acc, [eventType, placeholders]) => {
+      const key = String(eventType || '').trim().toUpperCase();
+      if (!key || !Array.isArray(placeholders)) return acc;
+      acc[key] = placeholders.map((value) => String(value || '').trim()).filter(Boolean);
+      return acc;
+    }, {});
+    return { ...DEFAULT_PLACEHOLDER_MAP, ...normalized };
+  }, [metadata.supportedPlaceholdersByEventType]);
   const defaultChannel = channelOptions[0] || 'SMS';
 
   useEffect(() => {
@@ -161,10 +173,13 @@ const NotificationTemplates = () => {
         setMetadata({
           channels: Array.isArray(data?.channels) ? data.channels : [],
           eventTypes: Array.isArray(data?.eventTypes) ? data.eventTypes : [],
+          supportedPlaceholdersByEventType: data?.supportedPlaceholdersByEventType && typeof data.supportedPlaceholdersByEventType === 'object'
+            ? data.supportedPlaceholdersByEventType
+            : {},
         });
       } catch {
         if (!cancelled) {
-          setMetadata({ channels: DEFAULT_CHANNEL_OPTIONS, eventTypes: DEFAULT_EVENT_TYPE_OPTIONS });
+          setMetadata({ channels: DEFAULT_CHANNEL_OPTIONS, eventTypes: DEFAULT_EVENT_TYPE_OPTIONS, supportedPlaceholdersByEventType: {} });
         }
       }
     };
@@ -682,7 +697,7 @@ const NotificationTemplates = () => {
             <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Supported Placeholders</div>
             <div className="mt-1 text-xs text-slate-400 italic">For {form.eventType}</div>
             <div className="mt-3 flex flex-wrap gap-2">
-              {(PLACEHOLDER_MAP[form.eventType] || []).map((placeholder) => (
+              {(placeholderMap[form.eventType] || []).map((placeholder) => (
                 <span
                   key={placeholder}
                   className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-mono text-slate-600 dark:border-slate-700 dark:text-slate-300"
