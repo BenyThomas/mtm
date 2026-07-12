@@ -11,6 +11,8 @@ import ScheduleTable from '../../../components/ScheduleTable';
 import StaffSelect from '../../../components/StaffSelect';
 import Tabs from '../../../components/Tabs';
 import RepaymentPaymentModal from '../../../components/RepaymentPaymentModal';
+import ReversalHistory from '../../../components/ReversalHistory';
+import ReversalModal from '../../../components/ReversalModal';
 import {
   adjustGwLoanTransaction,
   approveGwLoan,
@@ -23,7 +25,6 @@ import {
   getGwLoanWorkflow,
   refreshGwSelcomRepaymentOrder,
   repayGwLoanMobile,
-  reverseGwLoanTransaction,
   patchGwLoan,
   runGwLoanAction,
 } from '../../../api/gateway/loans';
@@ -533,10 +534,8 @@ const GwLoanDetails = () => {
   const [adjustTransactionDate, setAdjustTransactionDate] = useState(dateISO());
   const [adjustTransactionAmount, setAdjustTransactionAmount] = useState('');
   const [adjustTransactionNote, setAdjustTransactionNote] = useState('');
-  const [reverseTransactionOpen, setReverseTransactionOpen] = useState(false);
-  const [reverseTransactionBusy, setReverseTransactionBusy] = useState(false);
-  const [reverseTransactionDate, setReverseTransactionDate] = useState(dateISO());
-  const [reverseTransactionNote, setReverseTransactionNote] = useState('');
+  const [reversalOpen, setReversalOpen] = useState(false);
+  const [reversalHistoryKey, setReversalHistoryKey] = useState(0);
   const [assignOfficerOpen, setAssignOfficerOpen] = useState(false);
   const [assignOfficerBusy, setAssignOfficerBusy] = useState(false);
   const [assignedOfficerId, setAssignedOfficerId] = useState('');
@@ -1420,9 +1419,7 @@ const GwLoanDetails = () => {
 
   const openReverseTransaction = (tx) => {
     setSelectedTransaction(tx);
-    setReverseTransactionDate(dateISO());
-    setReverseTransactionNote('');
-    setReverseTransactionOpen(true);
+    setReversalOpen(true);
   };
 
   const submitAdjustedTransaction = async () => {
@@ -1454,31 +1451,6 @@ const GwLoanDetails = () => {
       addToast(msg, 'error');
     } finally {
       setAdjustTransactionBusy(false);
-    }
-  };
-
-  const submitReverseTransaction = async () => {
-    if (!selectedTransaction?.id) {
-      addToast('Transaction is required', 'error');
-      return;
-    }
-    setReverseTransactionBusy(true);
-    try {
-      const amount = toNumOrNull(selectedTransaction?.amount ?? selectedTransaction?.amountPaid ?? selectedTransaction?.transactionAmount);
-      await reverseGwLoanTransaction(platformLoanId, selectedTransaction.id, {
-        date: reverseTransactionDate || undefined,
-        amount: amount && amount > 0 ? amount : undefined,
-        note: normalizeText(reverseTransactionNote) || undefined,
-      });
-      addToast('Transaction reversed', 'success');
-      setReverseTransactionOpen(false);
-      await refreshLoanViews(doc);
-    } catch (e) {
-      const msg = extractGatewayErrorMessage(e, 'Reverse transaction failed');
-      setErr(msg);
-      addToast(msg, 'error');
-    } finally {
-      setReverseTransactionBusy(false);
     }
   };
 
@@ -1825,6 +1797,7 @@ const GwLoanDetails = () => {
                 { key: 'schedule', label: 'Schedule' },
                 { key: 'charges', label: 'Charges' },
                 { key: 'transactions', label: 'Transactions' },
+                { key: 'reversals', label: 'Reversals' },
               ]}
             >
               <div data-tab="summary">
@@ -1991,6 +1964,15 @@ const GwLoanDetails = () => {
                     </div>
                   )}
                 </Card>
+              </div>
+
+              <div data-tab="reversals">
+                <ReversalHistory
+                  scope="LOAN"
+                  platformEntityId={platformLoanId}
+                  fineractEntityId={doc?.fineractLoanId ? String(doc.fineractLoanId) : ''}
+                  refreshKey={reversalHistoryKey}
+                />
               </div>
             </Tabs>
           </div>
@@ -2192,52 +2174,23 @@ const GwLoanDetails = () => {
         )}
       </Modal>
 
-      <Modal
-        open={reverseTransactionOpen}
-        onClose={() => (reverseTransactionBusy ? null : setReverseTransactionOpen(false))}
-        title={`Reverse Transaction${selectedTransaction?.id ? ` #${selectedTransaction.id}` : ''}`}
-        size="lg"
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setReverseTransactionOpen(false)} disabled={reverseTransactionBusy}>
-              Cancel
-            </Button>
-            <Button variant="danger" onClick={submitReverseTransaction} disabled={reverseTransactionBusy}>
-              {reverseTransactionBusy ? (
-                <span className="inline-flex items-center gap-2">
-                  <Loader2 className="animate-spin" size={16} /> Reversing...
-                </span>
-              ) : (
-                'Reverse'
-              )}
-            </Button>
-          </>
-        }
-      >
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="sm:col-span-2">
-            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Transaction Date (optional)</label>
-            <input
-              type="date"
-              value={reverseTransactionDate}
-              onChange={(e) => setReverseTransactionDate(e.target.value)}
-              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
-            />
-          </div>
-          <div className="sm:col-span-2">
-            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Note (optional)</label>
-            <textarea
-              rows={3}
-              value={reverseTransactionNote}
-              onChange={(e) => setReverseTransactionNote(e.target.value)}
-              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
-            />
-          </div>
-          <div className="sm:col-span-2 text-xs text-slate-500 dark:text-slate-400">
-            Reverse only marks the selected transaction as reversed. Use Adjust when you want reversal plus a replacement transaction with a new amount/date.
-          </div>
-        </div>
-      </Modal>
+      <ReversalModal
+        open={reversalOpen}
+        scope="LOAN"
+        defaults={{
+          command: 'undo',
+          platformEntityId: platformLoanId,
+          fineractEntityId: doc?.fineractLoanId ? String(doc.fineractLoanId) : '',
+          transactionId: selectedTransaction?.id ? String(selectedTransaction.id) : '',
+          externalId: selectedTransaction?.externalId || '',
+          effectiveDate: txDateToISO(selectedTransaction?.date) || dateISO(),
+        }}
+        onClose={() => setReversalOpen(false)}
+        onDone={async () => {
+          setReversalHistoryKey((current) => current + 1);
+          await refreshLoanViews(doc);
+        }}
+      />
 
       <Modal
         open={adjustTransactionOpen}

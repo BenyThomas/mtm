@@ -32,6 +32,11 @@ gatewayApi.interceptors.request.use((config) => {
   const authKey = read('fineract_auth_key') || null;
 
   config.headers = config.headers ?? {};
+  if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
+    delete config.headers['Content-Type'];
+    delete config.headers['content-type'];
+    config.transformRequest = [(data) => data];
+  }
   config.headers['Fineract-Platform-TenantId'] = tenant;
   config.headers['X-Tenant-Brand-Id'] = brandId;
 
