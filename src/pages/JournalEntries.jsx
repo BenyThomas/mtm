@@ -8,6 +8,8 @@ import JournalEntryForm from '../components/JournalEntryForm';
 import { useToast } from '../context/ToastContext';
 import { useNavigate } from 'react-router-dom';
 import OfficeSelect from '../components/OfficeSelect';
+import ReversalHistory from '../components/ReversalHistory';
+import ReversalModal from '../components/ReversalModal';
 
 const toISO = (d) => {
     if (!d) return '';
@@ -44,6 +46,9 @@ const JournalEntries = () => {
     // update running balances
     const [txIdForRecalc, setTxIdForRecalc] = useState('');
     const [recalcBusy, setRecalcBusy] = useState(false);
+    const [reversalOpen, setReversalOpen] = useState(false);
+    const [reversalHistoryKey, setReversalHistoryKey] = useState(0);
+    const [selectedReversalEntry, setSelectedReversalEntry] = useState(null);
 
     const paramsForList = useMemo(() => {
         const p = {};
@@ -128,6 +133,11 @@ const JournalEntries = () => {
         }
     };
 
+
+    const openJournalReversal = (entry = null) => {
+        setSelectedReversalEntry(entry);
+        setReversalOpen(true);
+    };
     const downloadTemplate = async () => {
         try {
             const res = await api.get('/journalentries/downloadtemplate', { responseType: 'blob' });
@@ -205,6 +215,7 @@ const JournalEntries = () => {
                         />
                         Upload Template
                     </label>
+                    <Button variant="secondary" onClick={() => openJournalReversal()}>Reverse Entry</Button>
                     <Button onClick={() => setCreateOpen(true)}>New Entry</Button>
                     <Button variant="secondary" onClick={load}>Refresh</Button>
                 </div>
@@ -311,9 +322,14 @@ const JournalEntries = () => {
                                     <td className="py-2 pr-4">{e.amount}</td>
                                     <td className="py-2 pr-4">{e.officeName || e.officeId || '-'}</td>
                                     <td className="py-2 pr-4">
-                                        <Button variant="secondary" onClick={() => navigate(`/accounting/journal-entries/${e.id}`)}>
-                                            View
-                                        </Button>
+                                        <div className="flex gap-2">
+                                            <Button variant="secondary" onClick={() => navigate(`/accounting/journal-entries/${e.id}`)}>
+                                                View
+                                            </Button>
+                                            <Button variant="secondary" onClick={() => openJournalReversal(e)}>
+                                                Reverse
+                                            </Button>
+                                        </div>
                                     </td>
                                 </tr>
                             ))}
@@ -323,6 +339,29 @@ const JournalEntries = () => {
                 )}
             </Card>
 
+
+            <ReversalHistory
+                scope="JOURNAL"
+                refreshKey={reversalHistoryKey}
+            />
+
+            <ReversalModal
+                open={reversalOpen}
+                scope="JOURNAL"
+                defaults={{
+                    command: 'reverse',
+                    transactionId: selectedReversalEntry?.transactionId || selectedReversalEntry?.transactionID || selectedReversalEntry?.id || '',
+                    effectiveDate: toISO(selectedReversalEntry?.entryDate || selectedReversalEntry?.transactionDate || selectedReversalEntry?.createdDate) || todayISO(),
+                }}
+                commandOptions={[
+                    { value: 'reverse', label: 'Reverse journal entry' },
+                ]}
+                onClose={() => setReversalOpen(false)}
+                onDone={async () => {
+                    setReversalHistoryKey((current) => current + 1);
+                    await load();
+                }}
+            />
             {/* Create modal */}
             <Modal
                 open={createOpen}

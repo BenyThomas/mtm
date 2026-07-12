@@ -5,6 +5,8 @@ import Card from '../components/Card';
 import Skeleton from '../components/Skeleton';
 import Badge from '../components/Badge';
 import Button from '../components/Button';
+import ReversalHistory from '../components/ReversalHistory';
+import ReversalModal from '../components/ReversalModal';
 
 const statusTone = (s) => {
     const code = s?.code || s?.value || '';
@@ -18,6 +20,8 @@ const SavingsAccountDetails = () => {
     const { id } = useParams();
     const [loading, setLoading] = useState(true);
     const [acc, setAcc] = useState(null);
+    const [reversalOpen, setReversalOpen] = useState(false);
+    const [reversalHistoryKey, setReversalHistoryKey] = useState(0);
 
     const load = async () => {
         setLoading(true);
@@ -79,6 +83,7 @@ const SavingsAccountDetails = () => {
                     </div>
                 </div>
                 <div className="space-x-2">
+                    <Button variant="secondary" onClick={() => setReversalOpen(true)}>Reverse Transaction</Button>
                     <Button variant="secondary" onClick={load}>Refresh</Button>
                 </div>
             </div>
@@ -128,6 +133,30 @@ const SavingsAccountDetails = () => {
                     </div>
                 </div>
             </Card>
+
+            <ReversalHistory
+                scope="SAVINGS"
+                fineractEntityId={String(id)}
+                refreshKey={reversalHistoryKey}
+            />
+
+            <ReversalModal
+                open={reversalOpen}
+                scope="SAVINGS"
+                defaults={{
+                    command: 'undo',
+                    fineractEntityId: String(id),
+                }}
+                commandOptions={[
+                    { value: 'undo', label: 'Undo transaction' },
+                    { value: 'reverse', label: 'Reverse transaction' },
+                ]}
+                onClose={() => setReversalOpen(false)}
+                onDone={async () => {
+                    setReversalHistoryKey((current) => current + 1);
+                    await load();
+                }}
+            />
         </div>
     );
 };
