@@ -12,7 +12,7 @@ import StaffSelect from '../../../components/StaffSelect';
 import Tabs from '../../../components/Tabs';
 import RepaymentPaymentModal from '../../../components/RepaymentPaymentModal';
 import ReversalHistory from '../../../components/ReversalHistory';
-import ReversalModal from '../../../components/ReversalModal';
+import { createApproveExecuteReversal } from '../../../api/gateway/reversals';
 import {
   adjustGwLoanTransaction,
   approveGwLoan,
@@ -534,7 +534,10 @@ const GwLoanDetails = () => {
   const [adjustTransactionDate, setAdjustTransactionDate] = useState(dateISO());
   const [adjustTransactionAmount, setAdjustTransactionAmount] = useState('');
   const [adjustTransactionNote, setAdjustTransactionNote] = useState('');
-  const [reversalOpen, setReversalOpen] = useState(false);
+  const [reverseTransactionOpen, setReverseTransactionOpen] = useState(false);
+  const [reverseTransactionBusy, setReverseTransactionBusy] = useState(false);
+  const [reverseTransactionDate, setReverseTransactionDate] = useState(dateISO());
+  const [reverseTransactionNote, setReverseTransactionNote] = useState('');
   const [reversalHistoryKey, setReversalHistoryKey] = useState(0);
   const [assignOfficerOpen, setAssignOfficerOpen] = useState(false);
   const [assignOfficerBusy, setAssignOfficerBusy] = useState(false);
@@ -1345,11 +1348,11 @@ const GwLoanDetails = () => {
       setRepaymentBanner({
         provider,
         result: result || null,
-        title: provider === 'EPIKPAY' ? 'Cash repayment posted successfully' : `${provider || 'Mobile'} repayment request submitted`,
+        title: provider === 'EPIKPAY' ? 'Cash repayment queued for posting' : `${provider || 'Mobile'} repayment request submitted`,
       });
       setRepayOpen(false);
-      await refreshLoanViews(doc);
-      addToast(provider === 'EPIKPAY' ? 'Cash repayment posted' : `${provider || 'Mobile'} push initiated`, 'success');
+      refreshLoanViews(doc).catch(() => {});
+      addToast(provider === 'EPIKPAY' ? 'Cash repayment queued for posting' : `${provider || 'Mobile'} push initiated`, 'success');
     } catch (e) {
       const msg = extractGatewayErrorMessage(e, provider === 'EPIKPAY' ? 'Cash repayment failed' : 'Repayment push failed');
       setErr(msg);
@@ -1419,7 +1422,53 @@ const GwLoanDetails = () => {
 
   const openReverseTransaction = (tx) => {
     setSelectedTransaction(tx);
-    setReversalOpen(true);
+    setReverseTransactionDate(txDateToISO(tx?.date) || dateISO());
+    setReverseTransactionNote('');
+    setReverseTransactionOpen(true);
+  };
+
+  const submitReverseTransaction = async () => {
+    if (!selectedTransaction?.id) {
+      addToast('Transaction is required', 'error');
+      return;
+    }
+    setReverseTransactionBusy(true);
+    try {
+      const note = normalizeText(reverseTransactionNote);
+      const payload = {};
+      if (reverseTransactionDate) {
+        payload.transactionDate = reverseTransactionDate;
+        payload.dateFormat = 'yyyy-MM-dd';
+        payload.locale = 'en';
+      }
+      if (note) {
+        payload.note = note;
+      }
+      const amount = firstNumeric(selectedTransaction?.amount, selectedTransaction?.amountPaid);
+      if (amount != null && amount > 0) {
+        payload.transactionAmount = amount;
+      }
+      await createApproveExecuteReversal({
+        scope: 'LOAN',
+        command: 'undo',
+        platformEntityId: platformLoanId,
+        fineractEntityId: doc?.fineractLoanId ? String(doc.fineractLoanId) : undefined,
+        transactionId: String(selectedTransaction.id),
+        externalId: selectedTransaction?.externalId || undefined,
+        reason: note || undefined,
+        payload,
+      });
+      addToast('Transaction reversed', 'success');
+      setReverseTransactionOpen(false);
+      setReversalHistoryKey((current) => current + 1);
+      await refreshLoanViews(doc);
+    } catch (e) {
+      const msg = extractGatewayErrorMessage(e, 'Reverse transaction failed');
+      setErr(msg);
+      addToast(msg, 'error');
+    } finally {
+      setReverseTransactionBusy(false);
+    }
   };
 
   const submitAdjustedTransaction = async () => {
@@ -1934,25 +1983,38 @@ const GwLoanDetails = () => {
                               <td className="px-3 py-2">{tx?.externalId ?? '-'}</td>
                               <td className="px-3 py-2">
                                 <div className="flex items-center justify-end gap-2">
-                                  <Button size="sm" variant="secondary" onClick={() => openTransactionDetail(tx)}>
-                                    Details
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-9 w-9 p-0"
+                                    onClick={() => openTransactionDetail(tx)}
+                                    title="View transaction details"
+                                    aria-label="View transaction details"
+                                  >
+                                    <FileText size={16} />
                                   </Button>
                                   <Can any={['GW_OPS_WRITE']}>
                                     <Button
                                       size="sm"
-                                      variant="secondary"
+                                      variant="ghost"
+                                      className="h-9 w-9 p-0 text-amber-700 hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-950/30"
                                       onClick={() => openReverseTransaction(tx)}
-                                      disabled={!tx?.id || tx?.manuallyReversed || tx?.reversed}
+                                      disabled={!tx?.id || tx?.manuallyReversed || tx?.reversed || reverseTransactionBusy}
+                                      title="Reverse transaction"
+                                      aria-label="Reverse transaction"
                                     >
-                                      Reverse
+                                      <Undo2 size={16} />
                                     </Button>
                                     <Button
                                       size="sm"
-                                      variant="secondary"
+                                      variant="ghost"
+                                      className="h-9 w-9 p-0 text-cyan-700 hover:bg-cyan-50 dark:text-cyan-300 dark:hover:bg-cyan-950/30"
                                       onClick={() => openAdjustTransaction(tx)}
-                                      disabled={!tx?.id || tx?.manuallyReversed || tx?.reversed}
+                                      disabled={!tx?.id || tx?.manuallyReversed || tx?.reversed || adjustTransactionBusy}
+                                      title="Adjust transaction"
+                                      aria-label="Adjust transaction"
                                     >
-                                      Adjust
+                                      <Pencil size={16} />
                                     </Button>
                                   </Can>
                                 </div>
@@ -2174,23 +2236,61 @@ const GwLoanDetails = () => {
         )}
       </Modal>
 
-      <ReversalModal
-        open={reversalOpen}
-        scope="LOAN"
-        defaults={{
-          command: 'undo',
-          platformEntityId: platformLoanId,
-          fineractEntityId: doc?.fineractLoanId ? String(doc.fineractLoanId) : '',
-          transactionId: selectedTransaction?.id ? String(selectedTransaction.id) : '',
-          externalId: selectedTransaction?.externalId || '',
-          effectiveDate: txDateToISO(selectedTransaction?.date) || dateISO(),
-        }}
-        onClose={() => setReversalOpen(false)}
-        onDone={async () => {
-          setReversalHistoryKey((current) => current + 1);
-          await refreshLoanViews(doc);
-        }}
-      />
+      <Modal
+        open={reverseTransactionOpen}
+        onClose={() => (reverseTransactionBusy ? null : setReverseTransactionOpen(false))}
+        title={`Reverse Transaction${selectedTransaction?.id ? ` #${selectedTransaction.id}` : ''}`}
+        size="lg"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setReverseTransactionOpen(false)} disabled={reverseTransactionBusy}>
+              Cancel
+            </Button>
+            <Button variant="danger" onClick={submitReverseTransaction} disabled={reverseTransactionBusy}>
+              {reverseTransactionBusy ? (
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="animate-spin" size={16} /> Reversing...
+                </span>
+              ) : (
+                'Reverse Transaction'
+              )}
+            </Button>
+          </>
+        }
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="sm:col-span-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-100">
+            This will undo the selected Fineract transaction and refresh the loan balances.
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Transaction ID</label>
+            <input
+              value={selectedTransaction?.id || ''}
+              readOnly
+              className="mt-1 w-full rounded-xl border bg-slate-50 p-2.5 text-sm dark:border-gray-600 dark:bg-gray-800"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Effective Date</label>
+            <input
+              type="date"
+              value={reverseTransactionDate}
+              onChange={(e) => setReverseTransactionDate(e.target.value)}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Note</label>
+            <textarea
+              rows={3}
+              value={reverseTransactionNote}
+              onChange={(e) => setReverseTransactionNote(e.target.value)}
+              className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+              placeholder="Reason for reversal"
+            />
+          </div>
+        </div>
+      </Modal>
 
       <Modal
         open={adjustTransactionOpen}

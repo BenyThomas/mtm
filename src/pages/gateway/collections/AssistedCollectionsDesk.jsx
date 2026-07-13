@@ -280,8 +280,15 @@ const AssistedCollectionsDesk = () => {
         note,
       });
       setRepaymentOpen(false);
-      setRefreshToken((value) => value + 1);
-      addToast(resolvedProvider === 'EPIKPAY' ? 'Payment posted and receipt generated' : 'Mobile collection request submitted', 'success');
+      setSelected((current) => current && current.platformLoanId === selected.platformLoanId
+        ? {
+          ...current,
+          totalOutstanding: Math.max(0, Number(current.totalOutstanding || 0) - numericAmount),
+          overdueAmount: Math.max(0, Number(current.overdueAmount || 0) - numericAmount),
+          dueTodayAmount: Math.max(0, Number(current.dueTodayAmount || 0) - numericAmount),
+        }
+        : current);
+      addToast(resolvedProvider === 'EPIKPAY' ? 'Payment queued and receipt generated' : 'Mobile collection request submitted', 'success');
     } catch (error) {
       addToast(extractError(error, 'Repayment failed'), 'error');
     } finally {
