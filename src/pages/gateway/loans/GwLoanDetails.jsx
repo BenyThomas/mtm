@@ -1448,7 +1448,7 @@ const GwLoanDetails = () => {
       if (amount != null && amount > 0) {
         payload.transactionAmount = amount;
       }
-      await createApproveExecuteReversal({
+      const reversal = await createApproveExecuteReversal({
         scope: 'LOAN',
         command: 'undo',
         platformEntityId: platformLoanId,
@@ -1458,10 +1458,26 @@ const GwLoanDetails = () => {
         reason: note || undefined,
         payload,
       });
+      const effects = reversal?.fineractResponse?.localSideEffects || {};
+      if (effects.fineractLoanAfter) {
+        setFxLoan(effects.fineractLoanAfter);
+      }
+      if (effects.outstandingAmount != null || effects.totalRepaid != null || effects.overdueAmount != null) {
+        setDoc((current) => current ? {
+          ...current,
+          outstandingAmount: effects.outstandingAmount ?? current.outstandingAmount,
+          totalRepaid: effects.totalRepaid ?? current.totalRepaid,
+          inArrears: effects.inArrears ?? current.inArrears,
+          overdueAmount: effects.overdueAmount ?? current.overdueAmount,
+          daysInArrears: effects.daysInArrears ?? current.daysInArrears,
+          nextDueDate: effects.nextDueDate ?? current.nextDueDate,
+          status: effects.status ?? current.status,
+        } : current);
+      }
       addToast('Transaction reversed', 'success');
       setReverseTransactionOpen(false);
       setReversalHistoryKey((current) => current + 1);
-      await refreshLoanViews(doc);
+      window.setTimeout(() => refreshLoanViews(doc).catch(() => {}), 1200);
     } catch (e) {
       const msg = extractGatewayErrorMessage(e, 'Reverse transaction failed');
       setErr(msg);
