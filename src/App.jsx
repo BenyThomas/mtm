@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Navigate, Routes, Route, useLocation } from 'react-router-dom';
 import Layout from './components/Layout';
 import Home from './pages/Home';
 import Clients from './pages/clients/Clients';
@@ -33,7 +33,7 @@ import Login from './pages/Login';
 import ProtectedRoute from './components/ProtectedRoute';
 import { ToastProvider } from './context/ToastContext';
 import { LoadingProvider } from './context/LoadingContext';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import FinancialActivityMappingDetails from "./pages/FinancialActivityMappingDetails";
 import FinancialActivityMappings from "./pages/FinancialActivityMappings";
 import BatchRunner from './pages/BatchRunner'
@@ -151,6 +151,35 @@ import NotificationTemplates from "./pages/gateway/notifications/NotificationTem
 import NotificationDispatches from "./pages/gateway/notifications/NotificationDispatches";
 import {ENV_TENANT, resolveTenant} from "./config/runtime";
 
+const LOAN_OFFICER_GATEWAY_ALLOWED = [
+    /^\/gateway\/?$/,
+    /^\/gateway\/data\/customers\/?$/,
+    /^\/gateway\/data\/onboarding_records\/?$/,
+    /^\/gateway\/customers\/[^/]+\/?$/,
+    /^\/gateway\/invites\/?$/,
+    /^\/gateway\/invites\/new\/?$/,
+    /^\/gateway\/invites\/[^/]+\/?$/,
+    /^\/gateway\/loans\/?$/,
+    /^\/gateway\/loans\/arrears\/?$/,
+    /^\/gateway\/loans\/[^/]+\/?$/,
+    /^\/gateway\/collections\/?$/,
+    /^\/gateway\/centers\/?$/,
+    /^\/gateway\/centers\/[^/]+\/?$/,
+    /^\/gateway\/groups\/[^/]+\/?$/,
+];
+
+const GatewayAccessGuard = ({ children }) => {
+    const { user } = useAuth();
+    const location = useLocation();
+    const path = location.pathname.replace(/\/+$/, '') || '/';
+    const isLoanOfficer = Boolean(user?.isGatewayOnlyLoanOfficer);
+    if (isLoanOfficer && path.startsWith('/gateway') && !LOAN_OFFICER_GATEWAY_ALLOWED.some((pattern) => pattern.test(path))) {
+        return <Navigate to="/gateway" replace />;
+    }
+    return children;
+};
+
+const gatewayElement = (element) => <GatewayAccessGuard>{element}</GatewayAccessGuard>;
 const NotFound = () => (
     <div>
         <h1 className="text-2xl font-bold mb-4">Page not found</h1>
@@ -320,54 +349,54 @@ const App = () => {
                             <Route path="/search" element={<Search />} />
 
                             {/* Gateway back-office */}
-                            <Route path="/gateway" element={<GatewayDashboard />} />
-                            <Route path="/gateway/product-catalog" element={<GatewayProductCatalog />} />
-                            <Route path="/gateway/loan-automation" element={<GatewayLoanAutomationConfig />} />
-                            <Route path="/gateway/group-lifecycle" element={<GroupLifecycleConfig />} />
-                            <Route path="/gateway/bank-names" element={<GatewayBankNamesConfig />} />
-                            <Route path="/gateway/loan-purposes" element={<GatewayLoanPurposesConfig />} />
-                            <Route path="/gateway/access-mappings" element={<GatewayAccessMappings />} />
-                            <Route path="/gateway/kyc" element={<GatewayKycOps />} />
-                            <Route path="/gateway/disbursements" element={<DisbursementOrders />} />
-                            <Route path="/gateway/centers" element={<CommunityCenters />} />
-                            <Route path="/gateway/centers/:centerId" element={<CommunityCenterDetails />} />
-                            <Route path="/gateway/groups/:groupId" element={<GroupDetails />} />
-                            <Route path="/gateway/merchant/companies" element={<MerchantCompanies />} />
-                            <Route path="/gateway/merchant/companies/:merchantCompanyId" element={<MerchantCompanyDetails />} />
-                            <Route path="/gateway/merchant/customers" element={<MerchantCustomers />} />
-                            <Route path="/gateway/merchant/customers/:customerId" element={<MerchantCustomerDetails />} />
-                            <Route path="/gateway/merchant-industry-types" element={<MerchantIndustryTypesConfig />} />
-                            <Route path="/gateway/selcom-sync" element={<SelcomRepaymentSync />} />
-                            <Route path="/gateway/invites" element={<InvitesList />} />
-                            <Route path="/gateway/invites/new" element={<InviteNew />} />
-                            <Route path="/gateway/invite-campaigns" element={<InviteCampaigns />} />
-                            <Route path="/gateway/invite-channels" element={<InviteChannels />} />
-                            <Route path="/gateway/invites/:inviteId" element={<InviteDetails />} />
-                            <Route path="/gateway/loans" element={<GwLoansList />} />
-                            <Route path="/gateway/loans/arrears" element={<GwArrearsLoans />} />
-                            <Route path="/gateway/collections" element={<AssistedCollectionsDesk />} />
-                            <Route path="/gateway/reconciliation" element={<ReconciliationDashboard />} />
-                            <Route path="/gateway/reconciliation/import" element={<ReconImportStatement />} />
-                            <Route path="/gateway/reconciliation/batches" element={<ReconBatches />} />
-                            <Route path="/gateway/reconciliation/batches/:batchId" element={<ReconBatchDetails />} />
-                            <Route path="/gateway/reconciliation/transactions" element={<ReconTransactions mode="transactions" />} />
-                            <Route path="/gateway/reconciliation/review" element={<ReconTransactions mode="review" />} />
-                            <Route path="/gateway/reconciliation/unmatched" element={<ReconTransactions mode="unmatched" />} />
-                            <Route path="/gateway/reconciliation/suspense" element={<ReconTransactions mode="suspense" />} />
-                            <Route path="/gateway/reconciliation/posted" element={<ReconTransactions mode="posted" />} />
-                            <Route path="/gateway/reconciliation/failed" element={<ReconTransactions mode="failed" />} />
-                            <Route path="/gateway/reconciliation/mappings" element={<ReconMappings />} />
-                            <Route path="/gateway/reconciliation/reports" element={<ReconReports />} />
-                            <Route path="/gateway/reconciliation/settings" element={<ReconSettings />} />
-                            <Route path="/gateway/reconciliation/audit" element={<ReconAuditTrail />} />
-                            <Route path="/gateway/reports" element={<GwReports />} />
-                            <Route path="/gateway/performance" element={<PerformanceKpis />} />
-                            <Route path="/gateway/notifications/templates" element={<NotificationTemplates />} />
-                            <Route path="/gateway/notifications/dispatches" element={<NotificationDispatches />} />
-                            <Route path="/gateway/queues" element={<Queues />} />
-                            <Route path="/gateway/loans/:platformLoanId" element={<GwLoanDetails />} />
-                            <Route path="/gateway/customers/:customerId" element={<GwCustomerDetails />} />
-                            <Route path="/gateway/data/:resource" element={<GatewayDataList />} />
+                            <Route path="/gateway" element={gatewayElement(<GatewayDashboard />)} />
+                            <Route path="/gateway/product-catalog" element={gatewayElement(<GatewayProductCatalog />)} />
+                            <Route path="/gateway/loan-automation" element={gatewayElement(<GatewayLoanAutomationConfig />)} />
+                            <Route path="/gateway/group-lifecycle" element={gatewayElement(<GroupLifecycleConfig />)} />
+                            <Route path="/gateway/bank-names" element={gatewayElement(<GatewayBankNamesConfig />)} />
+                            <Route path="/gateway/loan-purposes" element={gatewayElement(<GatewayLoanPurposesConfig />)} />
+                            <Route path="/gateway/access-mappings" element={gatewayElement(<GatewayAccessMappings />)} />
+                            <Route path="/gateway/kyc" element={gatewayElement(<GatewayKycOps />)} />
+                            <Route path="/gateway/disbursements" element={gatewayElement(<DisbursementOrders />)} />
+                            <Route path="/gateway/centers" element={gatewayElement(<CommunityCenters />)} />
+                            <Route path="/gateway/centers/:centerId" element={gatewayElement(<CommunityCenterDetails />)} />
+                            <Route path="/gateway/groups/:groupId" element={gatewayElement(<GroupDetails />)} />
+                            <Route path="/gateway/merchant/companies" element={gatewayElement(<MerchantCompanies />)} />
+                            <Route path="/gateway/merchant/companies/:merchantCompanyId" element={gatewayElement(<MerchantCompanyDetails />)} />
+                            <Route path="/gateway/merchant/customers" element={gatewayElement(<MerchantCustomers />)} />
+                            <Route path="/gateway/merchant/customers/:customerId" element={gatewayElement(<MerchantCustomerDetails />)} />
+                            <Route path="/gateway/merchant-industry-types" element={gatewayElement(<MerchantIndustryTypesConfig />)} />
+                            <Route path="/gateway/selcom-sync" element={gatewayElement(<SelcomRepaymentSync />)} />
+                            <Route path="/gateway/invites" element={gatewayElement(<InvitesList />)} />
+                            <Route path="/gateway/invites/new" element={gatewayElement(<InviteNew />)} />
+                            <Route path="/gateway/invite-campaigns" element={gatewayElement(<InviteCampaigns />)} />
+                            <Route path="/gateway/invite-channels" element={gatewayElement(<InviteChannels />)} />
+                            <Route path="/gateway/invites/:inviteId" element={gatewayElement(<InviteDetails />)} />
+                            <Route path="/gateway/loans" element={gatewayElement(<GwLoansList />)} />
+                            <Route path="/gateway/loans/arrears" element={gatewayElement(<GwArrearsLoans />)} />
+                            <Route path="/gateway/collections" element={gatewayElement(<AssistedCollectionsDesk />)} />
+                            <Route path="/gateway/reconciliation" element={gatewayElement(<ReconciliationDashboard />)} />
+                            <Route path="/gateway/reconciliation/import" element={gatewayElement(<ReconImportStatement />)} />
+                            <Route path="/gateway/reconciliation/batches" element={gatewayElement(<ReconBatches />)} />
+                            <Route path="/gateway/reconciliation/batches/:batchId" element={gatewayElement(<ReconBatchDetails />)} />
+                            <Route path="/gateway/reconciliation/transactions" element={gatewayElement(<ReconTransactions mode="transactions" />)} />
+                            <Route path="/gateway/reconciliation/review" element={gatewayElement(<ReconTransactions mode="review" />)} />
+                            <Route path="/gateway/reconciliation/unmatched" element={gatewayElement(<ReconTransactions mode="unmatched" />)} />
+                            <Route path="/gateway/reconciliation/suspense" element={gatewayElement(<ReconTransactions mode="suspense" />)} />
+                            <Route path="/gateway/reconciliation/posted" element={gatewayElement(<ReconTransactions mode="posted" />)} />
+                            <Route path="/gateway/reconciliation/failed" element={gatewayElement(<ReconTransactions mode="failed" />)} />
+                            <Route path="/gateway/reconciliation/mappings" element={gatewayElement(<ReconMappings />)} />
+                            <Route path="/gateway/reconciliation/reports" element={gatewayElement(<ReconReports />)} />
+                            <Route path="/gateway/reconciliation/settings" element={gatewayElement(<ReconSettings />)} />
+                            <Route path="/gateway/reconciliation/audit" element={gatewayElement(<ReconAuditTrail />)} />
+                            <Route path="/gateway/reports" element={gatewayElement(<GwReports />)} />
+                            <Route path="/gateway/performance" element={gatewayElement(<PerformanceKpis />)} />
+                            <Route path="/gateway/notifications/templates" element={gatewayElement(<NotificationTemplates />)} />
+                            <Route path="/gateway/notifications/dispatches" element={gatewayElement(<NotificationDispatches />)} />
+                            <Route path="/gateway/queues" element={gatewayElement(<Queues />)} />
+                            <Route path="/gateway/loans/:platformLoanId" element={gatewayElement(<GwLoanDetails />)} />
+                            <Route path="/gateway/customers/:customerId" element={gatewayElement(<GwCustomerDetails />)} />
+                            <Route path="/gateway/data/:resource" element={gatewayElement(<GatewayDataList />)} />
 
 
 
