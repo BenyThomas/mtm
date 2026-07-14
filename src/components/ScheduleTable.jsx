@@ -14,16 +14,19 @@ const ScheduleTable = ({ schedule }) => {
         return <Card>No schedule periods available.</Card>;
     }
 
-    const arrDateToISO = (arr) => {
-        if (!Array.isArray(arr) || arr.length < 3) return '';
-        const [y, m, d] = arr;
-        const mm = String(m).padStart(2, '0');
-        const dd = String(d).padStart(2, '0');
-        return `${y}-${mm}-${dd}`;
+    const dateToISO = (value) => {
+        if (Array.isArray(value) && value.length >= 3) {
+            const [y, m, d] = value;
+            const mm = String(m).padStart(2, '0');
+            const dd = String(d).padStart(2, '0');
+            return `${y}-${mm}-${dd}`;
+        }
+        if (typeof value === 'string' && value.trim()) return value.trim().slice(0, 10);
+        return '';
     };
 
     const formatDate = (value) => {
-        const iso = Array.isArray(value) ? arrDateToISO(value) : (typeof value === 'string' ? value.slice(0, 10) : '');
+        const iso = dateToISO(value);
         if (!iso) return '-';
         try {
             const parsed = new Date(`${iso}T00:00:00`);
@@ -88,17 +91,20 @@ const ScheduleTable = ({ schedule }) => {
     };
 
     const periodStatus = (p) => {
-        if (p?.complete) return 'Paid';
-        const dueISO = arrDateToISO(p?.dueDate);
-        const outstanding = Number(p?.totalOutstandingForPeriod ?? 0);
-        if (outstanding > 0) {
+        const dueISO = dateToISO(p?.dueDate);
+        const outstanding = Number(p?.totalOutstandingForPeriod ?? p?.outstandingLoanBalance ?? 0);
+        const paid = Number(p?.totalPaidForPeriod ?? 0);
+        const principal = p.principalDue ?? p.principalOriginalDue ?? 0;
+        const interest = p.interestDue ?? p.interestOriginalDue ?? 0;
+        const fees = p.feeChargesDue ?? 0;
+        const penalties = p.penaltyChargesDue ?? 0;
+        const totalDue = Number(p?.totalDueForPeriod ?? p?.totalOriginalDueForPeriod ?? 0)
+            || Number(principal) + Number(interest) + Number(fees) + Number(penalties);
+        if (outstanding <= 0.01 && (p?.complete || paid >= Math.max(0, totalDue) - 0.01)) return 'Paid';
+        if (outstanding > 0.01) {
             if (isPast(dueISO)) return 'Overdue';
-            const principal = p.principalDue ?? p.principalOriginalDue ?? 0;
-            const interest = p.interestDue ?? p.interestOriginalDue ?? 0;
-            const fees = p.feeChargesDue ?? 0;
-            const penalties = p.penaltyChargesDue ?? 0;
-            const totalDue = Number(principal) + Number(interest) + Number(fees) + Number(penalties);
-            if (outstanding < totalDue - 0.01) return 'Partial';
+            if (paid > 0.01 && totalDue > 0 && outstanding < totalDue - 0.01) return 'Partial';
+            return 'Upcoming';
         }
         return 'Upcoming';
     };
@@ -199,7 +205,7 @@ const ScheduleTable = ({ schedule }) => {
                     .filter((p) => p?.period || p?.period === 0) // show all periods (including 0 if present)
                     .map((p, idx) => {
                         const isOpen = !!open[idx];
-                        const dueISO = arrDateToISO(p?.dueDate) || '-';
+                        const dueISO = dateToISO(p?.dueDate) || '-';
                         const principal = p.principalDue ?? p.principalOriginalDue ?? 0;
                         const interest = p.interestDue ?? p.interestOriginalDue ?? 0;
                         const fees = p.feeChargesDue ?? 0;
