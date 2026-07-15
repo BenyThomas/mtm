@@ -1,15 +1,49 @@
 import React, { useMemo, useState } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Navigate, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { CalendarDays, ChevronDown, Menu } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import '../pages/gateway/customers/gateway-customers.css';
 
 /** Add perm codes as needed for your deployment */
+const LOAN_OFFICER_NAV_PATHS = new Set([
+  '/gateway',
+  '/gateway/data/customers',
+  '/gateway/invites',
+  '/gateway/data/onboarding_records',
+  '/gateway/loans',
+  '/gateway/loans/arrears',
+  '/gateway/collections',
+  '/gateway/centers',
+]);
+
+const isLoanOfficerNavPath = (to) => LOAN_OFFICER_NAV_PATHS.has(String(to || '').replace(/\/+$/, '') || '/');
+const LOAN_OFFICER_ROUTE_ALLOWED = [
+  /^\/gateway\/?$/,
+  /^\/gateway\/data\/customers\/?$/,
+  /^\/gateway\/data\/onboarding_records\/?$/,
+  /^\/gateway\/customers\/[^/]+\/?$/,
+  /^\/gateway\/invites\/?$/,
+  /^\/gateway\/invites\/new\/?$/,
+  /^\/gateway\/invites\/[^/]+\/?$/,
+  /^\/gateway\/loans\/?$/,
+  /^\/gateway\/loans\/arrears\/?$/,
+  /^\/gateway\/loans\/[^/]+\/?$/,
+  /^\/gateway\/collections\/?$/,
+  /^\/gateway\/centers\/?$/,
+  /^\/gateway\/centers\/[^/]+\/?$/,
+  /^\/gateway\/groups\/[^/]+\/?$/,
+];
+
+const isLoanOfficerRouteAllowed = (pathname) => {
+  const path = String(pathname || '/').replace(/\/+$/, '') || '/';
+  return LOAN_OFFICER_ROUTE_ALLOWED.some((pattern) => pattern.test(path));
+};
 const NAV_GROUPS = [
   {
     title: 'Gateway',
     items: [
       { to: '/gateway', label: 'Overview', icon: 'G', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
+      { to: '/gateway/invites', label: 'Invites', icon: 'In', any: ['GW_OPS_READ', 'GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CLIENT', 'CREATE_CLIENT'] },
       { to: '/gateway/invite-campaigns', label: 'Invite Campaigns', icon: 'IC', any: ['GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
       { to: '/gateway/invite-channels', label: 'Invite Channels', icon: 'CH', any: ['GW_OPS_WRITE', 'GW_OPS_ALL', 'READ_CONFIGURATION'] },
       { to: '/gateway/data/customers', label: 'Customers', icon: 'Cu', any: ['GW_OPS_READ', 'GW_OPS_ALL', 'READ_CLIENT', 'READ_CONFIGURATION'] },
@@ -198,6 +232,7 @@ const Layout = () => {
     };
     const filterItem = (it) => {
       if (!canSee(it)) return null;
+      if (isGatewayOnlyLoanOfficer && !isLoanOfficerNavPath(it.to)) return null;
       const children = Array.isArray(it.children)
         ? it.children.map((child) => ({ ...child, any: child.any || it.any, perm: child.perm || it.perm })).map(filterItem).filter(Boolean)
         : undefined;
@@ -254,6 +289,10 @@ const Layout = () => {
       baseLabel,
     };
   }, [location.pathname, visibleGroups]);
+
+  if (isGatewayOnlyLoanOfficer && !isLoanOfficerRouteAllowed(location.pathname)) {
+    return <Navigate to="/gateway" replace />;
+  }
 
   const isNavItemActive = (item) => {
     const pathname = location.pathname.replace(/\/+$/, '') || '/';
