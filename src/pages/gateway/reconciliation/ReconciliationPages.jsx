@@ -292,6 +292,31 @@ const useReconList = (path, params = {}) => {
 
   return { rows, meta, loading, error, reload: load };
 };
+
+const StatementBatchSelect = ({ value, onChange, className = '', params = {} }) => {
+  const [batches, setBatches] = useState([]);
+
+  useEffect(() => {
+    gatewayApi.get('/gateway/reconciliation/batches', { params })
+      .then((response) => setBatches(unwrap(response) || []))
+      .catch(() => setBatches([]));
+  }, [JSON.stringify(params)]);
+
+  return (
+    <select
+      value={value || ''}
+      onChange={(event) => onChange(event.target.value)}
+      className={`rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 ${className}`}
+    >
+      <option value="">All batches</option>
+      {batches.map((batch) => (
+        <option key={batch.id} value={batch.id}>
+          {[batch.batchNumber, batch.statementDate, batch.status].filter(Boolean).join(' - ')}
+        </option>
+      ))}
+    </select>
+  );
+};
 const batchColumns = [
   { key: 'batchNumber', header: 'Batch No', render: (row) => <Link className="font-semibold text-[var(--tenant-primary)]" to={`/gateway/reconciliation/batches/${row.id}`}>{row.batchNumber}</Link> },
   { key: 'statementDate', header: 'Statement Date' },
@@ -351,16 +376,20 @@ const DetailItem = ({ label, value }) => (
   </div>
 );
 
-const TransactionFilterBar = ({ filters, onChange, onReset }) => {
+const TransactionFilterBar = ({ filters, onChange, onReset, batchParams }) => {
   const set = (field) => (event) => onChange({ ...filters, [field]: event.target.value, page: 0 });
   return (
-    <Card className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
+    <Card className="grid gap-3 md:grid-cols-2 xl:grid-cols-8">
       <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 xl:col-span-2">
         Search
         <div className="relative mt-1">
           <input className={`${drawerField} pr-9`} value={filters.search || ''} onChange={set('search')} />
           <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
         </div>
+      </label>
+      <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 xl:col-span-2">
+        Statement Batch
+        <StatementBatchSelect value={filters.batchId || ''} onChange={(value) => onChange({ ...filters, batchId: value, page: 0 })} params={batchParams} className="mt-1 w-full" />
       </label>
       <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
         Match
@@ -876,30 +905,39 @@ export const ReconImportStatement = () => {
 };
 
 export const ReconBatches = () => {
-  const [filters, setFilters] = useState({ bankAccountId: '', status: '', from: '', to: '' });
-  const params = useMemo(() => Object.fromEntries(Object.entries(filters).filter(([, value]) => value)), [filters]);
+  const [filters, setFilters] = useState({ search: '', bankAccountId: '', status: '', from: '', to: '' });
+  const params = useMemo(() => Object.fromEntries(Object.entries({ bankAccountId: filters.bankAccountId, status: filters.status, from: filters.from, to: filters.to }).filter(([, value]) => value)), [filters]);
   const { rows, loading, reload } = useReconList('/gateway/reconciliation/batches', params);
-  const totalRows = sumBy(rows, 'totalRows');
-  const posted = sumBy(rows, 'postedCount');
-  const review = sumBy(rows, 'reviewCount');
-  const failed = sumBy(rows, 'failedCount');
+  const filteredRows = useMemo(() => {
+    const search = String(filters.search || '').trim().toLowerCase();
+    if (!search) return rows;
+    return rows.filter((batch) => [batch.batchNumber, batch.id, batch.sourceFileName, batch.status]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase()
+      .includes(search));
+  }, [rows, filters.search]);
+  const totalRows = sumBy(filteredRows, 'totalRows');
+  const posted = sumBy(filteredRows, 'postedCount');
+  const review = sumBy(filteredRows, 'reviewCount');
+  const failed = sumBy(filteredRows, 'failedCount');
   return (
     <div className="space-y-5">
       <ReconciliationHeader title="Statement Batches" subtitle="Manage imported bank statement batches." actions={<><Link to="/gateway/reconciliation/import"><Button><UploadCloud size={17} />Import Statement</Button></Link><Button variant="secondary" onClick={reload}><RefreshCcw size={17} />Refresh</Button></>} />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Batches" value={rows.length} icon={FileSpreadsheet} tone="blue" caption="Filtered result" />
+        <MetricCard label="Batches" value={filteredRows.length} icon={FileSpreadsheet} tone="blue" caption="Filtered result" />
         <MetricCard label="Rows Imported" value={totalRows} icon={ListChecks} tone="blue" caption="Total statement rows" />
         <MetricCard label="Posted" value={posted} icon={CheckCircle2} tone="green" caption={`${ratio(posted, totalRows)} of rows`} />
         <MetricCard label="Exceptions" value={review + failed} icon={AlertTriangle} tone="orange" caption={`${review} review, ${failed} failed`} />
       </div>
-      <Card className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 xl:col-span-2">Bank Account<BankAccountSelect value={filters.bankAccountId} onChange={(value) => setFilters({ ...filters, bankAccountId: value })} className="mt-1 w-full" /></label>
+      <Card className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 xl:col-span-2">Batch<div className="relative"><input className={`${drawerField} pr-9`} value={filters.search} onChange={(event) => setFilters({ ...filters, search: event.target.value })} placeholder="Batch number, file, or id" /><Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} /></div></label><label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 xl:col-span-2">Bank Account<BankAccountSelect value={filters.bankAccountId} onChange={(value) => setFilters({ ...filters, bankAccountId: value })} className="mt-1 w-full" /></label>
         <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Status<select className={drawerField} value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}><option value="">All</option><option value="IMPORTED">Imported</option><option value="PROCESSED">Processed</option><option value="CANCELLED">Cancelled</option></select></label>
         <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">From<input type="date" className={drawerField} value={filters.from} onChange={(event) => setFilters({ ...filters, from: event.target.value })} /></label>
         <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">To<input type="date" className={drawerField} value={filters.to} onChange={(event) => setFilters({ ...filters, to: event.target.value })} /></label>
       </Card>
       <TableShell title={loading ? 'Loading Batches...' : 'Statement Batches'}>
-        <ReconTable rows={rows} columns={batchColumns} />
+        <ReconTable rows={filteredRows} columns={batchColumns} />
       </TableShell>
     </div>
   );
@@ -993,7 +1031,7 @@ export const ReconTransactions = ({ mode = 'transactions' }) => {
     return map[mode] || map.transactions;
   }, [mode]);
   const modeDefaults = transactionModeDefaults[mode] || {};
-  const [filters, setFilters] = useState({ search: '', matchStatus: '', postingStatus: '', identifierType: '', from: '', to: '', page: 0, size: 20 });
+  const [filters, setFilters] = useState({ search: '', batchId: '', matchStatus: '', postingStatus: '', identifierType: '', from: '', to: '', page: 0, size: 20 });
   const [selectedRow, setSelectedRow] = useState(null);
   const [matchRow, setMatchRow] = useState(null);
   const [removingDuplicates, setRemovingDuplicates] = useState(false);
@@ -1014,7 +1052,7 @@ export const ReconTransactions = ({ mode = 'transactions' }) => {
     setFilters((current) => ({ ...current, matchStatus: '', postingStatus: '', page: 0 }));
   }, [mode]);
 
-  const resetFilters = () => setFilters({ search: '', matchStatus: '', postingStatus: '', identifierType: '', from: '', to: '', page: 0, size: filters.size });
+  const resetFilters = () => setFilters({ search: '', batchId: '', matchStatus: '', postingStatus: '', identifierType: '', from: '', to: '', page: 0, size: filters.size });
   const setPage = (page) => setFilters({ ...filters, page });
   const setSize = (size) => setFilters({ ...filters, size, page: 0 });
 
@@ -1119,7 +1157,7 @@ export const ReconTransactions = ({ mode = 'transactions' }) => {
       />
       <QueueSummary rows={rows} mode={mode} />
       <TransactionModePanel mode={mode} rows={rows} onBulkAction={bulkApproveVisible} />
-      <TransactionFilterBar filters={filters} onChange={setFilters} onReset={resetFilters} />
+      <TransactionFilterBar filters={filters} onChange={setFilters} onReset={resetFilters} batchParams={Object.fromEntries(Object.entries({ from: filters.from, to: filters.to }).filter(([, value]) => value))} />
       <TableShell title={loading ? 'Loading Transactions...' : config.title}>
         <ReconTable
           rows={rows}
