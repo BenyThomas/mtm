@@ -12,6 +12,9 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react(), WindiCSS()],
     server: {
+      host: '127.0.0.1',
+      port: Number(env.VITE_DEV_PORT || 5173),
+      strictPort: true,
       proxy: {
         '/api': {
           target: fineractTarget,
