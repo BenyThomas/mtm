@@ -155,6 +155,7 @@ const NAV_GROUPS = [
     title: 'Accounting',
     items: [
       { to: '/accounting/gl-accounts', label: 'GL Accounts', icon: '🧾', perm: 'READ_GLACCOUNT' },
+      { to: '/accounting/readiness', label: 'Accounting Readiness', icon: 'AR', any: ['READ_GLACCOUNT', 'READ_FINANCIALACTIVITYACCOUNT', 'READ_CONFIGURATION'] },
       { to: '/accounting/journal-entries', label: 'Journal Entries', icon: '📒', perm: 'READ_JOURNALENTRY' },
       { to: '/accounting/accounting-rules', label: 'Accounting Rules', icon: '🧩', perm: 'READ_ACCOUNTINGRULE' },
       { to: '/accounting/closures', label: 'GL Closures', icon: '🔒', perm: 'READ_GLCLOSURE' },

@@ -7,10 +7,15 @@ import Modal from '../components/Modal';
 import { useToast } from '../context/ToastContext';
 import { useNavigate } from 'react-router-dom';
 import AccountingRuleForm from '../components/AccountingRuleForm';
+import { useAuth } from '../context/AuthContext';
 
 const AccountingRules = () => {
     const { addToast } = useToast();
     const navigate = useNavigate();
+    const { can } = useAuth();
+    const canCreate = can('CREATE_ACCOUNTINGRULE');
+    const canUpdate = can('UPDATE_ACCOUNTINGRULE');
+    const canDelete = can('DELETE_ACCOUNTINGRULE');
 
     const [loading, setLoading] = useState(true);
     const [items, setItems] = useState([]);
@@ -90,7 +95,7 @@ const AccountingRules = () => {
             <div className="flex items-center justify-between">
                 <h1 className="text-2xl font-bold">Accounting Rules</h1>
                 <div className="space-x-2">
-                    <Button onClick={() => setCreateOpen(true)}>New Rule</Button>
+                    {canCreate ? <Button onClick={() => setCreateOpen(true)}>New Rule</Button> : null}
                     <Button variant="secondary" onClick={load}>Refresh</Button>
                 </div>
             </div>
@@ -141,9 +146,9 @@ const AccountingRules = () => {
                                     <td className="py-2 pr-4">{r.description || '-'}</td>
                                     <td className="py-2 pr-4 space-x-2">
                                         <Button variant="secondary" onClick={() => navigate(`/accounting/accounting-rules/${r.id}`)}>
-                                            View / Edit
+                                            {canUpdate ? 'View / Edit' : 'View'}
                                         </Button>
-                                        <Button variant="danger" onClick={() => setDeleteId(r.id)}>Delete</Button>
+                                        {canDelete ? <Button variant="danger" onClick={() => setDeleteId(r.id)}>Delete</Button> : null}
                                     </td>
                                 </tr>
                             ))}

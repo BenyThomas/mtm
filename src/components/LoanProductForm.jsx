@@ -220,6 +220,12 @@ const normalizeAccountingOptions = (options) => ({
 const hasAccountingOptions = (options) =>
     Object.values(normalizeAccountingOptions(options)).some((items) => items.length > 0);
 
+const accountingOptionId = (account) => String(account?.id ?? account?.accountId ?? '');
+const isDisabledAccountingOption = (account) =>
+    account?.disabled === true || String(account?.disabled ?? '').toLowerCase() === 'true';
+const findAccountingOption = (options, id) =>
+    (options || []).find((account) => accountingOptionId(account) === String(id));
+
 const buildAccountingOptionsFromGlAccounts = (accounts) => {
     const normalized = Array.isArray(accounts)
         ? accounts
@@ -230,6 +236,7 @@ const buildAccountingOptionsFromGlAccounts = (accounts) => {
                     id,
                     glCode: account?.glCode ?? account?.code ?? '',
                     name: account?.name ?? account?.nameDecorated ?? `#${id}`,
+                    disabled: Boolean(account?.disabled),
                     typeLabel: String(
                         account?.type?.value ??
                         account?.classification?.value ??
@@ -858,23 +865,43 @@ const LoanProductForm = ({ initial, onSubmit, submitting }) => {
                 e.accountingOptions =
                     `Fineract did not provide valid ${missingAccountingOptionTypes.join(', ')} GL account options`;
             }
+            const checkAccountingAccount = (field, label, expectedType, options) => {
+                const value = form[field];
+                if (!value) {
+                    e[field] = 'Required';
+                    return;
+                }
+                const selected = findAccountingOption(options, value);
+                if (!selected) {
+                    e[field] = label + ' must be an active ' + expectedType + ' GL account';
+                    return;
+                }
+                if (isDisabledAccountingOption(selected)) {
+                    e[field] = label + ' is disabled';
+                }
+            };
+
             [
-                'fundSourceAccountId',
-                'loanPortfolioAccountId',
-                'interestOnLoanAccountId',
-                'incomeFromFeeAccountId',
-                'incomeFromPenaltyAccountId',
-                'incomeFromRecoveryAccountId',
-                'writeOffAccountId',
-                'overpaymentLiabilityAccountId',
-                'transfersInSuspenseAccountId',
-            ].forEach((k) => {
-                if (!form[k]) e[k] = 'Required';
+                ['fundSourceAccountId', 'Fund Source', 'asset', accountingOptions.assetAccountOptions],
+                ['loanPortfolioAccountId', 'Loan Portfolio', 'asset', accountingOptions.assetAccountOptions],
+                ['interestOnLoanAccountId', 'Interest on Loan', 'income', accountingOptions.incomeAccountOptions],
+                ['incomeFromFeeAccountId', 'Income from Fees', 'income', accountingOptions.incomeAccountOptions],
+                ['incomeFromPenaltyAccountId', 'Income from Penalties', 'income', accountingOptions.incomeAccountOptions],
+                ['incomeFromRecoveryAccountId', 'Income from Recovery', 'income', accountingOptions.incomeAccountOptions],
+                ['writeOffAccountId', 'Write-off', 'expense', accountingOptions.expenseAccountOptions],
+                ['overpaymentLiabilityAccountId', 'Overpayment Liability', 'liability', accountingOptions.liabilityAccountOptions],
+                ['transfersInSuspenseAccountId', 'Transfers in Suspense', 'asset', accountingOptions.assetAccountOptions],
+            ].forEach(([field, label, expectedType, options]) => {
+                checkAccountingAccount(field, label, expectedType, options);
             });
 
             if (isAccrual) {
-                ['receivableInterestAccountId', 'receivableFeeAccountId', 'receivablePenaltyAccountId'].forEach((k) => {
-                    if (!form[k]) e[k] = 'Required';
+                [
+                    ['receivableInterestAccountId', 'Receivable Interest', 'asset', accountingOptions.assetAccountOptions],
+                    ['receivableFeeAccountId', 'Receivable Fees', 'asset', accountingOptions.assetAccountOptions],
+                    ['receivablePenaltyAccountId', 'Receivable Penalties', 'asset', accountingOptions.assetAccountOptions],
+                ].forEach(([field, label, expectedType, options]) => {
+                    checkAccountingAccount(field, label, expectedType, options);
                 });
             }
         }

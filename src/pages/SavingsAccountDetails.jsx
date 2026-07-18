@@ -1,6 +1,6 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
-import { BadgeDollarSign, Ban, CheckCircle, CreditCard, HandCoins, Lock, Percent, PiggyBank, RefreshCw, RotateCcw, Shield, Undo2, Unlock, UserMinus, UserPlus, Wallet, XCircle } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useParams, useSearchParams } from 'react-router-dom';
+import { BadgeDollarSign, Ban, CheckCircle, CreditCard, HandCoins, Lock, Pencil, Percent, PiggyBank, RefreshCw, RotateCcw, Shield, Undo2, Unlock, UserMinus, UserPlus, Wallet, XCircle } from 'lucide-react';
 import api from '../api/axios';
 import Card from '../components/Card';
 import Skeleton from '../components/Skeleton';
@@ -27,6 +27,14 @@ const parseError = (err, fallback) => err?.response?.data?.errors?.[0]?.defaultU
 const firstNonBlank = (...values) => values.find((v) => v !== null && v !== undefined && String(v).trim() !== '')?.toString().trim() || '';
 const nested = (root, key, childKey) => root?.[key] && typeof root[key] === 'object' ? root[key][childKey] : undefined;
 const asDate = (value) => Array.isArray(value) && value.length >= 3 ? `${value[0]}-${String(value[1]).padStart(2, '0')}-${String(value[2]).padStart(2, '0')}` : firstNonBlank(value).slice(0, 10);
+const compactReferencePart = (value, fallback = 'REF') => {
+    const compact = String(value || '').replace(/[^A-Za-z0-9]/g, '');
+    return compact || fallback;
+};
+const internalSavingsRepaymentReference = ({ loanId, savingsAccountId }) => {
+    const stamp = new Date().toISOString().replace(/\D/g, '').slice(0, 14);
+    return `SLR-${stamp}-L${compactReferencePart(loanId)}-S${compactReferencePart(savingsAccountId)}`;
+};
 const formatDate = (value) => asDate(value) || '-';
 const formatAmount = (value, currency) => Number.isFinite(Number(value)) ? `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(Number(value))}${currency ? ` ${currency}` : ''}` : '-';
 const formatValue = (value) => value === null || value === undefined || value === '' ? '-' : Array.isArray(value) ? value.join('-') : typeof value === 'object' ? value.value || value.code || value.name || value.displayName || '-' : String(value);
@@ -112,6 +120,7 @@ const SavingsAccountDetails = () => {
             actions.push({ key: 'close', label: 'Close', icon: XCircle, dateField: 'closedOnDate', dateLabel: 'Closed On', close: true, note: true });
             actions.push({ key: 'calculateInterest', label: 'Calculate Interest', icon: Percent });
             actions.push({ key: 'postInterest', label: 'Post Interest', icon: BadgeDollarSign });
+            actions.push({ key: 'updateWithHoldTax', label: 'Update Withholding Tax', icon: Shield, withholdTax: true });
             actions.push({ key: 'block', label: 'Block Account', icon: Lock });
             actions.push({ key: 'unblock', label: 'Unblock Account', icon: Unlock });
             actions.push({ key: 'blockCredit', label: 'Block Credit', icon: Lock });
@@ -126,7 +135,7 @@ const SavingsAccountDetails = () => {
 
     const openCommand = (action) => {
         setCommandModal(action);
-        setCommandForm({ [action.dateField || 'actionDate']: dateISO(), note: '', withdrawBalance: false, paymentTypeId: '', toSavingsOfficerId: '', fromSavingsOfficerId: acc?.fieldOfficerId || acc?.savingsOfficerId || '' });
+        setCommandForm({ [action.dateField || 'actionDate']: dateISO(), note: '', withdrawBalance: false, paymentTypeId: '', toSavingsOfficerId: '', fromSavingsOfficerId: acc?.fieldOfficerId || acc?.savingsOfficerId || '', withHoldTax: Boolean(acc?.withHoldTax), taxGroupId: firstNonBlank(acc?.taxGroup?.id, acc?.taxGroupId) });
     };
     const submitCommand = async () => {
         if (!commandModal) return;
@@ -145,9 +154,18 @@ const SavingsAccountDetails = () => {
             if (commandForm.fromSavingsOfficerId) payload.fromSavingsOfficerId = Number(commandForm.fromSavingsOfficerId);
         }
         if (commandModal.officer === 'unassign') payload.unassignedDate = commandForm.unassignedDate || dateISO();
+        if (commandModal.withholdTax) {
+            payload.withHoldTax = Boolean(commandForm.withHoldTax);
+            if (payload.withHoldTax && !commandForm.taxGroupId) return addToast('Tax group ID is required when withholding tax is enabled', 'error');
+            if (commandForm.taxGroupId) payload.taxGroupId = Number(commandForm.taxGroupId);
+        }
         setCommandBusy(true);
         try {
-            await api.post(`/savingsaccounts/${id}?command=${encodeURIComponent(commandModal.key)}`, payload);
+            if (commandModal.withholdTax) {
+                await api.put(`/savingsaccounts/${id}?command=updateWithHoldTax`, payload);
+            } else {
+                await api.post(`/savingsaccounts/${id}?command=${encodeURIComponent(commandModal.key)}`, payload);
+            }
             addToast(`${commandModal.label} posted`, 'success');
             setCommandModal(null);
             await refreshAll();
@@ -164,6 +182,7 @@ const SavingsAccountDetails = () => {
         const { type, tx } = transactionModal;
         const amountRequired = ['deposit', 'withdrawal', 'modify'].includes(type);
         if (amountRequired && (!transactionForm.transactionAmount || Number(transactionForm.transactionAmount) <= 0)) return addToast('Enter a valid amount', 'error');
+        if (['deposit', 'withdrawal'].includes(type) && !transactionForm.paymentTypeId) return addToast('Payment Type ID is required', 'error');
         const payload = { locale: 'en', dateFormat: 'yyyy-MM-dd' };
         if (amountRequired) {
             payload.transactionDate = transactionForm.transactionDate || dateISO();
@@ -189,6 +208,7 @@ const SavingsAccountDetails = () => {
         if (!loanTransferForm.toAccountId) return addToast('Select or enter a loan account', 'error');
         if (!loanTransferForm.transferAmount || Number(loanTransferForm.transferAmount) <= 0) return addToast('Enter a valid repayment amount', 'error');
         const toOfficeId = firstNonBlank(selectedLoan?.officeId, selectedLoan?.clientOfficeId, nested(selectedLoan, 'office', 'id'), officeId);
+        const transferExternalId = internalSavingsRepaymentReference({ loanId: loanTransferForm.toAccountId, savingsAccountId: id });
         const payload = {
             locale: 'en', dateFormat: 'yyyy-MM-dd',
             fromOfficeId: officeId ? Number(officeId) : undefined,
@@ -201,6 +221,7 @@ const SavingsAccountDetails = () => {
             toAccountId: Number(loanTransferForm.toAccountId),
             transferDate: loanTransferForm.transferDate || dateISO(),
             transferAmount: Number(loanTransferForm.transferAmount),
+            externalId: transferExternalId,
             transferDescription: loanTransferForm.transferDescription?.trim() || 'Loan repayment from savings',
         };
         Object.keys(payload).forEach((key) => payload[key] === undefined && delete payload[key]);
@@ -273,7 +294,7 @@ const SavingsAccountDetails = () => {
                 </div>
             </Card>
 
-            <Tabs tabs={[{ key: 'overview', label: 'Overview' }, { key: 'actions', label: 'Actions' }, { key: 'transactions', label: 'Transactions' }, { key: 'transfers', label: 'Transfers & Loans' }, { key: 'charges', label: 'Charges' }, { key: 'reversals', label: 'Reversals' }]}>
+            <Tabs initial={searchParams.get('tab') || 'overview'} tabs={[{ key: 'overview', label: 'Overview' }, { key: 'actions', label: 'Actions' }, { key: 'transactions', label: 'Transactions' }, { key: 'transfers', label: 'Transfers & Loans' }, { key: 'charges', label: 'Charges' }, { key: 'reversals', label: 'Reversals' }]}>
                 <div data-tab="overview" className="space-y-4">
                     <Card><div className="grid gap-4 text-sm md:grid-cols-3">
                         <DetailField label="Status" value={acc.status?.value || acc.status?.code} />
@@ -298,7 +319,7 @@ const SavingsAccountDetails = () => {
                 <div data-tab="transactions" className="space-y-4">
                     <Card>
                         <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><div className="text-sm font-semibold">Transactions</div><div className="flex gap-2"><Button size="sm" variant="secondary" onClick={() => openTransaction('deposit')} disabled={flags.closed}><Wallet size={15} /> Deposit</Button><Button size="sm" variant="secondary" onClick={() => openTransaction('withdrawal')} disabled={!flags.active}><HandCoins size={15} /> Withdraw</Button></div></div>
-                        {!transactions.length ? <div className="text-sm text-slate-600 dark:text-slate-300">No transactions found.</div> : <div className="overflow-x-auto"><table className="min-w-full text-sm"><thead><tr className="text-left text-slate-500 dark:text-slate-400"><th className="py-2 pr-4">Date</th><th className="py-2 pr-4">Type</th><th className="py-2 pr-4">Amount</th><th className="py-2 pr-4">Running Balance</th><th className="py-2 pr-4 text-right">Actions</th></tr></thead><tbody>{transactions.map((tx) => <tr key={tx.id || `${tx.transactionDate}-${tx.amount}`} className="border-t border-slate-200 dark:border-slate-700"><td className="py-2 pr-4">{formatDate(tx.date || tx.transactionDate)}</td><td className="py-2 pr-4">{tx.transactionType?.value || tx.type?.value || tx.type || '-'}</td><td className="py-2 pr-4">{formatAmount(tx.amount || tx.transactionAmount, currency)}</td><td className="py-2 pr-4">{formatAmount(tx.runningBalance, currency)}</td><td className="py-2 text-right"><div className="flex flex-wrap justify-end gap-2"><Button size="sm" variant="ghost" onClick={() => openTransaction('modify', tx)}>Modify</Button><Button size="sm" variant="ghost" onClick={() => openTransaction('undo', tx)}><Undo2 size={14} /> Undo</Button><Button size="sm" variant="ghost" onClick={() => openTransaction('holdAmount', tx)}><Lock size={14} /> Hold</Button><Button size="sm" variant="ghost" onClick={() => openTransaction('releaseAmount', tx)}><Unlock size={14} /> Release</Button></div></td></tr>)}</tbody></table></div>}
+                        {!transactions.length ? <div className="text-sm text-slate-600 dark:text-slate-300">No transactions found.</div> : <div className="overflow-x-auto"><table className="min-w-full text-sm"><thead><tr className="text-left text-slate-500 dark:text-slate-400"><th className="py-2 pr-4">Date</th><th className="py-2 pr-4">Type</th><th className="py-2 pr-4">Amount</th><th className="py-2 pr-4">Running Balance</th><th className="py-2 pr-4 text-right">Actions</th></tr></thead><tbody>{transactions.map((tx) => <tr key={tx.id || `${tx.transactionDate}-${tx.amount}`} className="border-t border-slate-200 dark:border-slate-700"><td className="py-2 pr-4">{formatDate(tx.date || tx.transactionDate)}</td><td className="py-2 pr-4">{tx.transactionType?.value || tx.type?.value || tx.type || '-'}</td><td className="py-2 pr-4">{formatAmount(tx.amount || tx.transactionAmount, currency)}</td><td className="py-2 pr-4">{formatAmount(tx.runningBalance, currency)}</td><td className="py-2 text-right"><div className="flex flex-wrap justify-end gap-2"><Button size="sm" variant="ghost" onClick={() => openTransaction('modify', tx)}><Pencil size={14} /> Modify</Button><Button size="sm" variant="ghost" onClick={() => openTransaction('undo', tx)}><Undo2 size={14} /> Undo</Button><Button size="sm" variant="ghost" onClick={() => openTransaction('holdAmount', tx)}><Lock size={14} /> Hold</Button><Button size="sm" variant="ghost" onClick={() => openTransaction('releaseAmount', tx)}><Unlock size={14} /> Release</Button></div></td></tr>)}</tbody></table></div>}
                     </Card>
                 </div>
 
@@ -307,7 +328,7 @@ const SavingsAccountDetails = () => {
                         <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><div><div className="text-sm font-semibold">Pay Loan From Savings</div><div className="text-xs text-slate-500">Posts a Fineract account transfer from savings account type 2 to loan account type 1.</div></div><Button size="sm" onClick={() => setLoanTransferOpen(true)} disabled={!flags.active}><PiggyBank size={15} /> New Loan Payment</Button></div>
                         {loanAccounts.length ? <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">{loanAccounts.map((loan) => <div key={loan.id || loan.accountId} className="rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-700"><div className="font-semibold">{loan.productName || loan.loanProductName || 'Loan Account'}</div><div className="mt-1 text-slate-600 dark:text-slate-300">#{loan.id || loan.accountId} {loan.accountNo ? `- ${loan.accountNo}` : ''}</div><div className="mt-1">{formatValue(loan.status)}</div></div>)}</div> : <div className="text-sm text-slate-600 dark:text-slate-300">No loan accounts were returned for this savings account client. You can still enter a loan account ID manually in the payment modal.</div>}
                     </Card>
-                    <Card><div className="mb-3 text-sm font-semibold">Recent Account Transfers</div>{!transfers.length ? <div className="text-sm text-slate-600 dark:text-slate-300">No recent transfers found for this account.</div> : <div className="overflow-x-auto"><table className="min-w-full text-sm"><thead><tr className="text-left text-slate-500 dark:text-slate-400"><th className="py-2 pr-4">Date</th><th className="py-2 pr-4">From</th><th className="py-2 pr-4">To</th><th className="py-2 pr-4">Amount</th><th className="py-2 pr-4">Description</th></tr></thead><tbody>{transfers.map((transfer) => <tr key={transfer.id || transfer.resourceId || `${transfer.transferDate}-${transfer.amount}`} className="border-t border-slate-200 dark:border-slate-700"><td className="py-2 pr-4">{formatDate(transfer.transferDate || transfer.date)}</td><td className="py-2 pr-4">{formatValue(transfer.fromAccount || transfer.fromAccountId)}</td><td className="py-2 pr-4">{formatValue(transfer.toAccount || transfer.toAccountId)}</td><td className="py-2 pr-4">{formatAmount(transfer.transferAmount || transfer.amount, currency)}</td><td className="py-2 pr-4">{transfer.transferDescription || transfer.description || '-'}</td></tr>)}</tbody></table></div>}</Card>
+                    <Card><div className="mb-3 text-sm font-semibold">Recent Account Transfers</div>{!transfers.length ? <div className="text-sm text-slate-600 dark:text-slate-300">No recent transfers found for this account.</div> : <div className="overflow-x-auto"><table className="min-w-full text-sm"><thead><tr className="text-left text-slate-500 dark:text-slate-400"><th className="py-2 pr-4">Date</th><th className="py-2 pr-4">Reference</th><th className="py-2 pr-4">From</th><th className="py-2 pr-4">To</th><th className="py-2 pr-4">Amount</th><th className="py-2 pr-4">Description</th></tr></thead><tbody>{transfers.map((transfer) => <tr key={transfer.id || transfer.resourceId || `${transfer.transferDate}-${transfer.amount}`} className="border-t border-slate-200 dark:border-slate-700"><td className="py-2 pr-4">{formatDate(transfer.transferDate || transfer.date)}</td><td className="py-2 pr-4 font-mono">{formatValue(transfer.externalId || transfer.reference)}</td><td className="py-2 pr-4">{formatValue(transfer.fromAccount || transfer.fromAccountId)}</td><td className="py-2 pr-4">{formatValue(transfer.toAccount || transfer.toAccountId)}</td><td className="py-2 pr-4">{formatAmount(transfer.transferAmount || transfer.amount, currency)}</td><td className="py-2 pr-4">{transfer.transferDescription || transfer.description || '-'}</td></tr>)}</tbody></table></div>}</Card>
                 </div>
 
                 <div data-tab="charges" className="space-y-4">
@@ -322,6 +343,7 @@ const SavingsAccountDetails = () => {
                     {commandModal?.officer === 'assign' ? <div className="grid gap-4 md:grid-cols-2"><Field label="Assignment Date"><input type="date" className={fieldClass} value={commandForm.assignmentDate || dateISO()} onChange={(e) => setCommandForm((prev) => ({ ...prev, assignmentDate: e.target.value }))} /></Field><Field label="To Savings Officer ID"><input className={fieldClass} value={commandForm.toSavingsOfficerId || ''} onChange={(e) => setCommandForm((prev) => ({ ...prev, toSavingsOfficerId: e.target.value }))} /></Field><Field label="From Savings Officer ID"><input className={fieldClass} value={commandForm.fromSavingsOfficerId || ''} onChange={(e) => setCommandForm((prev) => ({ ...prev, fromSavingsOfficerId: e.target.value }))} /></Field></div> : null}
                     {commandModal?.officer === 'unassign' ? <Field label="Unassigned Date"><input type="date" className={fieldClass} value={commandForm.unassignedDate || dateISO()} onChange={(e) => setCommandForm((prev) => ({ ...prev, unassignedDate: e.target.value }))} /></Field> : null}
                     {commandModal?.close ? <div className="grid gap-4 md:grid-cols-2"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={Boolean(commandForm.withdrawBalance)} onChange={(e) => setCommandForm((prev) => ({ ...prev, withdrawBalance: e.target.checked }))} />Withdraw remaining balance</label><Field label="Payment Type ID"><input className={fieldClass} value={commandForm.paymentTypeId || ''} onChange={(e) => setCommandForm((prev) => ({ ...prev, paymentTypeId: e.target.value }))} /></Field>{['accountNumber', 'checkNumber', 'routingCode', 'receiptNumber', 'bankNumber'].map((field) => <Field key={field} label={field}><input className={fieldClass} value={commandForm[field] || ''} onChange={(e) => setCommandForm((prev) => ({ ...prev, [field]: e.target.value }))} /></Field>)}</div> : null}
+                    {commandModal?.withholdTax ? <div className="grid gap-4 md:grid-cols-2"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={Boolean(commandForm.withHoldTax)} onChange={(e) => setCommandForm((prev) => ({ ...prev, withHoldTax: e.target.checked }))} />Withhold tax</label><Field label="Tax Group ID"><input className={fieldClass} value={commandForm.taxGroupId || ''} onChange={(e) => setCommandForm((prev) => ({ ...prev, taxGroupId: e.target.value }))} /></Field></div> : null}
                     {commandModal?.note ? <Field label="Note"><textarea className={fieldClass} rows={3} value={commandForm.note || ''} onChange={(e) => setCommandForm((prev) => ({ ...prev, note: e.target.value }))} /></Field> : null}
                 </div>
             </Modal>
@@ -338,7 +360,7 @@ const SavingsAccountDetails = () => {
                     <Field label="Loan Account">{loanAccounts.length ? <select className={fieldClass} value={loanTransferForm.toAccountId} onChange={(e) => setLoanTransferForm((prev) => ({ ...prev, toAccountId: e.target.value }))}><option value="">Select loan account</option>{loanAccounts.map((loan) => <option key={loan.id || loan.accountId} value={loan.id || loan.accountId}>#{loan.id || loan.accountId} {loan.accountNo ? `- ${loan.accountNo}` : ''} {loan.productName || loan.loanProductName ? `- ${loan.productName || loan.loanProductName}` : ''}</option>)}</select> : <input className={fieldClass} value={loanTransferForm.toAccountId} onChange={(e) => setLoanTransferForm((prev) => ({ ...prev, toAccountId: e.target.value }))} placeholder="Loan account ID" />}</Field>
                     <Field label="Amount"><input type="number" min="0" step="0.01" className={fieldClass} value={loanTransferForm.transferAmount} onChange={(e) => setLoanTransferForm((prev) => ({ ...prev, transferAmount: e.target.value }))} /></Field>
                     <Field label="Transfer Date"><input type="date" className={fieldClass} value={loanTransferForm.transferDate} onChange={(e) => setLoanTransferForm((prev) => ({ ...prev, transferDate: e.target.value }))} /></Field>
-                    <div className="md:col-span-2"><Field label="Description"><input className={fieldClass} value={loanTransferForm.transferDescription} onChange={(e) => setLoanTransferForm((prev) => ({ ...prev, transferDescription: e.target.value }))} /></Field></div>
+                    <Field label="Description"><input className={fieldClass} value={loanTransferForm.transferDescription} onChange={(e) => setLoanTransferForm((prev) => ({ ...prev, transferDescription: e.target.value }))} /></Field>
                     <div className="md:col-span-2 rounded-lg bg-slate-50 p-3 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">From savings account #{id} to loan account using Fineract account transfer. The customer API also exposes /me/savings/{'{savingsAccountId}'}/loan-repayments with ownership and idempotency checks.</div>
                 </div>
             </Modal>

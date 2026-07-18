@@ -2,52 +2,75 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Button from './Button';
 import Card from './Card';
 import Skeleton from './Skeleton';
+import SearchableSelectField from './SearchableSelectField';
 import api from '../api/axios';
+
+const asArray = (value) => {
+    if (Array.isArray(value)) return value;
+    if (Array.isArray(value?.pageItems)) return value.pageItems;
+    if (Array.isArray(value?.options)) return value.options;
+    return [];
+};
 
 const dedupeById = (arr = []) => {
     const map = new Map();
     arr.forEach((x) => {
-        const id = x?.id ?? x?.accountId;
-        if (id != null && !map.has(id)) map.set(id, x);
+        const id = x?.id ?? x?.accountId ?? x?.glAccountId;
+        if (id != null && !map.has(String(id))) map.set(String(id), x);
     });
     return Array.from(map.values());
 };
 
 const normalizeFAOptions = (tpl) => {
-    const raw =
-        tpl?.financialActivityOptions ||
-        tpl?.financialActivities ||
-        tpl?.financialActivityData ||
-        [];
-    return raw.map((o) => ({
-        id: o.id ?? o.value ?? o.code,
-        name: o.name ?? o.value ?? o.code ?? `Activity ${o.id}`,
-    }));
+    const raw = [
+        ...asArray(tpl?.financialActivityOptions),
+        ...asArray(tpl?.financialActivities),
+        ...asArray(tpl?.financialActivityData),
+        ...asArray(tpl?.financialActivityAccountOptions),
+    ];
+
+    return dedupeById(raw.map((o) => {
+        const id = o?.id ?? o?.financialActivityId ?? o?.value ?? o?.code;
+        return {
+            id,
+            name: o?.name ?? o?.value ?? o?.label ?? o?.code ?? (id != null ? `Activity ${id}` : ''),
+        };
+    })).filter((o) => o.id != null);
 };
+
+const accountOptionBuckets = (source) => [
+    ...asArray(source),
+    ...asArray(source?.assetAccountOptions),
+    ...asArray(source?.incomeAccountOptions),
+    ...asArray(source?.expenseAccountOptions),
+    ...asArray(source?.liabilityAccountOptions),
+    ...asArray(source?.equityAccountOptions),
+];
 
 const normalizeGLAccountOptions = (tpl) => {
     const flat = [
-        ...(tpl?.glAccountOptions || []),
-        ...(tpl?.assetAccountOptions || []),
-        ...(tpl?.incomeAccountOptions || []),
-        ...(tpl?.expenseAccountOptions || []),
-        ...(tpl?.liabilityAccountOptions || []),
-        ...(tpl?.accountingMappingOptions?.assetAccountOptions || []),
-        ...(tpl?.accountingMappingOptions?.incomeAccountOptions || []),
-        ...(tpl?.accountingMappingOptions?.expenseAccountOptions || []),
-        ...(tpl?.accountingMappingOptions?.liabilityAccountOptions || []),
+        ...accountOptionBuckets(tpl?.glAccountOptions),
+        ...accountOptionBuckets(tpl?.accountingMappingOptions),
+        ...asArray(tpl?.assetAccountOptions),
+        ...asArray(tpl?.incomeAccountOptions),
+        ...asArray(tpl?.expenseAccountOptions),
+        ...asArray(tpl?.liabilityAccountOptions),
+        ...asArray(tpl?.equityAccountOptions),
+        ...asArray(tpl?.accountOptions),
+        ...asArray(tpl?.glAccounts),
+        ...asArray(tpl?.glAccountData),
     ];
-    const unique = dedupeById(flat);
-    return unique.map((a) => ({
-        id: a.id ?? a.accountId,
+
+    return dedupeById(flat).map((a) => ({
+        id: a.id ?? a.accountId ?? a.glAccountId,
         code: a.glCode || a.code || '',
         name: a.name || a.accountName || '',
-        type: a.type?.value || a.type || '',
-    }));
+        type: a.type?.value || a.type?.code || a.type || '',
+    })).filter((a) => a.id != null);
 };
 
 const glLabel = (a) =>
-    `${a.code ? a.code : a.id}${a.name ? ` — ${a.name}` : ''}`.trim();
+    `${a.code ? a.code : a.id}${a.name ? ` - ${a.name}` : ''}`.trim();
 
 /**
  * Props:
@@ -55,7 +78,7 @@ const glLabel = (a) =>
  * - onSubmit: async (payload) => void
  * - submitting: boolean
  */
-const FinancialActivityMappingForm = ({ initial, onSubmit, submitting }) => {
+const FinancialActivityMappingForm = ({ initial, onSubmit, submitting, lockFinancialActivity = false }) => {
     const [loading, setLoading] = useState(true);
     const [faOptions, setFaOptions] = useState([]);
     const [glOptions, setGlOptions] = useState([]);
@@ -64,7 +87,6 @@ const FinancialActivityMappingForm = ({ initial, onSubmit, submitting }) => {
     const [glAccountId, setGlAccountId] = useState('');
     const [errors, setErrors] = useState({});
 
-    // load template options
     useEffect(() => {
         let cancelled = false;
         (async () => {
@@ -75,7 +97,6 @@ const FinancialActivityMappingForm = ({ initial, onSubmit, submitting }) => {
                 setFaOptions(normalizeFAOptions(res?.data || {}));
                 setGlOptions(normalizeGLAccountOptions(res?.data || {}));
             } catch {
-                // fallback empty; UI will show no options
                 if (cancelled) return;
                 setFaOptions([]);
                 setGlOptions([]);
@@ -83,10 +104,9 @@ const FinancialActivityMappingForm = ({ initial, onSubmit, submitting }) => {
                 if (!cancelled) setLoading(false);
             }
         })();
-        return () => (cancelled = true);
+        return () => { cancelled = true; };
     }, []);
 
-    // hydrate initial values for edit
     useEffect(() => {
         if (!initial) return;
         setFinancialActivityId(
@@ -123,16 +143,42 @@ const FinancialActivityMappingForm = ({ initial, onSubmit, submitting }) => {
         if (errors.glAccountId) setErrors((x) => ({ ...x, glAccountId: '' }));
     };
 
-    const groupedGL = useMemo(() => {
-        // simple grouping by type if available
-        const groups = {};
-        glOptions.forEach((a) => {
-            const k = a.type || 'Accounts';
-            groups[k] = groups[k] || [];
-            groups[k].push(a);
-        });
-        return groups;
-    }, [glOptions]);
+    const displayedFaOptions = useMemo(() => {
+        if (financialActivityId && !faOptions.some((option) => String(option.id) === String(financialActivityId))) {
+            return [
+                { id: financialActivityId, name: initial?.financialActivityName || `Activity ${financialActivityId}` },
+                ...faOptions,
+            ];
+        }
+        return faOptions;
+    }, [faOptions, financialActivityId, initial?.financialActivityName]);
+
+    const displayedGlOptions = useMemo(() => {
+        if (glAccountId && !glOptions.some((option) => String(option.id) === String(glAccountId))) {
+            return [
+                {
+                    id: glAccountId,
+                    code: initial?.glAccountCode || '',
+                    name: initial?.glAccountName || `GL Account ${glAccountId}`,
+                    type: initial?.glAccountType || 'Accounts',
+                },
+                ...glOptions,
+            ];
+        }
+        return glOptions;
+    }, [glOptions, glAccountId, initial?.glAccountCode, initial?.glAccountName, initial?.glAccountType]);
+
+    const faSelectOptions = useMemo(() => displayedFaOptions.map((option) => ({
+        id: String(option.id),
+        label: `${option.id}${option.name ? ` - ${option.name}` : ''}`,
+    })), [displayedFaOptions]);
+
+    const glSelectOptions = useMemo(() => displayedGlOptions.map((account) => ({
+        id: String(account.id),
+        label: `${glLabel(account)}${account.type ? ` (${account.type})` : ''}`,
+    })), [displayedGlOptions]);
+
+    const isEdit = Boolean(initial?.id);
 
     if (loading) {
         return (
@@ -145,42 +191,29 @@ const FinancialActivityMappingForm = ({ initial, onSubmit, submitting }) => {
     return (
         <form onSubmit={submit} className="space-y-4">
             <div>
-                <label className="block text-sm font-medium">Financial Activity *</label>
-                <select
+                <SearchableSelectField
+                    label="Financial Activity"
                     value={financialActivityId}
-                    onChange={(e) => onFAChange(e.target.value)}
-                    className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
-                >
-                    <option value="">Select activity</option>
-                    {faOptions.map((o) => (
-                        <option key={o.id} value={o.id}>
-                            {o.name}
-                        </option>
-                    ))}
-                </select>
+                    onChange={onFAChange}
+                    options={faSelectOptions}
+                    placeholder={faSelectOptions.length ? 'Search activity by ID or name' : 'No activities available'}
+                    disabled={lockFinancialActivity}
+                    required
+                />
                 {errors.financialActivityId && (
                     <p className="text-xs text-red-500 mt-1">{errors.financialActivityId}</p>
                 )}
             </div>
 
             <div>
-                <label className="block text-sm font-medium">GL Account *</label>
-                <select
+                <SearchableSelectField
+                    label="GL Account"
                     value={glAccountId}
-                    onChange={(e) => onGLChange(e.target.value)}
-                    className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
-                >
-                    <option value="">Select account</option>
-                    {Object.entries(groupedGL).map(([group, arr]) => (
-                        <optgroup key={group} label={group}>
-                            {arr.map((a) => (
-                                <option key={a.id} value={a.id}>
-                                    {glLabel(a)}
-                                </option>
-                            ))}
-                        </optgroup>
-                    ))}
-                </select>
+                    onChange={onGLChange}
+                    options={glSelectOptions}
+                    placeholder={glSelectOptions.length ? 'Search GL account by code, ID, or name' : 'No GL accounts available'}
+                    required
+                />
                 {errors.glAccountId && (
                     <p className="text-xs text-red-500 mt-1">{errors.glAccountId}</p>
                 )}
@@ -188,7 +221,7 @@ const FinancialActivityMappingForm = ({ initial, onSubmit, submitting }) => {
 
             <div className="flex items-center justify-end gap-2">
                 <Button type="submit" disabled={submitting}>
-                    {submitting ? 'Saving…' : initial ? 'Save Changes' : 'Create Mapping'}
+                    {submitting ? 'Saving...' : isEdit ? 'Save Changes' : 'Create Mapping'}
                 </Button>
             </div>
         </form>

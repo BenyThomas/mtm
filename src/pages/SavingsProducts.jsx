@@ -21,6 +21,8 @@ const accountId = (account) => account?.id ?? account?.accountId ?? account?.glA
 const accountType = (account) => String(account?.type?.value || account?.type?.code || account?.type || '').toUpperCase();
 const accountLabel = (account) => `${account?.glCode || account?.code || accountId(account)} - ${account?.name || account?.accountName || ''}`.trim();
 const matchesType = (account, type) => accountType(account).includes(type);
+const accountDisabled = (account) => account?.disabled === true || String(account?.disabled ?? '').toLowerCase() === 'true';
+const findAccountById = (accounts, id) => (accounts || []).find((account) => String(accountId(account)) === String(id));
 const uniqueAccounts = (items) => {
     const seen = new Map();
     (items || []).forEach((account) => {
@@ -156,8 +158,24 @@ const SavingsProducts = () => {
         if (!form.shortName.trim()) next.shortName = 'Short name is required';
         if (form.shortName.trim().length > 4) next.shortName = 'Short name must be 4 characters or fewer';
         if (isAccountingEnabled) {
-            accountingFields.forEach(([field, label]) => {
-                if (!form[field]) next[field] = `${label} is required`;
+            accountingFields.forEach(([field, label, expectedType]) => {
+                const selectedValue = form[field];
+                if (!selectedValue) {
+                    next[field] = label + ' is required';
+                    return;
+                }
+                const selectedAccount = findAccountById(glAccounts, selectedValue);
+                if (!selectedAccount) {
+                    next[field] = label + ' must be a valid ' + expectedType.toLowerCase() + ' GL account';
+                    return;
+                }
+                if (accountDisabled(selectedAccount)) {
+                    next[field] = label + ' is disabled';
+                    return;
+                }
+                if (!matchesType(selectedAccount, expectedType)) {
+                    next[field] = label + ' must be a ' + expectedType.toLowerCase() + ' GL account';
+                }
             });
         }
         setErrors(next);

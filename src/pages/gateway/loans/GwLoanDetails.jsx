@@ -36,6 +36,18 @@ import { useToast } from '../../../context/ToastContext';
 import { getGwLoanStatusCode, getGwLoanStatusLabel, getGwLoanStatusTone } from '../../../utils/gwLoanStatus';
 
 const dateISO = () => new Date().toISOString().slice(0, 10);
+const compactReferencePart = (value, fallback = 'REF') => {
+  const compact = String(value || '').replace(/[^A-Za-z0-9]/g, '');
+  return compact || fallback;
+};
+
+const internalSavingsRepaymentReference = ({ loanId, savingsAccountId }) => {
+  const stamp = new Date().toISOString().replace(/\D/g, '').slice(0, 14);
+  return `SLR-${stamp}-L${compactReferencePart(loanId)}-S${compactReferencePart(savingsAccountId)}`;
+};
+const ACCOUNT_TYPE_LOAN = 1;
+const ACCOUNT_TYPE_SAVINGS = 2;
+const SAVINGS_REPAYMENT_PROVIDER = 'FROM_SAVINGS';
 const DISBURSEMENT_TYPES = ['BANK', 'MOBILE_MONEY', 'CASH'];
 const BANK_NAME_TYPE_BY_DISBURSEMENT = {
   BANK: 'BANK',
@@ -87,6 +99,30 @@ const normalizeText = (v) => {
 };
 
 const normalizeProvider = (v) => normalizeText(v).toUpperCase();
+
+const savingsStatusCode = (account) => normalizeText(typeof account?.status === 'object' ? account?.status?.code || account?.status?.value || account?.status?.name : account?.status).toUpperCase();
+
+const isActiveSavingsAccount = (account) => {
+  if (account?.status && typeof account.status === 'object' && account.status.active === true) return true;
+  const code = savingsStatusCode(account);
+  return code.includes('ACTIVE') && !code.includes('INACTIVE');
+};
+
+const savingsAccountBalance = (account) => {
+  const summary = account?.summary || {};
+  return toNumOrNull(summary.accountBalance ?? summary.availableBalance ?? account?.accountBalance ?? account?.balance);
+};
+
+const savingsAccountCurrency = (account) => account?.summary?.currency?.code || account?.currency?.code || account?.currencyCode || '';
+
+const savingsAccountLabel = (account) => {
+  const balance = savingsAccountBalance(account);
+  const currency = savingsAccountCurrency(account);
+  const accountNo = account?.accountNo || account?.externalId || account?.id;
+  const product = account?.productName || account?.savingsProductName || 'Savings';
+  const balanceText = balance != null ? ` - ${new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(balance)} ${currency}`.trimEnd() : '';
+  return `${accountNo} - ${product}${balanceText}`;
+};
 const upper = (v) => normalizeText(v).toUpperCase();
 
 const deriveTypeFromProvider = (provider) => {
@@ -510,9 +546,13 @@ const GwLoanDetails = () => {
   const [repaymentPayerName, setRepaymentPayerName] = useState('');
   const [repaymentPayerEmail, setRepaymentPayerEmail] = useState('');
   const [repaymentExternalId, setRepaymentExternalId] = useState('');
+  const [repaymentNote, setRepaymentNote] = useState('');
   const [repaymentResult, setRepaymentResult] = useState(null);
   const [repaymentBanner, setRepaymentBanner] = useState(null);
   const [repaymentRefreshBusy, setRepaymentRefreshBusy] = useState(false);
+  const [repaymentSavingsAccounts, setRepaymentSavingsAccounts] = useState([]);
+  const [repaymentSavingsAccountId, setRepaymentSavingsAccountId] = useState('');
+  const [repaymentSavingsLoading, setRepaymentSavingsLoading] = useState(false);
   const [refundOpen, setRefundOpen] = useState(false);
   const [refundBusy, setRefundBusy] = useState(false);
   const [refundAmount, setRefundAmount] = useState('');
@@ -1258,6 +1298,34 @@ const GwLoanDetails = () => {
     }
   };
 
+  const loadRepaymentSavingsAccounts = async () => {
+    const clientId = doc?.fineractClientId ? String(doc.fineractClientId) : '';
+    if (!clientId) {
+      setRepaymentSavingsAccounts([]);
+      setRepaymentSavingsAccountId('');
+      return [];
+    }
+    setRepaymentSavingsLoading(true);
+    try {
+      const response = await api.get(`/clients/${encodeURIComponent(clientId)}/accounts`);
+      const rows = Array.isArray(response?.data?.savingsAccounts) ? response.data.savingsAccounts : [];
+      const activeRows = rows.filter(isActiveSavingsAccount).map((account) => ({
+        ...account,
+        id: account.id || account.accountId,
+        label: savingsAccountLabel(account),
+      })).filter((account) => account.id);
+      setRepaymentSavingsAccounts(activeRows);
+      setRepaymentSavingsAccountId((current) => current && activeRows.some((account) => String(account.id) === String(current)) ? current : String(activeRows[0]?.id || ''));
+      return activeRows;
+    } catch (error) {
+      setRepaymentSavingsAccounts([]);
+      setRepaymentSavingsAccountId('');
+      addToast(extractGatewayErrorMessage(error, 'Could not load customer savings accounts'), 'error');
+      return [];
+    } finally {
+      setRepaymentSavingsLoading(false);
+    }
+  };
   async function openRepayModal() {
     let cfg = loanAutomationCfg;
     if (!cfg) {
@@ -1269,6 +1337,7 @@ const GwLoanDetails = () => {
         cfg = null;
       }
     }
+    await loadRepaymentSavingsAccounts();
     setRepaymentAmount(suggestedRepaymentAmount != null && suggestedRepaymentAmount > 0 ? String(suggestedRepaymentAmount) : '');
     setRepaymentCurrency('TZS');
     setRepaymentProvider(resolveRepaymentProvider(cfg));
@@ -1276,6 +1345,7 @@ const GwLoanDetails = () => {
     setRepaymentPayerName(customerRepaymentIdentity.payerName || '');
     setRepaymentPayerEmail(customerRepaymentIdentity.payerEmail || '');
     setRepaymentExternalId('');
+    setRepaymentNote('');
     setRepaymentResult(null);
     setRepayOpen(true);
   }
@@ -1320,6 +1390,105 @@ const GwLoanDetails = () => {
     const amount = toNumOrNull(repaymentAmount);
     if (amount == null || amount <= 0) {
       addToast('Repayment amount must be greater than zero', 'error');
+      return;
+    }
+    if (repaymentProviderValue === SAVINGS_REPAYMENT_PROVIDER) {
+      if (!repaymentSavingsAccountId) {
+        addToast('Select a savings account', 'error');
+        return;
+      }
+      if (!doc?.fineractLoanId) {
+        addToast('Fineract loan ID is missing', 'error');
+        return;
+      }
+      const selectedSavings = repaymentSavingsAccounts.find((account) => String(account.id) === String(repaymentSavingsAccountId));
+      if (!selectedSavings) {
+        addToast('Selected savings account was not found', 'error');
+        return;
+      }
+      setRepayBusy(true);
+      try {
+        const [savingsResponse, loanResponse] = await Promise.all([
+          api.get(`/savingsaccounts/${encodeURIComponent(repaymentSavingsAccountId)}`).catch(() => null),
+          api.get(`/loans/${encodeURIComponent(doc.fineractLoanId)}`).catch(() => null),
+        ]);
+        const savingsDetail = savingsResponse?.data || {};
+        const loanDetail = loanResponse?.data || {};
+        const fromClientId = firstNumeric(savingsDetail?.clientId, savingsDetail?.client?.id, selectedSavings?.clientId, selectedSavings?.client?.id, doc?.fineractClientId);
+        const toClientId = firstNumeric(loanDetail?.clientId, loanDetail?.client?.id, doc?.fineractClientId, fromClientId);
+        const clientLookupId = firstNumeric(doc?.fineractClientId, fromClientId, toClientId);
+        const clientResponse = clientLookupId != null ? await api.get(`/clients/${encodeURIComponent(clientLookupId)}`).catch(() => null) : null;
+        const clientDetail = clientResponse?.data || {};
+        const savingsBalance = savingsAccountBalance(savingsDetail) ?? savingsAccountBalance(selectedSavings);
+        if (savingsBalance != null && amount > savingsBalance) {
+          addToast('Repayment amount exceeds selected savings balance', 'error');
+          return;
+        }
+        const clientOfficeId = firstNumeric(clientDetail?.officeId, clientDetail?.office?.id, clientDetail?.office?.officeId);
+        const fromOfficeId = firstNumeric(
+          savingsDetail?.officeId,
+          savingsDetail?.clientOfficeId,
+          savingsDetail?.office?.id,
+          selectedSavings?.officeId,
+          selectedSavings?.clientOfficeId,
+          selectedSavings?.office?.id,
+          clientOfficeId,
+          loanDetail?.officeId,
+          loanDetail?.office?.id,
+          fxLoan?.officeId,
+          fxLoan?.office?.id,
+        );
+        const toOfficeId = firstNumeric(
+          loanDetail?.officeId,
+          loanDetail?.office?.id,
+          fxLoan?.officeId,
+          fxLoan?.office?.id,
+          clientOfficeId,
+          fromOfficeId,
+        );
+        if (fromOfficeId == null || toOfficeId == null) {
+          addToast('Office IDs are required for savings-to-loan transfer. Could not resolve them from savings, loan, or client details.', 'error');
+          return;
+        }
+        const transferExternalId = internalSavingsRepaymentReference({
+          loanId: doc.fineractLoanId,
+          savingsAccountId: repaymentSavingsAccountId,
+        });
+        const transferPayload = {
+          locale: 'en',
+          dateFormat: 'yyyy-MM-dd',
+          fromOfficeId: Number(fromOfficeId),
+          fromClientId: fromClientId != null ? Number(fromClientId) : undefined,
+          fromAccountType: ACCOUNT_TYPE_SAVINGS,
+          fromAccountId: Number(repaymentSavingsAccountId),
+          toOfficeId: Number(toOfficeId),
+          toClientId: toClientId != null ? Number(toClientId) : undefined,
+          toAccountType: ACCOUNT_TYPE_LOAN,
+          toAccountId: Number(doc.fineractLoanId),
+          transferDate: dateISO(),
+          transferAmount: amount,
+          externalId: transferExternalId,
+          transferDescription: normalizeText(repaymentNote) || 'Loan repayment from savings',
+        };
+        Object.keys(transferPayload).forEach((key) => transferPayload[key] === undefined && delete transferPayload[key]);
+        const result = await api.post('/accounttransfers', transferPayload);
+        setRepaymentExternalId(transferExternalId);
+        setRepaymentResult(result?.data || null);
+        setRepaymentBanner({
+          provider: SAVINGS_REPAYMENT_PROVIDER,
+          result: result?.data || null,
+          title: 'Loan repayment posted from savings',
+        });
+        setRepayOpen(false);
+        await refreshLoanViews(doc);
+        addToast('Loan repayment posted from savings', 'success');
+      } catch (e) {
+        const msg = extractGatewayErrorMessage(e, 'Loan repayment from savings failed');
+        setErr(msg);
+        addToast(msg, 'error');
+      } finally {
+        setRepayBusy(false);
+      }
       return;
     }
     if (!isEpikpayRepayment && !normalizeText(repaymentMsisdn)) {
@@ -1545,6 +1714,10 @@ const GwLoanDetails = () => {
 
   const repaymentProviderValue = normalizeProvider(repaymentProvider) || resolveRepaymentProvider(loanAutomationCfg);
   const isEpikpayRepayment = repaymentProviderValue === 'EPIKPAY';
+  const repaymentProviderOptions = useMemo(() => {
+    const base = resolveProviderOptions(loanAutomationCfg);
+    return repaymentSavingsAccounts.length ? Array.from(new Set([...base, SAVINGS_REPAYMENT_PROVIDER])) : base;
+  }, [loanAutomationCfg, repaymentSavingsAccounts.length]);
 
   const unwrapGatewayBody = (response) => {
     const body = response?.data;
@@ -2670,17 +2843,23 @@ const GwLoanDetails = () => {
         provider={repaymentProviderValue}
         onProviderChange={(nextProvider) => {
           setRepaymentProvider(nextProvider);
-          if (normalizeProvider(nextProvider) === 'EPIKPAY') {
+          if (normalizeProvider(nextProvider) === SAVINGS_REPAYMENT_PROVIDER || normalizeProvider(nextProvider) === 'EPIKPAY') {
             setRepaymentMsisdn('');
           } else if (!normalizeText(repaymentMsisdn)) {
             setRepaymentMsisdn(customerRepaymentIdentity.msisdn || '');
           }
         }}
-        providers={resolveProviderOptions(loanAutomationCfg)}
+        providers={repaymentProviderOptions}
         msisdn={repaymentMsisdn}
         onMsisdnChange={setRepaymentMsisdn}
+        savingsAccounts={repaymentSavingsAccounts}
+        savingsAccountId={repaymentSavingsAccountId}
+        onSavingsAccountChange={setRepaymentSavingsAccountId}
+        savingsLoading={repaymentSavingsLoading}
         reference={repaymentExternalId}
         onReferenceChange={setRepaymentExternalId}
+        note={repaymentNote}
+        onNoteChange={setRepaymentNote}
         warning={looksLikeEarlyPayoff
           ? 'This amount looks like an early full payoff. Gateway will submit it to Fineract as a prepayment instead of a standard repayment.'
           : ''}

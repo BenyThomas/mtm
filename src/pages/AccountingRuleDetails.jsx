@@ -7,6 +7,7 @@ import Button from '../components/Button';
 import Modal from '../components/Modal';
 import AccountingRuleForm from '../components/AccountingRuleForm';
 import { useToast } from '../context/ToastContext';
+import { useAuth } from '../context/AuthContext';
 
 const labelLine = (a) =>
     `${a.glAccountCode || a.accountCode || a.id || a.glAccountId}${a.glAccountName ? ` — ${a.glAccountName}` : ''}`.trim();
@@ -15,6 +16,9 @@ const AccountingRuleDetails = () => {
     const { id } = useParams();
     const { addToast } = useToast();
     const navigate = useNavigate();
+    const { can } = useAuth();
+    const canUpdate = can('UPDATE_ACCOUNTINGRULE');
+    const canDelete = can('DELETE_ACCOUNTINGRULE');
 
     const [loading, setLoading] = useState(true);
     const [rule, setRule] = useState(null);
@@ -104,10 +108,12 @@ const AccountingRuleDetails = () => {
                     </div>
                 </div>
                 <div className="space-x-2">
-                    <Button variant="secondary" onClick={() => setEditOpen(true)}>Edit</Button>
-                    <Button variant="danger" onClick={remove} disabled={deleteBusy}>
+                    {canUpdate ? <Button variant="secondary" onClick={() => setEditOpen(true)}>Edit</Button> : null}
+                    {canDelete ? (
+                        <Button variant="danger" onClick={remove} disabled={deleteBusy}>
                         {deleteBusy ? 'Deleting…' : 'Delete'}
-                    </Button>
+                        </Button>
+                    ) : null}
                 </div>
             </div>
 
