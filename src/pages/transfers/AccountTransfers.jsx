@@ -7,6 +7,8 @@ import Modal from '../../components/Modal';
 import { useToast } from '../../context/ToastContext';
 import TransferForm from '../../components/TransferForm';
 
+const rows = (value) => Array.isArray(value) ? value : (value?.pageItems || []);
+
 const AccountTransfers = () => {
     const { addToast } = useToast();
 
@@ -22,14 +24,14 @@ const AccountTransfers = () => {
         setLoading(true);
         try {
             const r = await api.get('/accounttransfers');
-            const list = Array.isArray(r?.data) ? r.data : (r?.data?.pageItems || []);
-            const norm = list.map((t) => ({
+            const norm = rows(r?.data).map((t) => ({
                 id: t.id,
+                externalId: t.externalId || t.transferExternalId || t.reference || '',
                 transferDate: t.transferDate || t.date || t.postedOn || '',
                 amount: t.transferAmount || t.amount || t.txnAmount || '',
                 fromAccount: t.fromAccount?.accountNo || t.fromAccountNo || t.fromAccountId || '',
                 toAccount: t.toAccount?.accountNo || t.toAccountNo || t.toAccountId || '',
-                description: t.description || t.note || '',
+                description: t.transferDescription || t.description || t.note || '',
             }));
             setItems(norm);
         } catch (e) {
@@ -46,7 +48,7 @@ const AccountTransfers = () => {
         const t = q.trim().toLowerCase();
         if (!t) return items;
         return items.filter((x) =>
-            [x.id, x.transferDate, x.amount, x.fromAccount, x.toAccount, x.description]
+            [x.id, x.externalId, x.transferDate, x.amount, x.fromAccount, x.toAccount, x.description]
                 .map((v) => String(v ?? '').toLowerCase())
                 .some((h) => h.includes(t))
         );
@@ -87,7 +89,7 @@ const AccountTransfers = () => {
                         <input
                             value={q}
                             onChange={(e) => setQ(e.target.value)}
-                            placeholder="Date, amount, account #, note…"
+                            placeholder="Reference, date, amount, account #, note"
                             className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                         />
                     </div>
@@ -105,6 +107,7 @@ const AccountTransfers = () => {
                             <thead>
                             <tr className="text-left text-sm text-gray-500">
                                 <th className="py-2 pr-4">#</th>
+                                <th className="py-2 pr-4">Reference</th>
                                 <th className="py-2 pr-4">Date</th>
                                 <th className="py-2 pr-4">Amount</th>
                                 <th className="py-2 pr-4">From</th>
@@ -114,13 +117,14 @@ const AccountTransfers = () => {
                             </thead>
                             <tbody>
                             {filtered.map((t) => (
-                                <tr key={t.id} className="border-t border-gray-200 dark:border-gray-700 text-sm">
+                                <tr key={t.id || t.externalId} className="border-t border-gray-200 dark:border-gray-700 text-sm">
                                     <td className="py-2 pr-4">{t.id}</td>
-                                    <td className="py-2 pr-4">{t.transferDate || '—'}</td>
-                                    <td className="py-2 pr-4">{t.amount || '—'}</td>
-                                    <td className="py-2 pr-4">{t.fromAccount || '—'}</td>
-                                    <td className="py-2 pr-4">{t.toAccount || '—'}</td>
-                                    <td className="py-2 pr-4">{t.description || '—'}</td>
+                                    <td className="py-2 pr-4 font-mono">{t.externalId || '-'}</td>
+                                    <td className="py-2 pr-4">{t.transferDate || '-'}</td>
+                                    <td className="py-2 pr-4">{t.amount || '-'}</td>
+                                    <td className="py-2 pr-4">{t.fromAccount || '-'}</td>
+                                    <td className="py-2 pr-4">{t.toAccount || '-'}</td>
+                                    <td className="py-2 pr-4">{t.description || '-'}</td>
                                 </tr>
                             ))}
                             </tbody>
@@ -129,7 +133,6 @@ const AccountTransfers = () => {
                 )}
             </Card>
 
-            {/* New Transfer */}
             <Modal
                 open={createOpen}
                 title="New Transfer"
@@ -139,7 +142,6 @@ const AccountTransfers = () => {
                 <TransferForm mode="standard" onSubmit={(p) => create(p, false)} submitting={busy} />
             </Modal>
 
-            {/* Refund by Transfer */}
             <Modal
                 open={refundOpen}
                 title="Refund by Transfer"

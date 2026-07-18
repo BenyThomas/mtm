@@ -20,7 +20,7 @@ import { useToast } from '../context/ToastContext';
  *   transferAmount: <number>,
  *   fromOfficeId?, fromClientId?, fromAccountType?, fromAccountId,
  *   toOfficeId?, toClientId?, toAccountType?, toAccountId,
- *   description?
+ *   externalId?, description?
  * }
  */
 const TransferForm = ({ mode = 'standard', onSubmit, submitting }) => {
@@ -41,6 +41,7 @@ const TransferForm = ({ mode = 'standard', onSubmit, submitting }) => {
     const [amount, setAmount] = useState('');
     const [transferDate, setTransferDate] = useState('');
     const [description, setDescription] = useState('');
+    const [externalId, setExternalId] = useState('');
 
     const [errors, setErrors] = useState({});
 
@@ -117,7 +118,8 @@ const TransferForm = ({ mode = 'standard', onSubmit, submitting }) => {
             toAccountId: Number(toAccountId),
             ...(fromAccountType ? { fromAccountType: Number(fromAccountType) } : {}),
             ...(toAccountType ? { toAccountType: Number(toAccountType) } : {}),
-            ...(description.trim() ? { description: description.trim() } : {}),
+            ...(externalId.trim() ? { externalId: externalId.trim() } : {}),
+            ...(description.trim() ? { description: description.trim(), transferDescription: description.trim() } : {}),
         };
         await onSubmit(payload);
     };
@@ -138,7 +140,7 @@ const TransferForm = ({ mode = 'standard', onSubmit, submitting }) => {
                                     onChange={(e) => setFromAccountId(e.target.value)}
                                     className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                                 >
-                                    <option value="">Select…</option>
+                                    <option value="">Selectâ€¦</option>
                                     {fromAccountOptions.map((o) => (
                                         <option key={o.id} value={o.id}>{o.name}</option>
                                     ))}
@@ -163,7 +165,7 @@ const TransferForm = ({ mode = 'standard', onSubmit, submitting }) => {
                                     onChange={(e) => setToAccountId(e.target.value)}
                                     className="mt-1 w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600"
                                 >
-                                    <option value="">Select…</option>
+                                    <option value="">Selectâ€¦</option>
                                     {toAccountOptions.map((o) => (
                                         <option key={o.id} value={o.id}>{o.name}</option>
                                     ))}
@@ -233,7 +235,17 @@ const TransferForm = ({ mode = 'standard', onSubmit, submitting }) => {
                             {errors.transferDate && <p className="text-xs text-red-500 mt-1">{errors.transferDate}</p>}
                         </div>
 
-                        <div className="md:col-span-2">
+                        <div>
+                            <label className="block text-sm font-medium">External Reference</label>
+                            <input
+                                value={externalId}
+                                onChange={(e) => setExternalId(e.target.value)}
+                                placeholder="Reference for reconciliation"
+                                className="mt-1 w-full border rounded-md p-2 font-mono dark:bg-gray-700 dark:border-gray-600"
+                            />
+                        </div>
+
+                        <div>
                             <label className="block text-sm font-medium">Description</label>
                             <input
                                 value={description}
@@ -248,7 +260,7 @@ const TransferForm = ({ mode = 'standard', onSubmit, submitting }) => {
 
             <div className="flex items-center justify-end gap-2">
                 <Button type="submit" disabled={submitting}>
-                    {submitting ? 'Submitting…' : isRefund ? 'Refund by Transfer' : 'Create Transfer'}
+                    {submitting ? 'Submittingâ€¦' : isRefund ? 'Refund by Transfer' : 'Create Transfer'}
                 </Button>
             </div>
         </form>

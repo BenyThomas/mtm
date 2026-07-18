@@ -3,18 +3,28 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
   ArrowRightLeft,
+  BadgeDollarSign,
   Ban,
   Building2,
   CalendarDays,
   CheckCircle,
   CirclePlus,
+  CreditCard,
+  Eye,
+  HandCoins,
+  Lock,
+  Pencil,
+  Percent,
   Phone,
   PiggyBank,
   RefreshCw,
   RotateCcw,
+  Shield,
   Undo2,
+  Unlock,
   UserMinus,
   UserPlus,
+  Wallet,
   WalletCards,
   XCircle,
 } from 'lucide-react';
@@ -309,7 +319,14 @@ const savingsAccountFormInit = {
   activatedOnDate: todayDateString(),
 };
 
+
 const asFineractItems = (payload) => Array.isArray(payload) ? payload : payload?.pageItems || [];
+
+const paymentTypeLabel = (item) => item?.name || item?.code || item?.label || item?.value || item?.description || `Payment Type ${item?.id}`;
+
+const normalizePaymentTypeOptions = (payload) => asFineractItems(payload)
+  .map((item) => ({ id: item?.id, label: paymentTypeLabel(item) }))
+  .filter((item) => item.id);
 
 const parseFineractError = (error, fallback) =>
   error?.response?.data?.errors?.[0]?.defaultUserMessage
@@ -335,11 +352,74 @@ const postWithDateFormatFallback = async (url, payload) => {
   }
 };
 
+const putWithDateFormatFallback = async (url, payload) => {
+  try {
+    return await api.put(url, payload);
+  } catch (error) {
+    if (!hasUnsupportedDateFormatError(error) || !Object.prototype.hasOwnProperty.call(payload || {}, 'dateFormat')) {
+      throw error;
+    }
+    const { dateFormat, ...retryPayload } = payload;
+    return api.put(url, retryPayload);
+  }
+};
+
 const savingsStatusCode = (account) => normalizeClientState(account?.status);
+const savingsSubStatusCode = (account) => normalizeClientState(account?.subStatus || account?.status?.subStatus);
+const hasSavingsStatusFlag = (account, key) => Boolean(account?.status && typeof account.status === 'object' && account.status[key] === true);
 const isActiveSavingsAccount = (account) => {
   if (account?.status && typeof account.status === 'object' && account.status.active === true) return true;
   const code = savingsStatusCode(account);
   return code.includes('ACTIVE') && !code.includes('INACTIVE');
+};
+
+const savingsAccountFlags = (account) => {
+  const code = savingsStatusCode(account);
+  const subCode = savingsSubStatusCode(account);
+  const active = isActiveSavingsAccount(account);
+  return {
+    submitted: hasSavingsStatusFlag(account, 'submittedAndPendingApproval') || code.includes('SUBMITTED') || code.includes('PENDING'),
+    approved: hasSavingsStatusFlag(account, 'approved') || code.includes('APPROVED'),
+    active,
+    closed: hasSavingsStatusFlag(account, 'closed') || code.includes('CLOSED'),
+    rejected: hasSavingsStatusFlag(account, 'rejected') || code.includes('REJECT'),
+    withdrawn: hasSavingsStatusFlag(account, 'withdrawnByApplicant') || code.includes('WITHDRAWN'),
+    accountBlocked: Boolean(account?.accountBlocked || account?.status?.block || account?.subStatus?.block || subCode.includes('BLOCK')),
+    creditBlocked: Boolean(account?.blockCredit || account?.creditBlocked || account?.subStatus?.blockCredit || subCode.includes('CREDIT')),
+    debitBlocked: Boolean(account?.blockDebit || account?.debitBlocked || account?.subStatus?.blockDebit || subCode.includes('DEBIT')),
+  };
+};
+
+const savingsAction = (command, title, icon, tone, options = {}) => ({ command, title, icon, tone, ...options });
+
+const savingsAccountActionsFor = (account) => {
+  const flags = savingsAccountFlags(account);
+  if (flags.closed || flags.rejected || flags.withdrawn) return [];
+
+  const actions = [];
+  if (flags.submitted) {
+    actions.push(savingsAction('approve', 'Approve', CheckCircle, 'emerald', { dateField: 'approvedOnDate', dateLabel: 'Approved On' }));
+    actions.push(savingsAction('reject', 'Reject', XCircle, 'rose', { dateField: 'rejectedOnDate', dateLabel: 'Rejected On', note: true }));
+    actions.push(savingsAction('withdraw', 'Withdraw Application', Undo2, 'amber', { dateField: 'withdrawnOnDate', dateLabel: 'Withdrawn On', note: true }));
+  }
+  if (flags.approved && !flags.active) {
+    actions.push(savingsAction('undoApproval', 'Undo Approval', RotateCcw, 'amber', { note: true }));
+    actions.push(savingsAction('activate', 'Activate', CheckCircle, 'emerald', { dateField: 'activatedOnDate', dateLabel: 'Activated On' }));
+  }
+  if (flags.active) {
+    actions.push(savingsAction('deposit', 'Deposit', Wallet, 'emerald', { transaction: true }));
+    actions.push(savingsAction('withdrawal', 'Withdraw', HandCoins, 'amber', { transaction: true }));
+    actions.push(savingsAction('assignSavingsOfficer', 'Assign Officer', UserPlus, 'cyan', { officer: 'assign' }));
+    actions.push(savingsAction('unassignSavingsOfficer', 'Unassign Officer', UserMinus, 'amber', { officer: 'unassign' }));
+    actions.push(savingsAction('updateWithHoldTax', 'Update Withholding Tax', Shield, 'violet', { withholdTax: true, method: 'put' }));
+    actions.push(savingsAction('calculateInterest', 'Calculate Interest', Percent, 'cyan'));
+    actions.push(savingsAction('postInterest', 'Post Interest', BadgeDollarSign, 'emerald'));
+    actions.push(savingsAction(flags.accountBlocked ? 'unblock' : 'block', flags.accountBlocked ? 'Unblock Account' : 'Block Account', flags.accountBlocked ? Unlock : Lock, flags.accountBlocked ? 'emerald' : 'rose'));
+    actions.push(savingsAction(flags.creditBlocked ? 'unblockCredit' : 'blockCredit', flags.creditBlocked ? 'Unblock Credit' : 'Block Credit', flags.creditBlocked ? Unlock : Lock, flags.creditBlocked ? 'emerald' : 'rose'));
+    actions.push(savingsAction(flags.debitBlocked ? 'unblockDebit' : 'blockDebit', flags.debitBlocked ? 'Unblock Debit' : 'Block Debit', flags.debitBlocked ? Unlock : Lock, flags.debitBlocked ? 'emerald' : 'rose'));
+    actions.push(savingsAction('close', 'Close', XCircle, 'rose', { dateField: 'closedOnDate', dateLabel: 'Closed On', close: true, note: true }));
+  }
+  return actions;
 };
 const inviteMatchesCustomer = (invite, customer, onboarding) => {
   const invitePhone = String(invite?.prefill?.phoneNumber || '').replace(/\s+/g, '');
@@ -407,6 +487,18 @@ const GwCustomerDetails = () => {
   const [savingsProducts, setSavingsProducts] = useState([]);
   const [savingsAccountForm, setSavingsAccountForm] = useState(savingsAccountFormInit);
   const [selectedSavingsAccount, setSelectedSavingsAccount] = useState(null);
+  const [selectedSavingsLoading, setSelectedSavingsLoading] = useState(false);
+  const [savingsCommand, setSavingsCommand] = useState(null);
+  const [savingsCommandForm, setSavingsCommandForm] = useState({});
+  const [savingsCommandSaving, setSavingsCommandSaving] = useState(false);
+  const [savingsTransactionCommand, setSavingsTransactionCommand] = useState(null);
+  const [savingsTransactionForm, setSavingsTransactionForm] = useState({});
+  const [savingsTransactionSaving, setSavingsTransactionSaving] = useState(false);
+  const [savingsChargeCommand, setSavingsChargeCommand] = useState(null);
+  const [savingsChargeForm, setSavingsChargeForm] = useState({});
+  const [savingsChargeSaving, setSavingsChargeSaving] = useState(false);
+  const [paymentTypeOptions, setPaymentTypeOptions] = useState([]);
+  const [paymentTypeLoading, setPaymentTypeLoading] = useState(false);
   const [bankOptions, setBankOptions] = useState([]);
   const [activeTab, setActiveTab] = useState(location?.state?.tab || 'overview');
 
@@ -520,6 +612,51 @@ const GwCustomerDetails = () => {
     };
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+    setPaymentTypeLoading(true);
+    api.get('/paymenttypes')
+      .then((response) => {
+        if (!mounted) return;
+        setPaymentTypeOptions(normalizePaymentTypeOptions(response.data));
+      })
+      .catch(() => {
+        if (mounted) setPaymentTypeOptions([]);
+      })
+      .finally(() => {
+        if (mounted) setPaymentTypeLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const renderPaymentTypeSelect = (value, onChange, { required = false } = {}) => (
+    <label className="block text-sm">
+      Payment Type
+      <select
+        className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+        value={value || ''}
+        onChange={onChange}
+        required={required}
+        disabled={paymentTypeLoading || !paymentTypeOptions.length}
+      >
+        <option value="">{paymentTypeLoading ? 'Loading payment types...' : 'Select payment type'}</option>
+        {paymentTypeOptions.map((option) => (
+          <option key={option.id} value={option.id}>{option.label}</option>
+        ))}
+      </select>
+      {!paymentTypeLoading && !paymentTypeOptions.length ? (
+        <input
+          className="mt-2 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600"
+          value={value || ''}
+          onChange={onChange}
+          placeholder="Payment type ID from /paymenttypes"
+          required={required}
+        />
+      ) : null}
+    </label>
+  );
   const customer = summary?.customer || null;
   const onboarding = summary?.onboarding || null;
   const missingFields = Array.isArray(summary?.missingFields) ? summary.missingFields : [];
@@ -1062,6 +1199,258 @@ const GwCustomerDetails = () => {
       setSavingsAccountSaving(false);
     }
   };
+  const openSavingsCommand = (account, action) => {
+    const baseDate = todayDateString();
+    setSavingsCommand({ account, action });
+    setSavingsCommandForm({
+      [action.dateField || 'actionDate']: baseDate,
+      transactionDate: baseDate,
+      transactionAmount: '',
+      note: '',
+      withdrawBalance: false,
+      paymentTypeId: '',
+      accountNumber: '',
+      checkNumber: '',
+      routingCode: '',
+      receiptNumber: '',
+      bankNumber: '',
+      toSavingsOfficerId: '',
+      fromSavingsOfficerId: account?.fieldOfficerId || account?.savingsOfficerId || '',
+      unassignedDate: baseDate,
+      assignmentDate: baseDate,
+      withHoldTax: Boolean(account?.withHoldTax),
+      taxGroupId: account?.taxGroup?.id || account?.taxGroupId || '',
+    });
+  };
+
+  const updateSavingsCommandForm = (field) => (event) => {
+    const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
+    setSavingsCommandForm((current) => ({ ...current, [field]: value }));
+  };
+
+  const submitSavingsCommand = async () => {
+    if (!savingsCommand?.account?.id || !savingsCommand?.action?.command) return;
+    const { account, action } = savingsCommand;
+    const accountId = encodeURIComponent(account.id);
+    const payload = { locale: 'en', dateFormat: 'yyyy-MM-dd' };
+
+    if (action.transaction) {
+      if (!savingsCommandForm.transactionAmount || Number(savingsCommandForm.transactionAmount) <= 0) {
+        addToast('Transaction amount is required', 'error');
+        return;
+      }
+      if (!savingsCommandForm.paymentTypeId) {
+        addToast('Payment Type ID is required', 'error');
+        return;
+      }
+      payload.transactionDate = savingsCommandForm.transactionDate || todayDateString();
+      payload.transactionAmount = Number(savingsCommandForm.transactionAmount);
+      payload.paymentTypeId = Number(savingsCommandForm.paymentTypeId);
+    } else if (action.dateField) {
+      payload[action.dateField] = savingsCommandForm[action.dateField] || todayDateString();
+    }
+
+    if (action.note && savingsCommandForm.note) payload.note = savingsCommandForm.note;
+    if (action.officer === 'assign') {
+      payload.assignmentDate = savingsCommandForm.assignmentDate || todayDateString();
+      if (!savingsCommandForm.toSavingsOfficerId) {
+        addToast('To Savings Officer ID is required', 'error');
+        return;
+      }
+      payload.toSavingsOfficerId = Number(savingsCommandForm.toSavingsOfficerId);
+      if (savingsCommandForm.fromSavingsOfficerId) payload.fromSavingsOfficerId = Number(savingsCommandForm.fromSavingsOfficerId);
+    }
+    if (action.officer === 'unassign') {
+      payload.unassignedDate = savingsCommandForm.unassignedDate || todayDateString();
+    }
+    if (action.close) {
+      payload.withdrawBalance = Boolean(savingsCommandForm.withdrawBalance);
+      if (savingsCommandForm.paymentTypeId) payload.paymentTypeId = Number(savingsCommandForm.paymentTypeId);
+      ['accountNumber', 'checkNumber', 'routingCode', 'receiptNumber', 'bankNumber'].forEach((field) => {
+        if (savingsCommandForm[field]) payload[field] = savingsCommandForm[field];
+      });
+    }
+    if (action.withholdTax) {
+      payload.withHoldTax = Boolean(savingsCommandForm.withHoldTax);
+      if (payload.withHoldTax && !savingsCommandForm.taxGroupId) {
+        addToast('Tax group ID is required when withholding tax is enabled', 'error');
+        return;
+      }
+      if (savingsCommandForm.taxGroupId) payload.taxGroupId = Number(savingsCommandForm.taxGroupId);
+    }
+
+    setSavingsCommandSaving(true);
+    try {
+      if (action.transaction) {
+        await postWithDateFormatFallback(`/savingsaccounts/${accountId}/transactions?command=${encodeURIComponent(action.command)}`, payload);
+      } else if (action.method === 'put') {
+        await putWithDateFormatFallback(`/savingsaccounts/${accountId}?command=${encodeURIComponent(action.command)}`, payload);
+      } else {
+        await postWithDateFormatFallback(`/savingsaccounts/${accountId}?command=${encodeURIComponent(action.command)}`, payload);
+      }
+      addToast(`${action.title} submitted`, 'success');
+      setSavingsCommand(null);
+      setSavingsCommandForm({});
+      await load();
+    } catch (error) {
+      addToast(parseFineractError(error, `Failed to submit ${action.title}`), 'error');
+    } finally {
+      setSavingsCommandSaving(false);
+    }
+  };
+  const loadSavingsAccountDetails = async (accountId) => {
+    const response = await api.get(`/savingsaccounts/${encodeURIComponent(accountId)}?associations=all`);
+    return response.data || null;
+  };
+
+  const openSavingsDetails = async (account) => {
+    if (!account?.id) return;
+    setSelectedSavingsAccount(account);
+    setSelectedSavingsLoading(true);
+    try {
+      const detail = await loadSavingsAccountDetails(account.id);
+      setSelectedSavingsAccount({ ...account, ...detail });
+    } catch (error) {
+      addToast(parseFineractError(error, 'Could not load savings account details'), 'error');
+    } finally {
+      setSelectedSavingsLoading(false);
+    }
+  };
+
+  const refreshSelectedSavingsAccount = async (accountId = selectedSavingsAccount?.id) => {
+    if (!accountId) return;
+    try {
+      const detail = await loadSavingsAccountDetails(accountId);
+      setSelectedSavingsAccount((current) => ({ ...(current || {}), ...detail }));
+    } catch (error) {
+      addToast(parseFineractError(error, 'Could not refresh savings account details'), 'error');
+    }
+  };
+
+  const savingsTransactionActionsFor = (transaction) => {
+    if (!transaction?.id || transaction?.reversed || transaction?.manuallyReversed) return [];
+    return [
+      { command: 'modify', title: 'Modify Transaction', icon: Pencil, tone: 'cyan', amount: true },
+      { command: 'undo', title: 'Undo Transaction', icon: Undo2, tone: 'amber', note: true },
+      { command: 'holdAmount', title: 'Hold Amount', icon: Lock, tone: 'rose', note: true },
+      { command: 'releaseAmount', title: 'Release Amount', icon: Unlock, tone: 'emerald', note: true },
+    ];
+  };
+
+  const openSavingsTransactionCommand = (transaction, action) => {
+    setSavingsTransactionCommand({ account: selectedSavingsAccount, transaction, action });
+    setSavingsTransactionForm({
+      transactionDate: toDateInput(transaction?.date || transaction?.transactionDate) || todayDateString(),
+      transactionAmount: action.amount ? String(transaction?.amount ?? transaction?.transactionAmount ?? '') : '',
+      paymentTypeId: transaction?.paymentDetailData?.paymentType?.id || transaction?.paymentTypeId || '',
+      externalId: transaction?.externalId || '',
+      note: '',
+    });
+  };
+
+  const updateSavingsTransactionForm = (field) => (event) => {
+    setSavingsTransactionForm((current) => ({ ...current, [field]: event.target.value }));
+  };
+
+  const submitSavingsTransactionCommand = async () => {
+    if (!savingsTransactionCommand?.account?.id || !savingsTransactionCommand?.transaction?.id || !savingsTransactionCommand?.action?.command) return;
+    const { account, transaction, action } = savingsTransactionCommand;
+    const payload = { locale: 'en', dateFormat: 'yyyy-MM-dd' };
+    if (action.amount) {
+      if (!savingsTransactionForm.transactionAmount || Number(savingsTransactionForm.transactionAmount) <= 0) {
+        addToast('Transaction amount is required', 'error');
+        return;
+      }
+      payload.transactionDate = savingsTransactionForm.transactionDate || todayDateString();
+      payload.transactionAmount = Number(savingsTransactionForm.transactionAmount);
+      if (savingsTransactionForm.paymentTypeId) payload.paymentTypeId = Number(savingsTransactionForm.paymentTypeId);
+      if (savingsTransactionForm.externalId?.trim()) payload.externalId = savingsTransactionForm.externalId.trim();
+    }
+    if (savingsTransactionForm.note?.trim()) payload.note = savingsTransactionForm.note.trim();
+
+    setSavingsTransactionSaving(true);
+    try {
+      await postWithDateFormatFallback(
+        `/savingsaccounts/${encodeURIComponent(account.id)}/transactions/${encodeURIComponent(transaction.id)}?command=${encodeURIComponent(action.command)}`,
+        payload
+      );
+      addToast(`${action.title} submitted`, 'success');
+      setSavingsTransactionCommand(null);
+      setSavingsTransactionForm({});
+      await refreshSelectedSavingsAccount(account.id);
+      await refreshSavingsAccountsForClient().catch(() => []);
+    } catch (error) {
+      addToast(parseFineractError(error, `Failed to submit ${action.title}`), 'error');
+    } finally {
+      setSavingsTransactionSaving(false);
+    }
+  };
+
+  const savingsChargeActionsFor = (charge) => {
+    if (!charge?.id) return [];
+    const outstanding = Number(charge?.amountOutstanding || 0);
+    const paid = Number(charge?.amountPaid || 0);
+    const waived = Number(charge?.amountWaived || 0);
+    const active = charge?.active !== false && charge?.inActive !== true;
+    const actions = [];
+    if (outstanding > 0) {
+      actions.push({ command: 'paycharge', title: 'Pay Charge', icon: CreditCard, tone: 'emerald', pay: true });
+      actions.push({ command: 'waive', title: 'Waive Charge', icon: RotateCcw, tone: 'amber' });
+    }
+    if (active && paid <= 0 && waived <= 0) {
+      actions.push({ command: 'inactivate', title: 'Inactivate Charge', icon: XCircle, tone: 'rose' });
+    }
+    return actions;
+  };
+
+  const openSavingsChargeCommand = (charge, action) => {
+    setSavingsChargeCommand({ account: selectedSavingsAccount, charge, action });
+    setSavingsChargeForm({
+      dueDate: toDateInput(charge?.dueDate) || todayDateString(),
+      amount: String(charge?.amountOutstanding ?? charge?.amount ?? ''),
+      paymentTypeId: '',
+    });
+  };
+
+  const updateSavingsChargeForm = (field) => (event) => {
+    setSavingsChargeForm((current) => ({ ...current, [field]: event.target.value }));
+  };
+
+  const submitSavingsChargeCommand = async () => {
+    if (!savingsChargeCommand?.account?.id || !savingsChargeCommand?.charge?.id || !savingsChargeCommand?.action?.command) return;
+    const { account, charge, action } = savingsChargeCommand;
+    const payload = { locale: 'en', dateFormat: 'yyyy-MM-dd' };
+    if (action.pay) {
+      if (!savingsChargeForm.amount || Number(savingsChargeForm.amount) <= 0) {
+        addToast('Charge amount is required', 'error');
+        return;
+      }
+      if (!savingsChargeForm.paymentTypeId) {
+        addToast('Payment Type ID is required', 'error');
+        return;
+      }
+      payload.dueDate = savingsChargeForm.dueDate || todayDateString();
+      payload.amount = Number(savingsChargeForm.amount);
+      payload.paymentTypeId = Number(savingsChargeForm.paymentTypeId);
+    }
+
+    setSavingsChargeSaving(true);
+    try {
+      await postWithDateFormatFallback(
+        `/savingsaccounts/${encodeURIComponent(account.id)}/charges/${encodeURIComponent(charge.id)}?command=${encodeURIComponent(action.command)}`,
+        payload
+      );
+      addToast(`${action.title} submitted`, 'success');
+      setSavingsChargeCommand(null);
+      setSavingsChargeForm({});
+      await refreshSelectedSavingsAccount(account.id);
+      await refreshSavingsAccountsForClient().catch(() => []);
+    } catch (error) {
+      addToast(parseFineractError(error, `Failed to submit ${action.title}`), 'error');
+    } finally {
+      setSavingsChargeSaving(false);
+    }
+  };
   const saveProfile = async (event) => {
     event?.preventDefault?.();
     setSaving(true);
@@ -1298,7 +1687,7 @@ const GwCustomerDetails = () => {
                 <Badge tone={statusTone(customerStatus)}>{customerStatus}</Badge>
               </span>
             ) : null}
-            {fineractClient?.officeName ? <span className="ml-2">• {fineractClient.officeName}</span> : null}
+            {fineractClient?.officeName ? <span className="ml-2">� {fineractClient.officeName}</span> : null}
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -1511,7 +1900,20 @@ const GwCustomerDetails = () => {
                           </td>
                           <td className="py-2 pr-4">{balance != null ? `${formatMoney(balance)} ${currency}`.trim() : '-'}</td>
                           <td className="py-2 pr-4">
-                            <Button variant="secondary" onClick={() => setSelectedSavingsAccount(account)}>View</Button>
+                            <div className="flex flex-wrap justify-end gap-2">
+                              <IconActionButton icon={Eye} title="View Details" onClick={() => openSavingsDetails(account)} />
+                              <Can any={['UPDATE_SAVINGSACCOUNT', 'CREATE_SAVINGSACCOUNT', 'GW_OPS_WRITE']}>
+                                {savingsAccountActionsFor(account).map((action) => (
+                                  <IconActionButton
+                                    key={`${account.id}-${action.command}`}
+                                    icon={action.icon}
+                                    title={action.title}
+                                    tone={action.tone}
+                                    onClick={() => openSavingsCommand(account, action)}
+                                  />
+                                ))}
+                              </Can>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1856,42 +2258,350 @@ const GwCustomerDetails = () => {
       </Modal>
 
       <Modal
+        open={Boolean(savingsCommand)}
+        onClose={() => {
+          if (!savingsCommandSaving) {
+            setSavingsCommand(null);
+            setSavingsCommandForm({});
+          }
+        }}
+        title={savingsCommand ? savingsCommand.action.title : 'Savings Action'}
+        footer={(
+          <div className="flex justify-end gap-3">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setSavingsCommand(null);
+                setSavingsCommandForm({});
+              }}
+              disabled={savingsCommandSaving}
+            >
+              Cancel
+            </Button>
+            <Button onClick={submitSavingsCommand} disabled={savingsCommandSaving}>
+              {savingsCommandSaving ? 'Submitting...' : 'Submit'}
+            </Button>
+          </div>
+        )}
+      >
+        {savingsCommand ? (
+          <div className="space-y-4 text-sm">
+            <div className="rounded-xl border border-slate-200/70 bg-slate-50/80 p-3 dark:border-slate-700/70 dark:bg-slate-900/50">
+              <div className="font-semibold text-slate-900 dark:text-slate-100">{savingsCommand.account.productName || savingsCommand.account.savingsProductName || 'Savings Account'}</div>
+              <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">Account ID: {savingsCommand.account.id || '-'}</div>
+            </div>
+            {savingsCommand.action.transaction ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block text-sm">
+                  Transaction Date
+                  <input type="date" className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={savingsCommandForm.transactionDate || todayDateString()} onChange={updateSavingsCommandForm('transactionDate')} />
+                </label>
+                <label className="block text-sm">
+                  Amount
+                  <input type="number" min="0.01" step="0.01" className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={savingsCommandForm.transactionAmount || ''} onChange={updateSavingsCommandForm('transactionAmount')} />
+                </label>
+                {renderPaymentTypeSelect(savingsCommandForm.paymentTypeId, updateSavingsCommandForm('paymentTypeId'), { required: true })}
+              </div>
+            ) : null}
+            {savingsCommand.action.dateField ? (
+              <label className="block text-sm">
+                {savingsCommand.action.dateLabel || 'Action Date'}
+                <input type="date" className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={savingsCommandForm[savingsCommand.action.dateField] || todayDateString()} onChange={updateSavingsCommandForm(savingsCommand.action.dateField)} />
+              </label>
+            ) : null}
+            {savingsCommand.action.officer === 'assign' ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block text-sm">
+                  Assignment Date
+                  <input type="date" className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={savingsCommandForm.assignmentDate || todayDateString()} onChange={updateSavingsCommandForm('assignmentDate')} />
+                </label>
+                <label className="block text-sm">
+                  To Savings Officer ID
+                  <input className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={savingsCommandForm.toSavingsOfficerId || ''} onChange={updateSavingsCommandForm('toSavingsOfficerId')} />
+                </label>
+                <label className="block text-sm">
+                  From Savings Officer ID
+                  <input className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={savingsCommandForm.fromSavingsOfficerId || ''} onChange={updateSavingsCommandForm('fromSavingsOfficerId')} />
+                </label>
+              </div>
+            ) : null}
+            {savingsCommand.action.officer === 'unassign' ? (
+              <label className="block text-sm">
+                Unassigned Date
+                <input type="date" className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={savingsCommandForm.unassignedDate || todayDateString()} onChange={updateSavingsCommandForm('unassignedDate')} />
+              </label>
+            ) : null}
+            {savingsCommand.action.close ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={Boolean(savingsCommandForm.withdrawBalance)} onChange={updateSavingsCommandForm('withdrawBalance')} /> Withdraw remaining balance</label>
+                {renderPaymentTypeSelect(savingsCommandForm.paymentTypeId, updateSavingsCommandForm('paymentTypeId'))}
+                {['accountNumber', 'checkNumber', 'routingCode', 'receiptNumber', 'bankNumber'].map((field) => (
+                  <label key={field} className="block text-sm">{field}<input className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={savingsCommandForm[field] || ''} onChange={updateSavingsCommandForm(field)} /></label>
+                ))}
+              </div>
+            ) : null}
+            {savingsCommand.action.withholdTax ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={Boolean(savingsCommandForm.withHoldTax)} onChange={updateSavingsCommandForm('withHoldTax')} /> Withhold tax</label>
+                <label className="block text-sm">Tax Group ID<input className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={savingsCommandForm.taxGroupId || ''} onChange={updateSavingsCommandForm('taxGroupId')} /></label>
+              </div>
+            ) : null}
+            {savingsCommand.action.note ? (
+              <label className="block text-sm">
+                Note
+                <textarea className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" rows={3} value={savingsCommandForm.note || ''} onChange={updateSavingsCommandForm('note')} />
+              </label>
+            ) : null}
+          </div>
+        ) : null}
+      </Modal>
+      <Modal
         open={Boolean(selectedSavingsAccount)}
         onClose={() => setSelectedSavingsAccount(null)}
         title="Serving Account Details"
+        size="6xl"
         footer={(
           <Button variant="secondary" onClick={() => setSelectedSavingsAccount(null)}>Close</Button>
         )}
       >
-        {selectedSavingsAccount ? (
-          <div className="grid gap-4 sm:grid-cols-2 text-sm">
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Product</div>
-              <div className="mt-1 font-semibold text-slate-900 dark:text-slate-100">{selectedSavingsAccount.productName || selectedSavingsAccount.savingsProductName || 'Savings Account'}</div>
-            </div>
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Account ID</div>
-              <div className="mt-1 font-semibold text-slate-900 dark:text-slate-100">{selectedSavingsAccount.id || '-'}</div>
-            </div>
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Account No</div>
-              <div className="mt-1 font-semibold text-slate-900 dark:text-slate-100">{selectedSavingsAccount.accountNo || selectedSavingsAccount.externalId || '-'}</div>
-            </div>
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Status</div>
-              <div className="mt-1"><Badge tone={statusTone(selectedSavingsAccount.status)}>{selectedSavingsAccount.status?.value || selectedSavingsAccount.status?.code || '-'}</Badge></div>
-            </div>
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Balance</div>
-              <div className="mt-1 font-semibold text-slate-900 dark:text-slate-100">
-                {(() => {
-                  const summaryData = selectedSavingsAccount.summary || selectedSavingsAccount;
-                  const balance = summaryData.accountBalance ?? summaryData.balance ?? null;
-                  const currency = summaryData.currency?.code || summaryData.currency?.name || selectedSavingsAccount.currencyCode || '';
-                  return balance != null ? `${formatMoney(balance)} ${currency}`.trim() : '-';
-                })()}
+        {selectedSavingsLoading ? (
+          <div className="text-sm text-slate-500 dark:text-slate-400">Loading savings account details...</div>
+        ) : selectedSavingsAccount ? (() => {
+          const summaryData = selectedSavingsAccount.summary || selectedSavingsAccount;
+          const balance = summaryData.accountBalance ?? summaryData.balance ?? null;
+          const currency = summaryData.currency?.code || summaryData.currency?.name || selectedSavingsAccount.currencyCode || '';
+          const transactions = Array.isArray(selectedSavingsAccount.transactions) ? selectedSavingsAccount.transactions : [];
+          const charges = Array.isArray(selectedSavingsAccount.charges) ? selectedSavingsAccount.charges : [];
+          return (
+            <div className="space-y-5 text-sm">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Product</div>
+                  <div className="mt-1 font-semibold text-slate-900 dark:text-slate-100">{selectedSavingsAccount.productName || selectedSavingsAccount.savingsProductName || 'Savings Account'}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Account ID</div>
+                  <div className="mt-1 font-semibold text-slate-900 dark:text-slate-100">{selectedSavingsAccount.id || '-'}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Account No</div>
+                  <div className="mt-1 font-semibold text-slate-900 dark:text-slate-100">{selectedSavingsAccount.accountNo || selectedSavingsAccount.externalId || '-'}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Status</div>
+                  <div className="mt-1"><Badge tone={statusTone(selectedSavingsAccount.status)}>{selectedSavingsAccount.status?.value || selectedSavingsAccount.status?.code || '-'}</Badge></div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Balance</div>
+                  <div className="mt-1 font-semibold text-slate-900 dark:text-slate-100">{balance != null ? `${formatMoney(balance)} ${currency}`.trim() : '-'}</div>
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-3 font-semibold text-slate-900 dark:text-slate-100">Transactions</div>
+                {!transactions.length ? (
+                  <div className="text-sm text-slate-500 dark:text-slate-400">No savings transactions found.</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-slate-500 dark:text-slate-400">
+                          <th className="py-2 pr-4">Date</th>
+                          <th className="py-2 pr-4">Type</th>
+                          <th className="py-2 pr-4">Amount</th>
+                          <th className="py-2 pr-4">Running Balance</th>
+                          <th className="py-2 pr-4 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {transactions.map((transaction) => (
+                          <tr key={transaction.id || `${transaction.transactionDate}-${transaction.amount}`} className="border-t border-slate-200 dark:border-slate-700">
+                            <td className="py-2 pr-4">{formatDisplayDate(transaction.date || transaction.transactionDate)}</td>
+                            <td className="py-2 pr-4">{transaction.transactionType?.value || transaction.type?.value || transaction.type || '-'}</td>
+                            <td className="py-2 pr-4">{formatMoney(transaction.amount || transaction.transactionAmount)} {currency}</td>
+                            <td className="py-2 pr-4">{transaction.runningBalance != null ? `${formatMoney(transaction.runningBalance)} ${currency}`.trim() : '-'}</td>
+                            <td className="py-2 pr-4">
+                              <Can any={['UPDATE_SAVINGSACCOUNT', 'GW_OPS_WRITE']}>
+                                <div className="flex flex-wrap justify-end gap-2">
+                                  {savingsTransactionActionsFor(transaction).map((action) => (
+                                    <IconActionButton
+                                      key={`${transaction.id}-${action.command}`}
+                                      icon={action.icon}
+                                      title={action.title}
+                                      tone={action.tone}
+                                      onClick={() => openSavingsTransactionCommand(transaction, action)}
+                                    />
+                                  ))}
+                                </div>
+                              </Can>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <div className="mb-3 font-semibold text-slate-900 dark:text-slate-100">Charges</div>
+                {!charges.length ? (
+                  <div className="text-sm text-slate-500 dark:text-slate-400">No savings charges found.</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-slate-500 dark:text-slate-400">
+                          <th className="py-2 pr-4">Name</th>
+                          <th className="py-2 pr-4">Due</th>
+                          <th className="py-2 pr-4">Paid</th>
+                          <th className="py-2 pr-4">Waived</th>
+                          <th className="py-2 pr-4">Outstanding</th>
+                          <th className="py-2 pr-4 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {charges.map((charge) => (
+                          <tr key={charge.id || charge.name} className="border-t border-slate-200 dark:border-slate-700">
+                            <td className="py-2 pr-4">{charge.name || '-'}</td>
+                            <td className="py-2 pr-4">{formatMoney(charge.amount || charge.amountOrPercentage)} {currency}</td>
+                            <td className="py-2 pr-4">{formatMoney(charge.amountPaid)} {currency}</td>
+                            <td className="py-2 pr-4">{formatMoney(charge.amountWaived)} {currency}</td>
+                            <td className="py-2 pr-4">{formatMoney(charge.amountOutstanding)} {currency}</td>
+                            <td className="py-2 pr-4">
+                              <Can any={['UPDATE_SAVINGSACCOUNT', 'GW_OPS_WRITE']}>
+                                <div className="flex flex-wrap justify-end gap-2">
+                                  {savingsChargeActionsFor(charge).map((action) => (
+                                    <IconActionButton
+                                      key={`${charge.id}-${action.command}`}
+                                      icon={action.icon}
+                                      title={action.title}
+                                      tone={action.tone}
+                                      onClick={() => openSavingsChargeCommand(charge, action)}
+                                    />
+                                  ))}
+                                </div>
+                              </Can>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             </div>
+          );
+        })() : null}
+      </Modal>
+      <Modal
+        open={Boolean(savingsTransactionCommand)}
+        onClose={() => {
+          if (!savingsTransactionSaving) {
+            setSavingsTransactionCommand(null);
+            setSavingsTransactionForm({});
+          }
+        }}
+        title={savingsTransactionCommand ? savingsTransactionCommand.action.title : 'Savings Transaction Action'}
+        footer={(
+          <div className="flex justify-end gap-3">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setSavingsTransactionCommand(null);
+                setSavingsTransactionForm({});
+              }}
+              disabled={savingsTransactionSaving}
+            >
+              Cancel
+            </Button>
+            <Button onClick={submitSavingsTransactionCommand} disabled={savingsTransactionSaving}>
+              {savingsTransactionSaving ? 'Submitting...' : 'Submit'}
+            </Button>
+          </div>
+        )}
+      >
+        {savingsTransactionCommand ? (
+          <div className="space-y-4 text-sm">
+            <div className="rounded-xl border border-slate-200/70 bg-slate-50/80 p-3 dark:border-slate-700/70 dark:bg-slate-900/50">
+              <div className="font-semibold text-slate-900 dark:text-slate-100">{savingsTransactionCommand.action.title}</div>
+              <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">Transaction ID: {savingsTransactionCommand.transaction.id || '-'}</div>
+            </div>
+            {savingsTransactionCommand.action.amount ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block text-sm">
+                  Transaction Date
+                  <input type="date" className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={savingsTransactionForm.transactionDate || todayDateString()} onChange={updateSavingsTransactionForm('transactionDate')} />
+                </label>
+                <label className="block text-sm">
+                  Amount
+                  <input type="number" min="0.01" step="0.01" className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={savingsTransactionForm.transactionAmount || ''} onChange={updateSavingsTransactionForm('transactionAmount')} />
+                </label>
+                {renderPaymentTypeSelect(savingsTransactionForm.paymentTypeId, updateSavingsTransactionForm('paymentTypeId'))}
+                <label className="block text-sm">
+                  External ID
+                  <input className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={savingsTransactionForm.externalId || ''} onChange={updateSavingsTransactionForm('externalId')} />
+                </label>
+              </div>
+            ) : null}
+            {savingsTransactionCommand.action.note ? (
+              <label className="block text-sm">
+                Note
+                <textarea className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" rows={3} value={savingsTransactionForm.note || ''} onChange={updateSavingsTransactionForm('note')} />
+              </label>
+            ) : null}
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal
+        open={Boolean(savingsChargeCommand)}
+        onClose={() => {
+          if (!savingsChargeSaving) {
+            setSavingsChargeCommand(null);
+            setSavingsChargeForm({});
+          }
+        }}
+        title={savingsChargeCommand ? savingsChargeCommand.action.title : 'Savings Charge Action'}
+        footer={(
+          <div className="flex justify-end gap-3">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setSavingsChargeCommand(null);
+                setSavingsChargeForm({});
+              }}
+              disabled={savingsChargeSaving}
+            >
+              Cancel
+            </Button>
+            <Button onClick={submitSavingsChargeCommand} disabled={savingsChargeSaving}>
+              {savingsChargeSaving ? 'Submitting...' : 'Submit'}
+            </Button>
+          </div>
+        )}
+      >
+        {savingsChargeCommand ? (
+          <div className="space-y-4 text-sm">
+            <div className="rounded-xl border border-slate-200/70 bg-slate-50/80 p-3 dark:border-slate-700/70 dark:bg-slate-900/50">
+              <div className="font-semibold text-slate-900 dark:text-slate-100">{savingsChargeCommand.charge.name || 'Savings Charge'}</div>
+              <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">Charge ID: {savingsChargeCommand.charge.id || '-'}</div>
+            </div>
+            {savingsChargeCommand.action.pay ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block text-sm">
+                  Due Date
+                  <input type="date" className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={savingsChargeForm.dueDate || todayDateString()} onChange={updateSavingsChargeForm('dueDate')} />
+                </label>
+                <label className="block text-sm">
+                  Amount
+                  <input type="number" min="0.01" step="0.01" className="mt-1 w-full rounded-xl border p-2.5 dark:bg-gray-700 dark:border-gray-600" value={savingsChargeForm.amount || ''} onChange={updateSavingsChargeForm('amount')} />
+                </label>
+                {renderPaymentTypeSelect(savingsChargeForm.paymentTypeId, updateSavingsChargeForm('paymentTypeId'), { required: true })}
+              </div>
+            ) : (
+              <div className="text-sm text-slate-600 dark:text-slate-300">This action will be submitted to Fineract for the selected savings charge.</div>
+            )}
           </div>
         ) : null}
       </Modal>

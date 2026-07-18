@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { Activity, ArrowRightLeft, Eye, ListChecks } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Card from '../../components/Card';
 import Badge from '../../components/Badge';
@@ -36,7 +37,7 @@ const normalizeAccounts = (accounts) => ({
     recurringDeposits: Array.isArray(accounts?.recurringDepositAccounts) ? accounts.recurringDepositAccounts : [],
 });
 
-const Section = ({ title, rows, rowLink }) => {
+const Section = ({ title, rows, rowLink, rowActions }) => {
     if (!rows.length) return null;
     return (
         <Card>
@@ -72,7 +73,12 @@ const Section = ({ title, rows, rowLink }) => {
                                 </td>
                                 <td className="py-2 pr-4">{amount} {code}</td>
                                 <td className="py-2 pr-4 whitespace-nowrap">
-                                    {rowLink ? <Button variant="secondary" onClick={() => rowLink(row)}>View</Button> : null}
+                                    {rowActions ? rowActions(row) : rowLink ? (
+                                        <Button size="sm" variant="secondary" onClick={() => rowLink(row)}>
+                                            <Eye className="h-4 w-4" />
+                                            View
+                                        </Button>
+                                    ) : null}
                                 </td>
                             </tr>
                         );
@@ -116,7 +122,30 @@ const ClientAccountsOverview = ({ accounts }) => {
             ) : null}
 
             <Section title="Loan Accounts" rows={normalized.loans} rowLink={(row) => navigate(`/loans/${row.id}`)} />
-            <Section title="Savings Accounts" rows={normalized.savings} rowLink={(row) => navigate(`/savings/${row.id}`)} />
+            <Section
+                title="Savings Accounts"
+                rows={normalized.savings}
+                rowActions={(row) => (
+                    <div className="flex flex-wrap justify-end gap-2">
+                        <Button size="sm" variant="secondary" onClick={() => navigate(`/savings/${row.id}`)}>
+                            <Eye className="h-4 w-4" />
+                            View
+                        </Button>
+                        <Button size="sm" variant="secondary" onClick={() => navigate(`/savings/${row.id}?tab=actions`)}>
+                            <ListChecks className="h-4 w-4" />
+                            Actions
+                        </Button>
+                        <Button size="sm" variant="secondary" onClick={() => navigate(`/savings/${row.id}?tab=transactions`)}>
+                            <Activity className="h-4 w-4" />
+                            Txns
+                        </Button>
+                        <Button size="sm" variant="secondary" onClick={() => navigate(`/savings/${row.id}?tab=transfers`)}>
+                            <ArrowRightLeft className="h-4 w-4" />
+                            Transfer
+                        </Button>
+                    </div>
+                )}
+            />
             <Section title="Share Accounts" rows={normalized.shares} rowLink={(row) => navigate(`/shares/${row.id}`)} />
             <Section title="Fixed Deposit Accounts" rows={normalized.fixedDeposits} />
             <Section title="Recurring Deposit Accounts" rows={normalized.recurringDeposits} />

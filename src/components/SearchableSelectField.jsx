@@ -15,6 +15,8 @@ const SearchableSelectField = ({
   const [query, setQuery] = React.useState('');
   const rootRef = React.useRef(null);
   const inputRef = React.useRef(null);
+  const inputId = React.useId();
+  const listboxId = `${inputId}-listbox`;
 
   const normalizedOptions = React.useMemo(
     () => (Array.isArray(options) ? options.filter(Boolean) : []),
@@ -53,7 +55,7 @@ const SearchableSelectField = ({
 
   return (
     <div ref={rootRef}>
-      <label className="block text-sm font-medium">
+      <label htmlFor={inputId} className="block text-sm font-medium">
         {label}
         {required ? <span className="text-red-600"> *</span> : null}
       </label>
@@ -67,7 +69,12 @@ const SearchableSelectField = ({
       >
         <Search className="h-4 w-4 text-gray-400" />
         <input
+          id={inputId}
           ref={inputRef}
+          role="combobox"
+          aria-expanded={open && !disabled}
+          aria-autocomplete="list"
+          aria-controls={listboxId}
           value={open ? query : selected?.label || ''}
           onChange={(e) => {
             setQuery(e.target.value);
@@ -84,7 +91,7 @@ const SearchableSelectField = ({
       {helperText ? <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{helperText}</div> : null}
       {open && !disabled ? (
         <div className="relative">
-          <div className="absolute z-40 mt-1 max-h-56 w-full overflow-auto rounded-lg border bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900">
+          <div id={listboxId} role="listbox" className="absolute z-40 mt-1 max-h-56 w-full overflow-auto rounded-lg border bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900">
             {filtered.length === 0 ? (
               <div className="px-3 py-2 text-sm text-gray-500">No results</div>
             ) : (
@@ -92,6 +99,8 @@ const SearchableSelectField = ({
                 <button
                   key={String(option.id)}
                   type="button"
+                  role="option"
+                  aria-selected={String(option.id) === String(value ?? '')}
                   onClick={() => pick(option)}
                   className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-800 ${String(option.id) === String(value ?? '') ? 'bg-gray-100 dark:bg-gray-800' : ''}`}
                 >

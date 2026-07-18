@@ -56,10 +56,15 @@ const RepaymentPaymentModal = ({
   paymentTypeId,
   onPaymentTypeChange,
   paymentTypeOptions = [],
+  savingsAccounts = [],
+  savingsAccountId,
+  onSavingsAccountChange,
+  savingsLoading = false,
   warning,
 }) => {
   const resolvedProvider = normalizeProvider(provider);
   const isCash = resolvedProvider === normalizeProvider(cashProvider);
+  const isFromSavings = resolvedProvider === 'FROM_SAVINGS';
   const quickValues = Array.from(new Set(
     [...quickAmounts, dueAmount]
       .map(numberValue)
@@ -96,7 +101,7 @@ const RepaymentPaymentModal = ({
               <div className="truncate text-sm font-bold text-slate-950 dark:text-white">{customerName || 'Customer'}</div>
               <div className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
                 {customerNumber ? `Customer No. ${customerNumber}` : 'Customer number unavailable'}
-                {loanNumber ? ` · Loan ${loanNumber}` : ''}
+                {loanNumber ? ` Ã‚Â· Loan ${loanNumber}` : ''}
               </div>
             </div>
             {statusLabel ? <Badge tone={statusTone}>{statusLabel}</Badge> : null}
@@ -140,13 +145,25 @@ const RepaymentPaymentModal = ({
             <label className="block text-[11px] font-bold uppercase tracking-wide text-slate-500">Payment method</label>
             <select value={provider} onChange={(event) => onProviderChange(event.target.value)} className="mt-1 h-10 w-full rounded-xl border px-3 text-sm">
               {(providers.length ? providers : ['SELCOM', cashProvider]).map((item) => (
-                <option key={item} value={item}>{normalizeProvider(item) === normalizeProvider(cashProvider) ? 'Cash / Direct Payment' : `${item} Mobile Push`}</option>
+                <option key={item} value={item}>{normalizeProvider(item) === 'FROM_SAVINGS' ? 'From Savings' : normalizeProvider(item) === normalizeProvider(cashProvider) ? 'Cash / Direct Payment' : `${item} Mobile Push`}</option>
               ))}
             </select>
           </div>
         ) : null}
 
-        {onMsisdnChange && !isCash ? (
+        {onSavingsAccountChange && isFromSavings ? (
+          <div>
+            <label className="block text-[11px] font-bold uppercase tracking-wide text-slate-500">Savings account</label>
+            <select value={savingsAccountId || ''} onChange={(event) => onSavingsAccountChange(event.target.value)} disabled={savingsLoading || !savingsAccounts.length} className="mt-1 h-10 w-full rounded-xl border px-3 text-sm">
+              <option value="">{savingsLoading ? 'Loading savings accounts...' : 'Select savings account'}</option>
+              {savingsAccounts.map((account) => (
+                <option key={account.id} value={account.id}>{account.label}</option>
+              ))}
+            </select>
+          </div>
+        ) : null}
+
+        {onMsisdnChange && !isCash && !isFromSavings ? (
           <div>
             <label className="block text-[11px] font-bold uppercase tracking-wide text-slate-500">Customer wallet</label>
             <div className="relative mt-1">
@@ -173,7 +190,7 @@ const RepaymentPaymentModal = ({
           </div>
         ) : null}
 
-        {onReferenceChange ? (
+        {onReferenceChange && !isFromSavings ? (
           <div>
             <label className="block text-[11px] font-bold uppercase tracking-wide text-slate-500">Transaction reference *</label>
             <input
@@ -189,10 +206,10 @@ const RepaymentPaymentModal = ({
         {onNoteChange ? (
           <div>
             <div className="flex items-center justify-between">
-              <label className="block text-[11px] font-bold uppercase tracking-wide text-slate-500">Note <span className="font-normal normal-case">(optional)</span></label>
+              <label className="block text-[11px] font-bold uppercase tracking-wide text-slate-500">{isFromSavings ? 'Description' : 'Note'} <span className="font-normal normal-case">(optional)</span></label>
               <span className="text-[10px] text-slate-400">{String(note || '').length}/200</span>
             </div>
-            <textarea value={note} onChange={(event) => onNoteChange(event.target.value.slice(0, 200))} rows={2} placeholder="Add a short payment note" className="mt-1 w-full resize-none rounded-xl border px-3 py-2 text-sm" />
+            <textarea value={note} onChange={(event) => onNoteChange(event.target.value.slice(0, 200))} rows={2} placeholder={isFromSavings ? 'Description for savings transfer' : 'Add a short payment note'} className="mt-1 w-full resize-none rounded-xl border px-3 py-2 text-sm" />
           </div>
         ) : null}
 

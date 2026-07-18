@@ -35,5 +35,9 @@ export default defineConfig(({ mode }) => {
       // Provide the current mode as a string
       __APP_ENV__: JSON.stringify(mode),
     },
+    test: {
+      environment: 'jsdom',
+      setupFiles: './src/test/setup.js',
+    },
   };
 });

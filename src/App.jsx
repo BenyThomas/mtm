@@ -26,6 +26,7 @@ import GlAccountDetails from './pages/GlAccountDetails';
 import JournalEntries from './pages/JournalEntries';
 import JournalEntryDetails from './pages/JournalEntryDetails';
 import Provisioning from './pages/Provisioning';
+import AccountingReadiness from './pages/AccountingReadiness';
 import AccountingRules from './pages/AccountingRules';
 import AccountingRuleDetails from './pages/AccountingRuleDetails';
 import Settings from './pages/Settings';
@@ -239,6 +240,7 @@ const App = () => {
                             <Route path="accounting/gl-accounts/:id" element={<GlAccountDetails />} />
                             <Route path="accounting/journal-entries" element={<JournalEntries />} />
                             <Route path="accounting/journal-entries/:id" element={<JournalEntryDetails />} />
+                            <Route path="accounting/readiness" element={<AccountingReadiness />} />
                             <Route path="accounting/provisioning" element={<Provisioning />} />
                             <Route path="accounting/accounting-rules" element={<AccountingRules />} />
                             <Route path="accounting/accounting-rules/:id" element={<AccountingRuleDetails />} />

@@ -8,6 +8,7 @@ import GlAccountForm from '../components/GlAccountForm';
 import { useToast } from '../context/ToastContext';
 import { useNavigate } from 'react-router-dom';
 import Badge from '../components/Badge';
+import { useAuth } from '../context/AuthContext';
 
 const typeName = (a) => a?.type?.value || a?.type?.name || a?.typeName || '';
 const usageName = (a) => a?.usage?.value || a?.usage?.name || a?.usageName || '';
@@ -15,6 +16,10 @@ const usageName = (a) => a?.usage?.value || a?.usage?.name || a?.usageName || ''
 const GlAccounts = () => {
     const { addToast } = useToast();
     const navigate = useNavigate();
+    const { can } = useAuth();
+    const canCreate = can('CREATE_GLACCOUNT');
+    const canUpdate = can('UPDATE_GLACCOUNT');
+    const canDelete = can('DELETE_GLACCOUNT');
 
     const [loading, setLoading] = useState(true);
     const [items, setItems] = useState([]);
@@ -144,6 +149,7 @@ const GlAccounts = () => {
                 <h1 className="text-2xl font-bold">GL Accounts</h1>
                 <div className="space-x-2">
                     <Button variant="secondary" onClick={downloadTemplate}>Download Template</Button>
+                    {canCreate ? (
                     <label className="inline-flex items-center gap-2 px-3 py-2 rounded-md border border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700">
                         <input
                             type="file"
@@ -153,7 +159,8 @@ const GlAccounts = () => {
                         />
                         Upload Template
                     </label>
-                    <Button onClick={() => setCreateOpen(true)}>New Account</Button>
+                    ) : null}
+                    {canCreate ? <Button onClick={() => setCreateOpen(true)}>New Account</Button> : null}
                     <Button variant="secondary" onClick={load}>Refresh</Button>
                 </div>
             </div>
@@ -239,11 +246,13 @@ const GlAccounts = () => {
                                     <td className="py-2 pr-4">{a.parentName || a.parent?.name || a.parentId || '-'}</td>
                                     <td className="py-2 pr-4 space-x-2">
                                         <Button variant="secondary" onClick={() => navigate(`/accounting/gl-accounts/${a.id}`)}>
-                                            View / Edit
+                                            {canUpdate ? 'View / Edit' : 'View'}
                                         </Button>
+                                        {canDelete ? (
                                         <Button variant="danger" onClick={() => setDeleteId(a.id)}>
                                             Delete
                                         </Button>
+                                        ) : null}
                                     </td>
                                 </tr>
                             ))}
